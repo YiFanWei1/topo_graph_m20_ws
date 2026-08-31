@@ -1,0 +1,51 @@
+route_server:
+  ros__parameters:
+    use_sim_time: false
+    route_frame: map
+    base_frame: base_link
+    graph_filepath: ""
+    path_density: 0.5
+    max_planning_time: 2.0
+    radius_to_achieve_node: 1.0
+    tracker_update_rate: 20.0
+    visualization_enabled: false
+    publish_graph_markers: true
+    publish_route_markers: true
+    publish_route_event_markers: true
+    publish_rejected_neighbor_markers: false
+    graph_node_marker_scale: 0.08
+    graph_edge_marker_scale: 0.025
+    route_marker_scale: 0.08
+    route_event_marker_scale: 0.25
+
+route_graph_builder_3d:
+  ros__parameters:
+    map_path: ""
+    poses_file: poses.json
+    pcd_dir: pcd
+    radius_m: 5.0
+    time_threshold_s: 10.0
+    z_threshold_m: 0.2
+    sensor_height_m: 0.7
+    current_up_threshold_m: 1.2
+    neighbor_pcd_window: 3
+    grid_resolution_m: 0.2
+    max_workers: 0
+
+metadata_examples:
+  ros__parameters:
+    stair_like_transition:
+      edge_type: stair_like_transition
+      enter_profile: stair_like_transition
+      exit_profile: factory_indoor
+      speed_limit_mps: 0.25
+      risk: 1.5
+    indoor_outdoor_transition:
+      edge_type: indoor_outdoor_transition
+      target_profile: campus_road
+      speed_limit_mps: 0.4
+    steep_slope:
+      edge_type: steep_slope
+      target_profile: stair_like_transition
+      speed_limit_mps: 0.2
+      max_slope: 0.7

@@ -1,0 +1,744 @@
+#!/usr/bin/env python3
+"""Generate typed route targets from an offline nav2_route3d graph."""
+
+# 本脚本只读取图 JSON 中的节点 pose，并按 pose 时间戳恢复采集轨迹；它不执行图上的
+# 最短路，也不使用 shortcut 边。普通点来自去重、重采样后的三维轨迹；拐点来自原始
+# 时间序列中“机器人停留在较小 XY 范围内且 yaw 扫过指定角度”的遥控旋转事件。
+
+import argparse
+from dataclasses import dataclass
+import json
+import math
+import os
+from pathlib import Path
+import sys
+from typing import Any, Dict, List, Sequence, Tuple
+
+
+Point3 = Tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class Sample:
+    """三维轨迹按固定路程重采样后的一个点。distance 是从路线起点累计的三维路程。"""
+
+    distance: float
+    point: Point3
+
+
+@dataclass(frozen=True)
+class TimedPose:
+    """图节点中恢复出的时间戳、三维位置和偏航角。"""
+
+    stamp: float
+    point: Point3
+    yaw: float
+    # Keep the original orientation so the generator can optionally write topoSingle directly.
+    quaternion: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+
+
+@dataclass(frozen=True)
+class Corner:
+    """沿路线的拐点候选及检测指标。
+
+    angle_degrees 对 yaw 检测表示局部旋转事件的最大 yaw 扫角；z_range 用来拒绝楼梯等
+    高度变化区域；grade 供旧版路径几何检测器保留，yaw 检测中固定为 0。
+    """
+
+    distance: float
+    angle_degrees: float
+    z_range: float
+    grade: float
+
+
+def distance_3d(first: Point3, second: Point3) -> float:
+    """返回两个 XYZ 点之间的三维欧氏距离，包含楼梯/坡道的 z 变化。"""
+
+    # 先计算 XY 平面长度，再与 z 差组合；等价于 sqrt(dx²+dy²+dz²)。
+    return math.hypot(
+        math.hypot(first[0] - second[0], first[1] - second[1]),
+        first[2] - second[2],
+    )
+
+
+def quaternion_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
+    """从 (qx,qy,qz,qw) 四元数提取绕全局 Z 轴的 yaw，返回范围约为 [-pi, pi]。"""
+
+    return math.atan2(
+        2.0 * (qw * qz + qx * qy),
+        1.0 - 2.0 * (qy * qy + qz * qz),
+    )
+
+
+def load_timed_trajectory(graph_path: Path) -> Tuple[str, List[TimedPose]]:
+    """读取原生图 JSON，并按节点时间戳生成轨迹；图中的边在这里不参与排序。"""
+
+    with graph_path.open("r", encoding="utf-8") as handle:
+        graph = json.load(handle)
+    # 文件缺少 frame_id 时使用与当前数据流程兼容的 camera_init。
+    frame_id = str(graph.get("frame_id", "camera_init"))
+    timed_poses = []
+    for node in graph.get("nodes", []):
+        pose = node.get("pose", [])
+        # 原生 pose 顺序为 timestamp, tx, ty, tz, qx, qy, qz, qw；坏行直接跳过。
+        if len(pose) < 8:
+            continue
+        values = tuple(float(value) for value in pose[:8])
+        # nan/inf 会破坏路程、排序和 yaw 范围计算，因此只保留全部有限的 pose。
+        if all(math.isfinite(value) for value in values):
+            timed_poses.append(TimedPose(
+                stamp=values[0],
+                point=(values[1], values[2], values[3]),
+                yaw=quaternion_yaw(*values[4:8]),
+                quaternion=values[4:8],
+            ))
+    # graph.nodes() 的 JSON 数组顺序可能来自 unordered_map，不能代表实际采集顺序；
+    # 必须按 timestamp 排序后才可恢复连续轨迹和原地旋转事件。
+    timed_poses.sort(key=lambda item: item.stamp)
+    if len(timed_poses) < 2:
+        raise ValueError("graph must contain at least two finite timestamped poses")
+    return frame_id, timed_poses
+
+
+def load_trajectory(graph_path: Path) -> Tuple[str, List[Point3]]:
+    """兼容旧调用方的无时间版本：复用时间轨迹加载，只返回 XYZ。"""
+
+    frame_id, timed_poses = load_timed_trajectory(graph_path)
+    return frame_id, [pose.point for pose in timed_poses]
+
+
+def deduplicate_timed_poses(
+    poses: Sequence[TimedPose], minimum_distance: float,
+) -> List[TimedPose]:
+    """按三维位移稀疏轨迹，同时保留每个入选点的时间戳。
+
+    原地旋转产生的大量同位置 pose 会从“路线几何”中去掉，但原始 poses 仍会单独交给
+    detect_yaw_corners()，所以去重不会丢掉用户刻意设置的转弯事件。
+    """
+
+    # 第一个点固定保留；之后只与“最后一个已保留点”比较，而非与前一原始帧比较。
+    result = [poses[0]]
+    for pose in poses[1:]:
+        if distance_3d(result[-1].point, pose.point) >= minimum_distance:
+            result.append(pose)
+    # 无论末端与上一个保留点是否达到阈值，只要位置不完全相同就保留真正终点。
+    if distance_3d(result[-1].point, poses[-1].point) > 1e-9:
+        result.append(poses[-1])
+    if len(result) < 2:
+        raise ValueError("trajectory is stationary after duplicate removal")
+    return result
+
+
+def deduplicate(points: Sequence[Point3], minimum_distance: float) -> List[Point3]:
+    """旧版无时间轨迹的三维距离去重函数，规则与 deduplicate_timed_poses() 相同。"""
+
+    result = [points[0]]
+    for point in points[1:]:
+        if distance_3d(result[-1], point) >= minimum_distance:
+            result.append(point)
+    if distance_3d(result[-1], points[-1]) > 1e-9:
+        result.append(points[-1])
+    if len(result) < 2:
+        raise ValueError("trajectory is stationary after duplicate removal")
+    return result
+
+
+def cumulative_distances(points: Sequence[Point3]) -> List[float]:
+    """计算每个点从起点沿原轨迹累计的三维弧长。"""
+
+    result = [0.0]
+    for first, second in zip(points, points[1:]):
+        result.append(result[-1] + distance_3d(first, second))
+    return result
+
+
+def interpolate_at(
+    points: Sequence[Point3], cumulative: Sequence[float], distance: float,
+    hint: int = 0,
+) -> Tuple[Point3, int]:
+    """在累计路程 distance 处对相邻轨迹点做 XYZ 线性插值，并返回所在段索引。"""
+
+    # 把查询路程限制在 [0, total]，避免浮点误差产生路线外插。
+    distance = min(max(distance, 0.0), cumulative[-1])
+    # hint 是上一次命中的线段。按递增路程连续查询时可避免每次从头扫描。
+    index = min(max(hint, 0), len(points) - 2)
+    # 向前/向后调整，直到 cumulative[index] <= distance <= cumulative[index+1]。
+    while index + 1 < len(cumulative) and cumulative[index + 1] < distance:
+        index += 1
+    while index > 0 and cumulative[index] > distance:
+        index -= 1
+    length = cumulative[index + 1] - cumulative[index]
+    # 重合点段长度近零时取段首；正常情况下 ratio 位于 [0,1]。
+    ratio = 0.0 if length <= 1e-12 else (distance - cumulative[index]) / length
+    return tuple(
+        points[index][axis] + ratio * (points[index + 1][axis] - points[index][axis])
+        for axis in range(3)
+    ), index
+
+
+def resample(points: Sequence[Point3], spacing: float) -> List[Sample]:
+    """把不等间隔原始轨迹转换为固定三维路程间隔的 Sample 序列。"""
+
+    cumulative = cumulative_distances(points)
+    total = cumulative[-1]
+    # 生成 0、spacing、2*spacing...；整除时列表已经包含终点。
+    distances = [index * spacing for index in range(int(total // spacing) + 1)]
+    # 路线尾段不足一个 spacing 时，额外把精确终点加入，保证目标不会提前结束。
+    if not distances or total - distances[-1] > 1e-9:
+        distances.append(total)
+    result = []
+    hint = 0
+    for route_distance in distances:
+        # 查询路程单调递增，因此把前一次段索引作为下一次 hint。
+        point, hint = interpolate_at(points, cumulative, route_distance, hint)
+        result.append(Sample(route_distance, point))
+    return result
+
+
+def smooth_points(samples: Sequence[Sample], radius: float) -> List[Point3]:
+    """旧版几何转角检测使用的沿程滑动均值平滑；当前 yaw 事件主流程不调用。"""
+
+    result = []
+    # left/right 共同维护以当前 sample.distance 为中心、半径为 radius 的滑动窗口。
+    left = 0
+    right = 0
+    for sample in samples:
+        while left < len(samples) and samples[left].distance < sample.distance - radius:
+            left += 1
+        while right + 1 < len(samples) and samples[right + 1].distance <= sample.distance + radius:
+            right += 1
+        window = samples[left:right + 1]
+        # XYZ 三个轴分别取窗口算术平均。
+        result.append(tuple(
+            sum(item.point[axis] for item in window) / len(window)
+            for axis in range(3)
+        ))
+    return result
+
+
+def heading_change_degrees(previous: Point3, center: Point3, following: Point3) -> float:
+    """计算路径在 center 前后的 XY 航向夹角；保留给旧版几何拐点检测器。"""
+
+    incoming = (center[0] - previous[0], center[1] - previous[1])
+    outgoing = (following[0] - center[0], following[1] - center[1])
+    incoming_length = math.hypot(*incoming)
+    outgoing_length = math.hypot(*outgoing)
+    # 任一方向向量过短会放大噪声，直接视为没有可靠转角。
+    if incoming_length < 0.20 or outgoing_length < 0.20:
+        return 0.0
+    cosine = (
+        incoming[0] * outgoing[0] + incoming[1] * outgoing[1]
+    ) / (incoming_length * outgoing_length)
+    # 浮点误差可能令 cosine 略超 [-1,1]，先夹紧再调用 acos。
+    return math.degrees(math.acos(min(1.0, max(-1.0, cosine))))
+
+
+def flatness_metrics(
+    samples: Sequence[Sample], smoothed: Sequence[Point3], center_index: int,
+    radius: float,
+) -> Tuple[float, float]:
+    """返回局部平滑 z 极差与端点绝对坡度；保留给旧版几何拐点检测器。"""
+
+    center_distance = samples[center_index].distance
+    # 选取沿路线距离中心不超过 radius 的样本，而不是按 XY 圆形邻域选取。
+    indices = [
+        index for index, sample in enumerate(samples)
+        if abs(sample.distance - center_distance) <= radius
+    ]
+    if len(indices) < 2:
+        return math.inf, math.inf
+    first = indices[0]
+    last = indices[-1]
+    z_values = [smoothed[index][2] for index in indices]
+    # 分母采用窗口内各段 XY 长度之和，z 不进入水平长度。
+    horizontal_length = sum(
+        math.hypot(
+            smoothed[right][0] - smoothed[left][0],
+            smoothed[right][1] - smoothed[left][1],
+        )
+        for left, right in zip(indices, indices[1:])
+    )
+    vertical_change = abs(smoothed[last][2] - smoothed[first][2])
+    # XY 几乎不动时坡度不可定义，按无穷大处理以拒绝该候选。
+    grade = (
+        vertical_change / horizontal_length
+        if horizontal_length > 1e-9 else math.inf
+    )
+    return max(z_values) - min(z_values), grade
+
+
+def detect_corners(
+    samples: Sequence[Sample], direction_window: float, smooth_radius: float,
+    angle_threshold: float, minimum_separation: float,
+    flatness_window: float, max_z_range: float, max_grade: float,
+) -> List[Corner]:
+    """旧版“路径形状转角”检测器；当前 main() 已改用 detect_yaw_corners()。
+
+    它在平滑轨迹的固定前后窗口上计算 XY 航向变化，并要求局部 z 极差和坡度均较小，
+    从而降低把楼梯上的几何弯曲误标成严格 CORNER 的概率。
+    """
+
+    smoothed = smooth_points(samples, smooth_radius)
+    # 重采样序列除最后一段外为固定间距，用它把米制 direction_window 换算成样本偏移。
+    spacing = samples[1].distance - samples[0].distance
+    offset = max(1, int(round(direction_window / spacing)))
+    candidates = []
+    # 两端没有完整前后窗口，因此从 offset 到 len-offset 范围检测。
+    for index in range(offset, len(samples) - offset):
+        angle = heading_change_degrees(
+            smoothed[index - offset], smoothed[index], smoothed[index + offset])
+        if angle >= angle_threshold:
+            # 只有转角所在局部区域足够平坦时才接受，楼梯/坡道候选会在此被过滤。
+            z_range, grade = flatness_metrics(
+                samples, smoothed, index, flatness_window)
+            if z_range <= max_z_range and grade <= max_grade:
+                candidates.append(Corner(
+                    samples[index].distance, angle, z_range, grade))
+
+    # 非极大值抑制：一个宽弯会产生多个相邻候选，按角度从大到小处理，
+    # minimum_separation 距离内只保留航向变化最强的一个严格目标点。
+    selected: List[Corner] = []
+    for candidate in sorted(candidates, key=lambda item: item.angle_degrees, reverse=True):
+        if all(
+            abs(candidate.distance - existing.distance) >= minimum_separation
+            for existing in selected
+        ):
+            selected.append(candidate)
+    return sorted(selected, key=lambda item: item.distance)
+
+
+def unwrap_yaw(previous: float, current: float) -> float:
+    """以 previous 为参考展开 yaw，消除 +pi/-pi 边界造成的约 360° 跳变。"""
+
+    # 例如 previous=179°、current=-179°，会把 current 加 360° 变成 181°。
+    while current - previous > math.pi:
+        current -= 2.0 * math.pi
+    while current - previous < -math.pi:
+        current += 2.0 * math.pi
+    return current
+
+
+def detect_yaw_corners(
+    poses: Sequence[TimedPose], clean_poses: Sequence[TimedPose],
+    xy_radius: float, yaw_threshold_degrees: float,
+    minimum_duration: float, max_z_range: float,
+    minimum_route_separation: float,
+) -> List[Corner]:
+    """检测“局部 XY 范围内的大角度 yaw 扫动”，每个遥控旋转事件输出一个拐点。
+
+    poses 必须是未按位置去重的原始时间序列，否则原地旋转帧会消失；clean_poses 用于把
+    旋转事件时间映射到去重后路线的累计三维距离。高度极差超过 max_z_range 的窗口会被
+    截断，因此可以抑制楼梯行进中的大姿态变化被当成平地拐点。
+    """
+
+    candidates = []
+    start = 0
+    # 从每个原始 pose 尝试向后扩张一个局部旋转事件窗口。
+    while start + 1 < len(poses):
+        anchor = poses[start]
+        # yaw 先从 [-pi,pi] 展开成连续序列，之后用 max-min 统计总扫角。
+        unwrapped_yaws = [anchor.yaw]
+        minimum_z = anchor.point[2]
+        maximum_z = anchor.point[2]
+        end = start
+        while end + 1 < len(poses):
+            pose = poses[end + 1]
+            # 后续点必须始终位于“相对窗口首帧”的 XY 半径内；超出表示机器人已离开转弯点。
+            if math.hypot(
+                pose.point[0] - anchor.point[0],
+                pose.point[1] - anchor.point[1],
+            ) > xy_radius:
+                break
+            # 同时维护整个窗口的 z 极差，而不是只比较相邻帧高度差。
+            next_minimum_z = min(minimum_z, pose.point[2])
+            next_maximum_z = max(maximum_z, pose.point[2])
+            # 高度变化一旦超过阈值就结束窗口，用来抑制楼梯/坡道上的旋转被选中。
+            if next_maximum_z - next_minimum_z > max_z_range:
+                break
+            # 使用上一帧已展开 yaw 作为参考，保持旋转过程连续。
+            unwrapped_yaws.append(unwrap_yaw(unwrapped_yaws[-1], pose.yaw))
+            minimum_z = next_minimum_z
+            maximum_z = next_maximum_z
+            end += 1
+
+        # max-min 能覆盖同一事件中正转、反转或来回微调的完整角度范围。
+        yaw_change = math.degrees(max(unwrapped_yaws) - min(unwrapped_yaws))
+        duration = poses[end].stamp - poses[start].stamp
+        # 角度条件使用严格 >；持续时间条件使用 >=。
+        if yaw_change > yaw_threshold_degrees and duration >= minimum_duration:
+            # 用事件时间中点附近的真实 pose 代表该事件，便于之后映射回路线位置。
+            middle_stamp = 0.5 * (poses[start].stamp + poses[end].stamp)
+            representative = min(
+                poses[start:end + 1],
+                key=lambda pose: abs(pose.stamp - middle_stamp),
+            )
+            candidates.append((
+                representative,
+                yaw_change,
+                maximum_z - minimum_z,
+            ))
+            # 已识别的窗口整体消费掉，避免从窗口内部每一帧重复开始检测。
+            start = end + 1
+        else:
+            # 当前起点未形成事件时，只向前滑动一帧，继续尝试重叠窗口。
+            start += 1
+
+    # 长时间或来回遥控旋转仍可能被切成相邻窗口。按 yaw 扫角从大到小处理，
+    # 在 10 秒、xy_radius 和 max_z_range 同时接近时视为同一事件，只保留最强窗口。
+    spatially_selected = []
+    for candidate in sorted(candidates, key=lambda item: item[1], reverse=True):
+        pose = candidate[0]
+        same_event = any(
+            abs(pose.stamp - existing[0].stamp) <= 10.0 and
+            math.hypot(
+                pose.point[0] - existing[0].point[0],
+                pose.point[1] - existing[0].point[1],
+            ) <= xy_radius and
+            abs(pose.point[2] - existing[0].point[2]) <= max_z_range
+            for existing in spatially_selected
+        )
+        if not same_event:
+            spatially_selected.append(candidate)
+
+    # clean_poses 已去掉原地重复帧，它定义最终路线几何及累计三维路程。
+    clean_distances = cumulative_distances([pose.point for pose in clean_poses])
+    route_candidates = []
+    for pose, yaw_change, z_range in spatially_selected:
+        # 按时间戳找旋转事件在 clean_poses 中最接近的路线点，
+        # 而不是只按 XY 最近点匹配，避免带环路线同一位置多次经过时映射到错误圈次。
+        nearest_index = min(
+            range(len(clean_poses)),
+            key=lambda index: abs(clean_poses[index].stamp - pose.stamp),
+        )
+        route_candidates.append(Corner(
+            # grade 对 yaw 事件没有意义，保留 0.0 只是统一 Corner 数据结构。
+            clean_distances[nearest_index], yaw_change, z_range, 0.0))
+
+    # 再沿路线做一次非极大值抑制：minimum_route_separation 范围内只保留扫角最大的事件。
+    selected = []
+    for candidate in sorted(
+        route_candidates, key=lambda item: item.angle_degrees, reverse=True,
+    ):
+        if all(
+            abs(candidate.distance - existing.distance) >= minimum_route_separation
+            for existing in selected
+        ):
+            selected.append(candidate)
+    return sorted(selected, key=lambda item: item.distance)
+
+
+def build_targets(
+    samples: Sequence[Sample], corners: Sequence[Corner], spacing: float,
+    corner_merge_distance: float,
+) -> List[Tuple[float, str, float]]:
+    """在等间隔 NORMAL 目标序列中合并 CORNER，返回(沿程距离、类型、角度)。"""
+
+    total = samples[-1].distance
+    # NORMAL 从路线起点 0m 开始，以 target spacing 等间隔覆盖整条路线。
+    targets: List[Tuple[float, str, float]] = [
+        (index * spacing, "NORMAL", 0.0)
+        for index in range(int(total // spacing) + 1)
+    ]
+    # 路线长度不是 spacing 整数倍时，追加精确终点并标为 NORMAL。
+    if total - targets[-1][0] > 1e-6:
+        targets.append((total, "NORMAL", 0.0))
+
+    for corner in corners:
+        # 查找沿程距离上离该拐点最近的现有普通目标。
+        nearest_index = min(
+            range(len(targets)), key=lambda index: abs(targets[index][0] - corner.distance))
+        if abs(targets[nearest_index][0] - corner.distance) <= corner_merge_distance:
+            # 足够近时把 NORMAL 替换成精确拐点位置，避免产生两个密集目标。
+            targets[nearest_index] = (corner.distance, "CORNER", corner.angle_degrees)
+        else:
+            # 附近没有普通目标时插入一个额外 CORNER，确保旋转事件不会因 1m 间距漏掉。
+            targets.append((corner.distance, "CORNER", corner.angle_degrees))
+    # 插入/替换后重新按起点累计路程排序，形成实际发送顺序。
+    targets.sort(key=lambda item: item[0])
+    return targets
+
+
+def point_at_samples(samples: Sequence[Sample], route_distance: float) -> Point3:
+    """把目标沿程距离映射回重采样轨迹上的 XYZ。"""
+
+    # 重采样点通常等间隔，最后一段可能更短；用首段间距估算所在样本段。
+    spacing = samples[1].distance - samples[0].distance
+    # 终点可能令计算索引等于最后样本，夹到 len-2 后仍可在最后一段插值到终点。
+    index = min(int(route_distance / spacing), len(samples) - 2)
+    first = samples[index]
+    second = samples[index + 1]
+    length = second.distance - first.distance
+    # 正常 ratio 在 [0,1]；退化零长度段取第一个点。
+    ratio = 0.0 if length <= 1e-12 else (route_distance - first.distance) / length
+    return tuple(
+        first.point[axis] + ratio * (second.point[axis] - first.point[axis])
+        for axis in range(3)
+    )
+
+
+def format_float(value: float) -> str:
+    """以最多六位小数输出坐标，并去掉无意义尾零及负零。"""
+
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
+def write_target_file(
+    output_path: Path, frame_id: str, samples: Sequence[Sample],
+    targets: Sequence[Tuple[float, str, float]], body_height: float,
+) -> None:
+    """按统一路线 TXT 格式原子写出目标点。"""
+
+    # 头部明确坐标系、z 语义、数据来源和列定义，规划器可以据此统一读取。
+    lines = [
+        f"# frame_id: {frame_id}",
+        "# z_semantics: ground",
+        "# generated_from: nav2_route3d timestamp-ordered odometry nodes",
+        "# columns: id x y z_ground type",
+    ]
+    # 文件 ID 从 1 连续编号；target 列表的沿程顺序就是目标发送顺序。
+    for target_id, (route_distance, target_type, angle) in enumerate(targets, 1):
+        point = point_at_samples(samples, route_distance)
+        # 图节点 z 是机体/传感器轨迹高度，统一目标格式要求地面 z，因此减去 body_height。
+        ground = (point[0], point[1], point[2] - body_height)
+        row = " ".join(format_float(value) for value in ground)
+        lines.append(
+            # yaw_change_deg 放在 # 后作为人工审计信息，不属于规划器必需的数据列。
+            f"{target_id} {row} {target_type} # yaw_change_deg={angle:.1f}")
+    # 自动创建输出目录；parents=True 允许一次创建多级目录。
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # 先在同目录写临时文件，避免程序中断时留下半个目标文件。
+    temporary = output_path.with_name(output_path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+        handle.flush()
+        # 把 Python/内核缓冲区中的文件内容同步到存储设备后再替换正式文件。
+        os.fsync(handle.fileno())
+    # 同一目录内 os.replace 是原子替换；旧文件要么完整保留，要么完整变成新文件。
+    os.replace(temporary, output_path)
+
+
+def quaternion_to_rpy(
+    quaternion: Tuple[float, float, float, float],
+) -> List[float]:
+    """Convert a Route3D qx,qy,qz,qw orientation to roll,pitch,yaw."""
+
+    qx, qy, qz, qw = quaternion
+    sin_roll = 2.0 * (qw * qx + qy * qz)
+    cos_roll = 1.0 - 2.0 * (qx * qx + qy * qy)
+    roll = math.atan2(sin_roll, cos_roll)
+    sin_pitch = 2.0 * (qw * qy - qz * qx)
+    pitch = math.asin(max(-1.0, min(1.0, sin_pitch)))
+    sin_yaw = 2.0 * (qw * qz + qx * qy)
+    cos_yaw = 1.0 - 2.0 * (qy * qy + qz * qz)
+    yaw = math.atan2(sin_yaw, cos_yaw)
+    return [roll, pitch, yaw]
+
+
+def write_topo_single_file(
+    output_path: Path,
+    frame_id: str,
+    samples: Sequence[Sample],
+    clean_poses: Sequence[TimedPose],
+    targets: Sequence[Tuple[float, str, float]],
+    body_height: float,
+    topo_type: int,
+    pcd: str,
+    acc: float,
+    turnable: bool,
+    direction: int,
+) -> None:
+    """Write the selected interval/corner route directly in topoSingle format."""
+
+    clean_distances = cumulative_distances([pose.point for pose in clean_poses])
+    vertices: Dict[str, Any] = {}
+    ground_points: List[Point3] = []
+    for target_id, (route_distance, target_type, angle) in enumerate(targets, 1):
+        body_point = point_at_samples(samples, route_distance)
+        ground_point = (
+            body_point[0], body_point[1], body_point[2] - body_height)
+        nearest_index = min(
+            range(len(clean_poses)),
+            key=lambda index: abs(clean_distances[index] - route_distance),
+        )
+        source_pose = clean_poses[nearest_index]
+        ground_points.append(ground_point)
+        vertices[str(target_id)] = {
+            "pos": list(ground_point),
+            "rpy": quaternion_to_rpy(source_pose.quaternion),
+            "meta": {
+                "type": 0,
+                "typeId": 0,
+                "isCorner": target_type == "CORNER",
+                "source": "route3d_targets",
+                "sourceDistance": route_distance,
+                "sourceNodeIndex": nearest_index,
+                "turnDeg": angle,
+            },
+            "pcd": pcd,
+            "acc": acc,
+            "turnable": turnable,
+        }
+
+    edges: Dict[str, Any] = {}
+    for edge_id, (first, second) in enumerate(zip(ground_points, ground_points[1:]), 1):
+        first_id = edge_id
+        second_id = edge_id + 1
+        endpoints = [first_id, second_id]
+        if direction == 2:
+            endpoints.reverse()
+        edges[str(edge_id)] = {
+            "v": endpoints,
+            "weight": distance_3d(first, second),
+            "meta": {
+                "dir": direction,
+                "source": "route3d_targets",
+            },
+        }
+
+    payload = {
+        "version": 0,
+        "type": topo_type,
+        "frame_id": frame_id,
+        "vertices": vertices,
+        "edges": edges,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_name(output_path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, output_path)
+
+
+def positive(value: str) -> float:
+    """argparse 类型检查器：参数必须是有限正数。"""
+
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        raise argparse.ArgumentTypeError("value must be finite and positive")
+    return parsed
+
+
+def non_negative(value: str) -> float:
+    """argparse 类型检查器：参数必须是有限非负数，允许 0。"""
+
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise argparse.ArgumentTypeError("value must be finite and non-negative")
+    return parsed
+
+
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    """定义命令行接口，并在进入主流程前完成数值范围校验。"""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    # 输入为 nav2_route3d 原生 graph JSON，输出为统一五列目标 TXT。
+    parser.add_argument("--graph", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--output-topo", type=Path,
+        help="also write the selected route directly in topoSingle JSON format")
+    parser.add_argument("--topo-type", type=int, default=0)
+    parser.add_argument("--topo-pcd", default="")
+    parser.add_argument("--topo-acc", type=non_negative, default=0.5)
+    parser.add_argument("--topo-turnable", choices=("true", "false"), default="true")
+    parser.add_argument("--topo-direction", type=int, choices=(0, 1, 2), default=0)
+    # body-height 只影响输出 z_ground，不影响 XY、拐点检测和路线累计距离。
+    parser.add_argument("--body-height", type=non_negative, default=0.40)
+    # target-spacing 控制最终 NORMAL 点间距；resample-spacing 控制内部几何插值精度。
+    parser.add_argument("--target-spacing", type=positive, default=1.0)
+    # dedup-distance 去掉停留/原地旋转造成的密集位置点，但原始 poses 仍用于 yaw 检测。
+    parser.add_argument("--dedup-distance", type=positive, default=0.05)
+    parser.add_argument("--resample-spacing", type=positive, default=0.10)
+    # 以下 direction/smooth/angle/flatness/grade 参数仅为兼容旧版“路径航向转角”命令保留；
+    # 它们被隐藏且当前 main() 的 yaw 事件检测不会使用。
+    parser.add_argument(
+        "--direction-window", type=positive, default=0.75,
+        help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--smooth-radius", type=non_negative, default=0.25,
+        help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--corner-angle-deg", type=positive, default=20.0,
+        help=argparse.SUPPRESS)
+    # 相邻 CORNER 在最终路线上的最小沿程距离，用于非极大值抑制。
+    parser.add_argument("--corner-min-separation", type=positive, default=1.0)
+    # CORNER 距离现有 NORMAL 不超过该值时替换 NORMAL，否则作为额外目标插入。
+    parser.add_argument("--corner-merge-distance", type=non_negative, default=0.35)
+    parser.add_argument(
+        "--corner-flatness-window", type=positive, default=0.75,
+        help=argparse.SUPPRESS)
+    # yaw 事件窗口允许的最大 z 极差；这是当前用于排除楼梯拐点的主要高度条件。
+    parser.add_argument("--corner-max-z-range", type=non_negative, default=0.10)
+    parser.add_argument(
+        "--corner-max-grade", type=non_negative, default=0.08,
+        help=argparse.SUPPRESS)
+    # 原地旋转事件要求所有窗口 pose 均位于首帧的这个 XY 半径内。
+    parser.add_argument(
+        "--corner-yaw-xy-radius", type=positive, default=0.50,
+        help="maximum XY radius of one remote-control rotation event")
+    # yaw 扫角必须严格大于此阈值；默认 90° 不接受恰好等于 90°。
+    parser.add_argument(
+        "--corner-yaw-angle-deg", type=positive, default=90.0,
+        help="yaw sweep must be strictly greater than this angle")
+    # 持续时间过滤瞬时姿态噪声；0 表示不设置最小时长。
+    parser.add_argument(
+        "--corner-yaw-min-duration", type=non_negative, default=0.50,
+        help="minimum duration of a remote-control rotation event")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] = None) -> int:
+    """执行图节点读取、轨迹去重、重采样、yaw 拐点检测和目标文件写出。"""
+
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    try:
+        # resolve() 将 ~ 和相对路径变为绝对路径，便于日志确认实际输入文件。
+        frame_id, timed_poses = load_timed_trajectory(args.graph.expanduser().resolve())
+        raw_points = [pose.point for pose in timed_poses]
+        # clean_poses 用于路线几何；timed_poses 保持原始密度用于发现原地旋转。
+        clean_poses = deduplicate_timed_poses(timed_poses, args.dedup_distance)
+        clean_points = [pose.point for pose in clean_poses]
+        # 先建立更密的内部样本，最终 NORMAL 再按 target_spacing 生成。
+        samples = resample(clean_points, args.resample_spacing)
+        # 当前正式拐点来源是 yaw 事件，而不是旧版 detect_corners() 路径夹角。
+        corners = detect_yaw_corners(
+            timed_poses, clean_poses,
+            args.corner_yaw_xy_radius, args.corner_yaw_angle_deg,
+            args.corner_yaw_min_duration, args.corner_max_z_range,
+            args.corner_min_separation)
+        # 把 CORNER 合并进等间隔 NORMAL 序列。
+        targets = build_targets(
+            samples, corners, args.target_spacing, args.corner_merge_distance)
+        output = args.output.expanduser().resolve()
+        # 输出采用 z_ground 语义，并通过临时文件原子替换。
+        write_target_file(output, frame_id, samples, targets, args.body_height)
+        if args.output_topo:
+            write_topo_single_file(
+                args.output_topo.expanduser().resolve(), frame_id, samples, clean_poses, targets,
+                args.body_height, args.topo_type, args.topo_pcd, args.topo_acc,
+                args.topo_turnable == "true", args.topo_direction)
+        corner_count = sum(target_type == "CORNER" for _, target_type, _ in targets)
+        print(
+            # 汇总节点数、路线长度和本次实际生效的 yaw 检测阈值，便于复现实验。
+            f"generated {len(targets)} targets ({corner_count} corners) from "
+            f"{len(raw_points)} graph nodes; route_length={samples[-1].distance:.2f}m; "
+            f"yaw_corners={len(corners)} "
+            f"(xy_radius<={args.corner_yaw_xy_radius:.3f}m, "
+            f"yaw>{args.corner_yaw_angle_deg:.1f}deg, "
+            f"z_range<={args.corner_max_z_range:.3f}m); "
+            f"output={output}"
+            + (f" topo={args.output_topo}" if args.output_topo else ""), flush=True)
+        return 0
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+        # 常见输入、路径和 JSON 错误转换为单行 stderr，并用返回码 1 告知 launch/脚本失败。
+        print(f"route_corner_target_generator: {error}", file=sys.stderr, flush=True)
+        return 1
+
+
+if __name__ == "__main__":
+    # 把 main() 返回码交给 shell/ROS launch；作为模块导入测试时不会自动执行。
+    raise SystemExit(main())

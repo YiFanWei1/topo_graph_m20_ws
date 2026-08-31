@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>topo_graph_tools</name>
+  <version>0.1.0</version>
+  <description>Convert typed Nav2 Route3D targets into topoSingle JSON.</description>
+  <maintainer email="wei@example.com">wei</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>python3</exec_depend>
+  <exec_depend>nav2_route3d</exec_depend>
+  <exec_depend>route3d_bag_tools</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

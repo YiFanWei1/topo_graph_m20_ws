@@ -1,0 +1,5 @@
+# frame_id: camera_init
+# z_semantics: ground
+# columns: id x y z_ground type
+1 -0.478414 -0.741896 -0.184439 CORNER
+2 2.975234 -0.869267 -0.17172 CORNER

@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>efficient_3d_local_planner</name>
+  <version>0.1.0</version>
+  <description>High-rate rolling voxel mapping and path-guided dynamic 3-D local planning for Go2.</description>
+  <maintainer email="wei@example.com">wei</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>efficient_3d_local_planner_msgs</depend>
+  <depend>eigen3_cmake_module</depend>
+  <depend>geometry_msgs</depend>
+  <exec_depend>recorded_waypoint_route</exec_depend>
+  <depend>message_filters</depend>
+  <depend>nav_msgs</depend>
+  <depend>rclcpp</depend>
+  <exec_depend>rclpy</exec_depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

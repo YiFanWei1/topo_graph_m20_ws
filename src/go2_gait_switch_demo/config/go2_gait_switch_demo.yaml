@@ -1,0 +1,22 @@
+go2_gait_switch_demo:
+  ros__parameters:
+    # Unitree SDK2 network interface connected to the robot.
+    network_interface: eth0
+
+    # Safety interlock. The launch file also defaults this to false and overrides
+    # this value. Real motion requires enable_motion:=true explicitly.
+    enable_motion: false
+
+    # The node enforces |yaw_rate| <= 0.5 rad/s and always sends vx=vy=0.
+    yaw_rate: 0.5
+    control_rate_hz: 20.0
+
+    # Sequence: StaticWalk normal gait -> legacy SwitchGait(3) stair gait,
+    # repeated twice, then StopMove. SwitchGait(1) is deliberately not used:
+    # it selects the stair gait on the currently tested robot firmware.
+    cycles: 2
+    startup_delay_sec: 5.0
+    gait_settle_sec: 2.0
+    rotate_duration_sec: 2.0
+    stop_gap_sec: 2.0
+    sdk_timeout_sec: 2.0

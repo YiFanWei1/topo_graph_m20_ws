@@ -1,0 +1,57 @@
+# Route3D live product configuration.
+#
+# The two static transforms below default to identity because the current localization output
+# uses camera_init/body while RViz and downstream software may expect map/base_link. Disable a
+# transform immediately if another node starts publishing the same parent/child relationship.
+
+route3d_live:
+  workspace: /home/wei/github_code/topo_graph_ws
+  results_root: /home/wei/github_code/topo_graph_ws/data
+
+  topics:
+    odom: /lio_odom
+    cloud: /cloud_registered_body
+    synchronized_pose: /route3d/synchronized_pose
+
+  recorder:
+    sync_slop: 0.05
+    queue_size: 100
+    expected_odom_frame: camera_init
+    expected_odom_child_frame: base_link
+    expected_cloud_frame: base_link
+
+  skeleton:
+    target_spacing: 1.0
+    dedup_distance: 0.05
+    body_height: 0.40
+    corner_xy_radius: 0.50
+    corner_yaw_degrees: 45.0
+    corner_min_duration: 0.50
+    corner_max_z_range: 0.10
+    corner_merge_distance: 0.35
+    corner_min_separation: 1.0
+    relocation_distance: 0.50
+    topo_type: 0
+    topo_pcd: ""
+    topo_acc: 0.50
+
+  rviz:
+    enabled: true
+    # Empty uses route3d_online_skeleton/rviz/online_route_skeleton.rviz.
+    config_file: ""
+
+static_tf:
+  map_to_camera_init:
+    publish: true
+    parent_frame: map
+    child_frame: camera_init
+    translation: [0.0, 0.0, 0.0]
+    rotation_rpy: [0.0, 0.0, 0.0]
+
+  body_to_base_link:
+    publish: true
+    parent_frame: body
+    child_frame: base_link
+    # base_link origin expressed in the body frame, matching up_and_down_demo.launch.py.
+    translation: [-0.15, 0.0, -0.21]
+    rotation_rpy: [0.0, 0.0, 0.0]

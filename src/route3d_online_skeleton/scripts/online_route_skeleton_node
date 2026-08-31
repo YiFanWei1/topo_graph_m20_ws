@@ -1,0 +1,647 @@
+#!/usr/bin/env python3
+"""Build a live topology from poses that have matching point clouds on disk."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import math
+import os
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+from geometry_msgs.msg import Point, PoseStamped
+from nav_msgs.msg import Path as PathMessage
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from visualization_msgs.msg import Marker, MarkerArray
+
+
+Point3 = Tuple[float, float, float]
+Quaternion = Tuple[float, float, float, float]
+
+
+@dataclass
+class RoutePose:
+    stamp: float
+    point: Point3
+    quaternion: Quaternion
+    yaw: float
+    route_distance: float
+    segment: int
+
+
+@dataclass
+class Target:
+    distance: float
+    point: Point3
+    quaternion: Quaternion
+    is_corner: bool
+    turn_degrees: float
+    segment: int
+
+
+def distance_3d(first: Point3, second: Point3) -> float:
+    return math.sqrt(sum((first[index] - second[index]) ** 2 for index in range(3)))
+
+
+def normalize_quaternion(quaternion: Quaternion) -> Quaternion:
+    norm = math.sqrt(sum(value * value for value in quaternion))
+    if norm < 1.0e-9 or not math.isfinite(norm):
+        raise ValueError("invalid quaternion")
+    return tuple(value / norm for value in quaternion)  # type: ignore[return-value]
+
+
+def quaternion_yaw(quaternion: Quaternion) -> float:
+    qx, qy, qz, qw = quaternion
+    return math.atan2(
+        2.0 * (qw * qz + qx * qy),
+        1.0 - 2.0 * (qy * qy + qz * qz),
+    )
+
+
+def quaternion_to_rpy(quaternion: Quaternion) -> List[float]:
+    qx, qy, qz, qw = quaternion
+    roll = math.atan2(
+        2.0 * (qw * qx + qy * qz),
+        1.0 - 2.0 * (qx * qx + qy * qy),
+    )
+    pitch_value = 2.0 * (qw * qy - qz * qx)
+    pitch = math.asin(max(-1.0, min(1.0, pitch_value)))
+    yaw = quaternion_yaw(quaternion)
+    return [roll, pitch, yaw]
+
+
+def unwrap_yaw(previous: float, current: float) -> float:
+    while current - previous > math.pi:
+        current -= 2.0 * math.pi
+    while current - previous < -math.pi:
+        current += 2.0 * math.pi
+    return current
+
+
+def interpolate_point(first: Point3, second: Point3, ratio: float) -> Point3:
+    return tuple(
+        first[index] + ratio * (second[index] - first[index])
+        for index in range(3)
+    )  # type: ignore[return-value]
+
+
+def interpolate_quaternion(first: Quaternion, second: Quaternion, ratio: float) -> Quaternion:
+    # Normalized linear interpolation is sufficient for adjacent 10 Hz odometry poses.
+    if sum(a * b for a, b in zip(first, second)) < 0.0:
+        second = tuple(-value for value in second)  # type: ignore[assignment]
+    return normalize_quaternion(tuple(
+        first[index] + ratio * (second[index] - first[index])
+        for index in range(4)
+    ))  # type: ignore[arg-type]
+
+
+class OnlineRouteSkeleton(Node):
+    def __init__(self) -> None:
+        super().__init__("online_route_skeleton")
+        self.input_topic = str(self.declare_parameter(
+            "input_pose_topic", "/route3d/synchronized_pose").value)
+        self.output_topo = Path(str(self.declare_parameter(
+            "output_topo", "topoSingle_live.json").value)).expanduser().resolve()
+        self.events_file = Path(str(self.declare_parameter(
+            "events_file", "events.jsonl").value)).expanduser().resolve()
+        self.target_spacing = float(self.declare_parameter("target_spacing", 1.0).value)
+        self.dedup_distance = float(self.declare_parameter("dedup_distance", 0.05).value)
+        self.body_height = float(self.declare_parameter("body_height", 0.40).value)
+        self.corner_xy_radius = float(self.declare_parameter("corner_xy_radius", 0.50).value)
+        self.corner_yaw_degrees = float(self.declare_parameter(
+            "corner_yaw_degrees", 90.0).value)
+        self.corner_min_duration = float(self.declare_parameter(
+            "corner_min_duration", 0.50).value)
+        self.corner_max_z_range = float(self.declare_parameter(
+            "corner_max_z_range", 0.10).value)
+        self.corner_merge_distance = float(self.declare_parameter(
+            "corner_merge_distance", 0.35).value)
+        self.corner_min_separation = float(self.declare_parameter(
+            "corner_min_separation", 1.0).value)
+        self.relocation_distance = float(self.declare_parameter(
+            "relocation_distance", 0.50).value)
+        self.topo_type = int(self.declare_parameter("topo_type", 0).value)
+        self.topo_pcd = str(self.declare_parameter("topo_pcd", "").value)
+        self.topo_acc = float(self.declare_parameter("topo_acc", 0.50).value)
+
+        for name, value in (
+            ("target_spacing", self.target_spacing),
+            ("dedup_distance", self.dedup_distance),
+            ("corner_xy_radius", self.corner_xy_radius),
+            ("corner_min_duration", self.corner_min_duration),
+            ("relocation_distance", self.relocation_distance),
+        ):
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be positive and finite")
+
+        self.output_topo.parent.mkdir(parents=True, exist_ok=True)
+        self.events_file.parent.mkdir(parents=True, exist_ok=True)
+        self.frame_id = ""
+        self.raw_poses: List[PoseStamped] = []
+        self.targets: List[Target] = []
+        self.corner_window: List[RoutePose] = []
+        self.jump_points: List[Point3] = []
+        self.last_raw: Optional[RoutePose] = None
+        self.last_route: Optional[RoutePose] = None
+        self.total_distance = 0.0
+        self.next_normal_distance = 0.0
+        self.segment = 0
+        self.version = 0
+        self.finalized = False
+        self.visual_dirty = True
+
+        sensor_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=100,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        visual_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.subscription = self.create_subscription(
+            PoseStamped, self.input_topic, self.on_pose, sensor_qos)
+        self.raw_path_publisher = self.create_publisher(
+            PathMessage, "/route3d/live_raw_path", visual_qos)
+        self.marker_publisher = self.create_publisher(
+            MarkerArray, "/route3d/live_skeleton", visual_qos)
+        self.timer = self.create_timer(0.20, self.publish_visualization)
+        self.write_event("session_started", {})
+        self.write_topology()
+        self.get_logger().info(
+            f"online skeleton waiting for {self.input_topic}; output={self.output_topo}")
+
+    def write_event(self, event_type: str, values: dict) -> None:
+        event = {"event": event_type, **values}
+        with self.events_file.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+            handle.flush()
+
+    def on_pose(self, message: PoseStamped) -> None:
+        if self.finalized:
+            return
+        point = (
+            float(message.pose.position.x),
+            float(message.pose.position.y),
+            float(message.pose.position.z),
+        )
+        quaternion = (
+            float(message.pose.orientation.x),
+            float(message.pose.orientation.y),
+            float(message.pose.orientation.z),
+            float(message.pose.orientation.w),
+        )
+        if not all(math.isfinite(value) for value in point + quaternion):
+            self.get_logger().warning("ignoring non-finite synchronized pose")
+            return
+        try:
+            quaternion = normalize_quaternion(quaternion)
+        except ValueError:
+            self.get_logger().warning("ignoring invalid synchronized pose quaternion")
+            return
+
+        if not self.frame_id:
+            self.frame_id = message.header.frame_id
+        elif message.header.frame_id != self.frame_id:
+            self.write_event("frame_changed", {
+                "expected": self.frame_id, "received": message.header.frame_id})
+            self.get_logger().error("pose frame changed; ignoring message")
+            return
+
+        stamp = float(message.header.stamp.sec) + float(message.header.stamp.nanosec) * 1.0e-9
+        sample = RoutePose(
+            stamp=stamp,
+            point=point,
+            quaternion=quaternion,
+            yaw=quaternion_yaw(quaternion),
+            route_distance=self.total_distance,
+            segment=self.segment,
+        )
+
+        if self.last_raw is not None:
+            raw_step = distance_3d(self.last_raw.point, sample.point)
+            if raw_step > self.relocation_distance:
+                self._handle_relocation(sample, raw_step)
+                self._append_raw_path(message, quaternion)
+                self.last_raw = sample
+                self.visual_dirty = True
+                return
+
+        if self.last_route is None:
+            self.last_route = sample
+            self.next_normal_distance = self.target_spacing
+            self.targets.append(Target(
+                distance=0.0,
+                point=sample.point,
+                quaternion=sample.quaternion,
+                is_corner=False,
+                turn_degrees=0.0,
+                segment=self.segment,
+            ))
+            self._topology_changed()
+        else:
+            route_step = distance_3d(self.last_route.point, sample.point)
+            if route_step >= self.dedup_distance:
+                previous = self.last_route
+                new_total = self.total_distance + route_step
+                while self.next_normal_distance <= new_total + 1.0e-9:
+                    ratio = (self.next_normal_distance - self.total_distance) / route_step
+                    self.targets.append(Target(
+                        distance=self.next_normal_distance,
+                        point=interpolate_point(previous.point, sample.point, ratio),
+                        quaternion=interpolate_quaternion(
+                            previous.quaternion, sample.quaternion, ratio),
+                        is_corner=False,
+                        turn_degrees=0.0,
+                        segment=self.segment,
+                    ))
+                    self.next_normal_distance += self.target_spacing
+                    self._topology_changed()
+                self.total_distance = new_total
+                sample.route_distance = self.total_distance
+                self.last_route = sample
+            else:
+                sample.route_distance = self.total_distance
+
+        self._update_corner_window(sample)
+        self._append_raw_path(message, quaternion)
+        self.last_raw = sample
+        self.visual_dirty = True
+
+    def _append_raw_path(self, message: PoseStamped, quaternion: Quaternion) -> None:
+        pose = PoseStamped()
+        pose.header = message.header
+        pose.pose = message.pose
+        pose.pose.orientation.x = quaternion[0]
+        pose.pose.orientation.y = quaternion[1]
+        pose.pose.orientation.z = quaternion[2]
+        pose.pose.orientation.w = quaternion[3]
+        self.raw_poses.append(pose)
+
+    def _handle_relocation(self, sample: RoutePose, distance: float) -> None:
+        self._finalize_corner_window()
+        self.segment += 1
+        sample.segment = self.segment
+        sample.route_distance = self.total_distance
+        self.jump_points.append(sample.point)
+        self.write_event("pose_jump", {
+            "stamp": sample.stamp,
+            "distance_m": distance,
+            "threshold_m": self.relocation_distance,
+            "segment": self.segment,
+        })
+        self.get_logger().error(
+            f"pose jump {distance:.3f}m detected; starting segment {self.segment}")
+        self.last_route = sample
+        self.corner_window = [sample]
+        self.targets.append(Target(
+            distance=self.total_distance,
+            point=sample.point,
+            quaternion=sample.quaternion,
+            is_corner=False,
+            turn_degrees=0.0,
+            segment=self.segment,
+        ))
+        self.next_normal_distance = self.total_distance + self.target_spacing
+        self._topology_changed()
+
+    def _update_corner_window(self, sample: RoutePose) -> None:
+        if not self.corner_window:
+            self.corner_window = [sample]
+            return
+        anchor = self.corner_window[0]
+        points = [item.point for item in self.corner_window]
+        minimum_z = min(point[2] for point in points)
+        maximum_z = max(point[2] for point in points)
+        inside_xy = math.hypot(
+            sample.point[0] - anchor.point[0],
+            sample.point[1] - anchor.point[1],
+        ) <= self.corner_xy_radius
+        next_minimum_z = min(minimum_z, sample.point[2])
+        next_maximum_z = max(maximum_z, sample.point[2])
+        if inside_xy and next_maximum_z - next_minimum_z <= self.corner_max_z_range:
+            self.corner_window.append(sample)
+        else:
+            self._finalize_corner_window()
+            self.corner_window = [sample]
+
+    def _corner_candidate(self) -> Optional[Tuple[RoutePose, float]]:
+        if len(self.corner_window) < 2:
+            return None
+        yaws = [self.corner_window[0].yaw]
+        for sample in self.corner_window[1:]:
+            yaws.append(unwrap_yaw(yaws[-1], sample.yaw))
+        turn_degrees = math.degrees(max(yaws) - min(yaws))
+        duration = self.corner_window[-1].stamp - self.corner_window[0].stamp
+        if turn_degrees <= self.corner_yaw_degrees or duration < self.corner_min_duration:
+            return None
+        middle_stamp = 0.5 * (
+            self.corner_window[0].stamp + self.corner_window[-1].stamp)
+        representative = min(
+            self.corner_window, key=lambda item: abs(item.stamp - middle_stamp))
+        return representative, turn_degrees
+
+    def _finalize_corner_window(self) -> None:
+        candidate = self._corner_candidate()
+        if candidate is not None:
+            self._commit_corner(*candidate)
+        self.corner_window = []
+
+    def _commit_corner(self, pose: RoutePose, turn_degrees: float) -> None:
+        existing_corners = [target for target in self.targets if target.is_corner]
+        nearest_existing = min(
+            existing_corners,
+            key=lambda target: abs(target.distance - pose.route_distance),
+            default=None,
+        )
+        if (
+            nearest_existing is not None and
+            abs(nearest_existing.distance - pose.route_distance) < self.corner_min_separation
+        ):
+            if turn_degrees > nearest_existing.turn_degrees:
+                nearest_existing.point = pose.point
+                nearest_existing.quaternion = pose.quaternion
+                nearest_existing.turn_degrees = turn_degrees
+                nearest_existing.distance = pose.route_distance
+                self._topology_changed()
+            return
+
+        same_segment = [target for target in self.targets if target.segment == pose.segment]
+        nearest = min(
+            same_segment,
+            key=lambda target: abs(target.distance - pose.route_distance),
+            default=None,
+        )
+        if nearest is not None and abs(nearest.distance - pose.route_distance) <= \
+                self.corner_merge_distance:
+            nearest.distance = pose.route_distance
+            nearest.point = pose.point
+            nearest.quaternion = pose.quaternion
+            nearest.is_corner = True
+            nearest.turn_degrees = turn_degrees
+        else:
+            self.targets.append(Target(
+                distance=pose.route_distance,
+                point=pose.point,
+                quaternion=pose.quaternion,
+                is_corner=True,
+                turn_degrees=turn_degrees,
+                segment=pose.segment,
+            ))
+        if rclpy.ok():
+            self.get_logger().info(
+                f"confirmed live corner at {pose.route_distance:.2f}m, "
+                f"yaw={turn_degrees:.1f}deg")
+        self._topology_changed()
+
+    def _topology_changed(self) -> None:
+        self.targets.sort(key=lambda target: (target.distance, target.segment))
+        self.version += 1
+        self.visual_dirty = True
+        self.write_topology()
+
+    def topology_dict(self) -> dict:
+        vertices = {}
+        for vertex_id, target in enumerate(self.targets, 1):
+            vertices[str(vertex_id)] = {
+                "pos": [
+                    target.point[0],
+                    target.point[1],
+                    target.point[2] - self.body_height,
+                ],
+                "rpy": quaternion_to_rpy(target.quaternion),
+                "meta": {
+                    "type": 0,
+                    "typeId": 0,
+                    "isCorner": target.is_corner,
+                    "state": "confirmed",
+                    "source": "online_synchronized_pose",
+                    "sourceDistance": target.distance,
+                    "turnDeg": target.turn_degrees,
+                    "segment": target.segment,
+                },
+                "pcd": self.topo_pcd,
+                "acc": self.topo_acc,
+                "turnable": True,
+            }
+        edges = {}
+        edge_id = 1
+        for first_id, (first, second) in enumerate(zip(self.targets, self.targets[1:]), 1):
+            if first.segment != second.segment:
+                continue
+            edges[str(edge_id)] = {
+                "v": [first_id, first_id + 1],
+                "weight": distance_3d(first.point, second.point),
+                "meta": {"dir": 0, "source": "online_synchronized_pose"},
+            }
+            edge_id += 1
+        return {
+            "version": self.version,
+            "type": self.topo_type,
+            "frame_id": self.frame_id,
+            "status": "complete" if self.finalized else "recording",
+            "vertices": vertices,
+            "edges": edges,
+        }
+
+    def write_topology(self) -> None:
+        temporary = self.output_topo.with_name(self.output_topo.name + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(self.topology_dict(), handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, self.output_topo)
+
+    @staticmethod
+    def _point_message(point: Point3, z_offset: float = 0.0) -> Point:
+        result = Point()
+        result.x = point[0]
+        result.y = point[1]
+        result.z = point[2] + z_offset
+        return result
+
+    def publish_visualization(self) -> None:
+        if not self.visual_dirty or not self.frame_id:
+            return
+        self.visual_dirty = False
+        now = self.get_clock().now().to_msg()
+
+        path = PathMessage()
+        path.header.stamp = now
+        path.header.frame_id = self.frame_id
+        path.poses = list(self.raw_poses)
+        self.raw_path_publisher.publish(path)
+
+        markers = MarkerArray()
+        clear = Marker()
+        clear.action = Marker.DELETEALL
+        markers.markers.append(clear)
+
+        edges = Marker()
+        edges.header = path.header
+        edges.ns = "live_edges"
+        edges.id = 1
+        edges.type = Marker.LINE_LIST
+        edges.action = Marker.ADD
+        edges.scale.x = 0.06
+        edges.color.r = 0.15
+        edges.color.g = 0.95
+        edges.color.b = 0.35
+        edges.color.a = 0.95
+        for first, second in zip(self.targets, self.targets[1:]):
+            if first.segment == second.segment:
+                edges.points.append(self._point_message(first.point, -self.body_height))
+                edges.points.append(self._point_message(second.point, -self.body_height))
+        markers.markers.append(edges)
+
+        normal = Marker()
+        normal.header = path.header
+        normal.ns = "live_normal_nodes"
+        normal.id = 2
+        normal.type = Marker.SPHERE_LIST
+        normal.action = Marker.ADD
+        normal.scale.x = normal.scale.y = normal.scale.z = 0.20
+        normal.color.r = 0.15
+        normal.color.g = 0.55
+        normal.color.b = 1.0
+        normal.color.a = 1.0
+        normal.points = [
+            self._point_message(target.point, -self.body_height)
+            for target in self.targets if not target.is_corner
+        ]
+        markers.markers.append(normal)
+
+        corners = Marker()
+        corners.header = path.header
+        corners.ns = "live_corner_nodes"
+        corners.id = 3
+        corners.type = Marker.SPHERE_LIST
+        corners.action = Marker.ADD
+        corners.scale.x = corners.scale.y = corners.scale.z = 0.32
+        corners.color.r = 1.0
+        corners.color.g = 0.15
+        corners.color.b = 0.10
+        corners.color.a = 1.0
+        corners.points = [
+            self._point_message(target.point, -self.body_height)
+            for target in self.targets if target.is_corner
+        ]
+        markers.markers.append(corners)
+
+        # Publish one text marker per topology vertex so the live view uses the
+        # same 1-based ids that will be written to topoSingle_live.json.  Corner
+        # ids carry a C prefix and use the corner color, matching the final route
+        # and local-planner visualizations.
+        for vertex_id, target in enumerate(self.targets, 1):
+            label = Marker()
+            label.header = path.header
+            label.ns = "live_target_ids"
+            label.id = vertex_id
+            label.type = Marker.TEXT_VIEW_FACING
+            label.action = Marker.ADD
+            label.pose.position = self._point_message(
+                target.point, -self.body_height + 0.28)
+            label.pose.orientation.w = 1.0
+            label.scale.z = 0.30 if target.is_corner else 0.24
+            label.color.r = 1.0
+            label.color.g = 0.15 if target.is_corner else 0.90
+            label.color.b = 0.05
+            label.color.a = 1.0
+            label.text = f"C{vertex_id}" if target.is_corner else str(vertex_id)
+            markers.markers.append(label)
+
+        candidate = self._corner_candidate()
+        if candidate is not None:
+            candidate_marker = Marker()
+            candidate_marker.header = path.header
+            candidate_marker.ns = "live_corner_candidate"
+            candidate_marker.id = 4
+            candidate_marker.type = Marker.SPHERE
+            candidate_marker.action = Marker.ADD
+            candidate_marker.pose.position = self._point_message(
+                candidate[0].point, -self.body_height)
+            candidate_marker.pose.orientation.w = 1.0
+            candidate_marker.scale.x = candidate_marker.scale.y = candidate_marker.scale.z = 0.38
+            candidate_marker.color.r = 1.0
+            candidate_marker.color.g = 0.60
+            candidate_marker.color.b = 0.0
+            candidate_marker.color.a = 1.0
+            markers.markers.append(candidate_marker)
+
+        jumps = Marker()
+        jumps.header = path.header
+        jumps.ns = "pose_jump_events"
+        jumps.id = 5
+        jumps.type = Marker.SPHERE_LIST
+        jumps.action = Marker.ADD
+        jumps.scale.x = jumps.scale.y = jumps.scale.z = 0.45
+        jumps.color.r = 0.85
+        jumps.color.g = 0.10
+        jumps.color.b = 0.95
+        jumps.color.a = 1.0
+        jumps.points = [
+            self._point_message(point, -self.body_height) for point in self.jump_points]
+        markers.markers.append(jumps)
+        self.marker_publisher.publish(markers)
+
+    def finalize(self) -> None:
+        if self.finalized:
+            return
+        self._finalize_corner_window()
+        if self.last_route is not None:
+            nearest = min(
+                self.targets,
+                key=lambda target: abs(target.distance - self.total_distance),
+                default=None,
+            )
+            if nearest is None or abs(nearest.distance - self.total_distance) > 1.0e-6:
+                self.targets.append(Target(
+                    distance=self.total_distance,
+                    point=self.last_route.point,
+                    quaternion=self.last_route.quaternion,
+                    is_corner=False,
+                    turn_degrees=0.0,
+                    segment=self.segment,
+                ))
+        self.targets.sort(key=lambda target: (target.distance, target.segment))
+        self.finalized = True
+        self.version += 1
+        self.write_topology()
+        self.write_event("session_stopped", {
+            "poses": len(self.raw_poses),
+            "vertices": len(self.targets),
+            "corners": sum(target.is_corner for target in self.targets),
+            "distance_m": self.total_distance,
+            "pose_jumps": len(self.jump_points),
+        })
+        if rclpy.ok():
+            self.get_logger().info(
+                f"live skeleton complete: poses={len(self.raw_poses)} "
+                f"vertices={len(self.targets)} "
+                f"corners={sum(t.is_corner for t in self.targets)} "
+                f"output={self.output_topo}")
+
+
+def main() -> None:
+    rclpy.init()
+    node = OnlineRouteSkeleton()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.finalize()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

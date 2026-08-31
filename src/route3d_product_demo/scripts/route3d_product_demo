@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""Keyboard-driven product demo for the complete route-to-topology workflow.
+
+Keys:
+  1  start recording synchronized odometry and point clouds
+  2  stop recording and finalize map_data files
+  3  process the latest recording, ask for a result folder name, and start RViz
+  q  quit and clean up child processes
+
+The final controller-facing file is always:
+  <results-root>/<name>/topoSingle_data.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import termios
+import time
+import tty
+from typing import Optional, Sequence
+
+
+class ProductDemo:
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self.workspace = Path(args.workspace).expanduser().resolve()
+        self.results_root = Path(args.results_root).expanduser().resolve()
+        self.results_root.mkdir(parents=True, exist_ok=True)
+        self.recorder: Optional[subprocess.Popen] = None
+        self.visualizer: Optional[subprocess.Popen] = None
+        self.latest_recording: Optional[Path] = None
+        self.processed = False
+
+    @staticmethod
+    def _child_env() -> dict[str, str]:
+        env = os.environ.copy()
+        # Child ROS commands inherit the environment sourced by the demo shell.
+        env.setdefault("RCUTILS_COLORIZED_OUTPUT", "1")
+        return env
+
+    @staticmethod
+    def _terminate_process(process: Optional[subprocess.Popen], label: str) -> None:
+        if process is None or process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGINT)
+            process.wait(timeout=10.0)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=5.0)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        print(f"[{label}] 已停止", flush=True)
+
+    def start_recording(self) -> None:
+        if self.recorder is not None and self.recorder.poll() is None:
+            print("[1] 已经在记录中。", flush=True)
+            return
+        if self.latest_recording is not None and not self.processed:
+            print("[1] 上一次记录尚未处理，请先按 3，或重新启动程序。", flush=True)
+            return
+
+        session_path = Path(tempfile.mkdtemp(prefix="route3d_demo_", dir="/tmp"))
+        self.latest_recording = session_path
+        self.processed = False
+        command = [
+            "ros2", "run", "route3d_data_recorder", "route3d_data_recorder_node",
+            "--ros-args",
+            "-p", f"output_directory:={session_path}",
+            "-p", f"odom_topic:={self.args.odom_topic}",
+            "-p", f"cloud_topic:={self.args.cloud_topic}",
+            "-p", f"sync_slop_s:={self.args.sync_slop}",
+        ]
+        print(f"[1] 开始记录，临时目录：{session_path}", flush=True)
+        self.recorder = subprocess.Popen(
+            command,
+            cwd=self.workspace,
+            env=self._child_env(),
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    def stop_recording(self) -> None:
+        if self.recorder is None or self.recorder.poll() is not None:
+            print("[2] 当前没有正在运行的记录器。", flush=True)
+            return
+        print("[2] 正在停止记录并写入 pose.json、manifest.json……", flush=True)
+        self._terminate_process(self.recorder, "记录器")
+        self.recorder = None
+        if self.latest_recording is None:
+            return
+        pose = self.latest_recording / "pose.json"
+        manifest = self.latest_recording / "manifest.json"
+        frames = list((self.latest_recording / "key_frames").glob("*.pcd"))
+        if not pose.exists() or not manifest.exists() or len(frames) < 2:
+            print(
+                f"[2] 记录结果不完整：pose={pose.exists()} manifest={manifest.exists()} "
+                f"pcd={len(frames)}。",
+                flush=True,
+            )
+            return
+        print(f"[2] 已停止，得到 {len(frames)} 个同步点云帧。按 3 开始处理。", flush=True)
+
+    def _run(self, command: Sequence[str], description: str) -> None:
+        print(f"[{description}] {' '.join(str(part) for part in command)}", flush=True)
+        result = subprocess.run(
+            list(command),
+            cwd=self.workspace,
+            env=self._child_env(),
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"{description}失败，返回码 {result.returncode}")
+
+    @staticmethod
+    def _validate_folder_name(name: str) -> str:
+        name = name.strip()
+        if not name or name in {".", ".."} or Path(name).name != name:
+            raise ValueError("文件夹名称必须是单级目录名，不能包含 /、\、. 或 ..")
+        return name
+
+    def _prompt_save_destination(self) -> Path:
+        while True:
+            try:
+                entered_name = input("输入保留结果的文件夹名称（保存到 data/<name>）：")
+            except EOFError as error:
+                raise ValueError("终端输入已关闭，无法读取保存名称") from error
+            try:
+                name = self._validate_folder_name(entered_name)
+            except ValueError as error:
+                print(f"[3] 名称不可用：{error}，请重新输入。", flush=True)
+                continue
+            destination = self.results_root / name
+            if destination.exists():
+                print(
+                    f"[3] 结果目录已存在：{destination}，不会覆盖，请重新输入。",
+                    flush=True,
+                )
+                continue
+            return destination
+
+    @staticmethod
+    def _validate_topo(path: Path) -> tuple[int, int, int]:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        vertices = data.get("vertices", {})
+        edges = data.get("edges", {})
+        corners = sum(
+            1 for vertex in vertices.values()
+            if bool(vertex.get("meta", {}).get("isCorner", False)))
+        if not vertices or len(edges) != max(0, len(vertices) - 1):
+            raise ValueError("topoSingle_data.json 的点边数量不符合当前单路线输出")
+        return len(vertices), len(edges), corners
+
+    def process_latest(self) -> None:
+        if self.recorder is not None and self.recorder.poll() is None:
+            print("[3] 记录器仍在运行，请先按 2 停止记录。", flush=True)
+            return
+        source = self.latest_recording
+        if source is None or not source.exists():
+            print("[3] 没有可处理的最新记录，请先按 1 记录，再按 2 停止。", flush=True)
+            return
+        if self.processed:
+            print("[3] 这次记录已经处理过了。", flush=True)
+            return
+
+        try:
+            destination = self._prompt_save_destination()
+
+            graph = source / "route3d_graph.json"
+            geojson = source / "route3d_graph.geojson"
+            targets = source / "route_targets_with_corners.txt"
+            topo = source / "topoSingle_data.json"
+            reduced = source / "selected_route3d_graph.json"
+
+            self._run([
+                "ros2", "run", "nav2_route3d", "route_graph_builder_3d",
+                "--map-path", str(source),
+                "--poses-file", "pose.json",
+                "--pcd-dir", "key_frames",
+                "--output-json", str(graph),
+                "--output-geojson", str(geojson),
+            ], "建图")
+            self._run([
+                "ros2", "run", "route3d_bag_tools", "route_corner_target_generator",
+                "--graph", str(graph),
+                "--output", str(targets),
+                "--output-topo", str(topo),
+                "--target-spacing", str(self.args.target_spacing),
+                "--body-height", str(self.args.body_height),
+                "--topo-pcd", self.args.topo_pcd,
+                "--topo-acc", str(self.args.topo_acc),
+            ], "等间隔采样与拐点提取/TopoSingle 输出")
+            self._run([
+                "ros2", "run", "topo_graph_tools", "nav2_to_topo_single",
+                "--graph", str(graph),
+                "--targets", str(targets),
+                "--output-nav2", str(reduced),
+                "--body-height", str(self.args.body_height),
+            ], "生成 RViz 可视化子图")
+
+            vertex_count, edge_count, corner_count = self._validate_topo(topo)
+            shutil.move(str(source), str(destination))
+            self.latest_recording = destination
+            self.processed = True
+            final_json = destination / "topoSingle_data.json"
+            print(
+                f"[3] 处理完成：{final_json}\n"
+                f"    vertices={vertex_count}, edges={edge_count}, corners={corner_count}",
+                flush=True,
+            )
+            self.start_visualization(destination)
+        except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(f"[3] 处理失败：{error}", flush=True)
+
+    def start_visualization(self, result_path: Path) -> None:
+        if self.args.no_rviz:
+            print("[RViz] 已跳过（使用了 --no-rviz）。", flush=True)
+            return
+        self._terminate_process(self.visualizer, "旧可视化")
+        command = [
+            "ros2", "launch", "topo_graph_tools", "topo_conversion_visualization.launch.py",
+            f"graph_filepath:={result_path / 'route3d_graph.json'}",
+            f"target_file:={result_path / 'route_targets_with_corners.txt'}",
+            f"topo_output:={result_path / 'topoSingle_data.json'}",
+            f"reduced_graph_output:={result_path / 'selected_route3d_graph.json'}",
+            f"body_height:={self.args.body_height}",
+            f"target_spacing:={self.args.target_spacing}",
+            "launch_rviz:=true",
+        ]
+        print("[RViz] 启动可视化窗口……", flush=True)
+        self.visualizer = subprocess.Popen(
+            command,
+            cwd=self.workspace,
+            env=self._child_env(),
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    def cleanup(self) -> None:
+        self._terminate_process(self.recorder, "记录器")
+        self._terminate_process(self.visualizer, "可视化")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--workspace", default="/home/wei/github_code/topo_graph_ws",
+        help="ROS 2 工作空间路径")
+    parser.add_argument(
+        "--results-root", default="/home/wei/github_code/topo_graph_ws/data",
+        help="处理结果的根目录，最终保存到 <root>/<name>")
+    parser.add_argument("--odom-topic", default="/lio_odom")
+    parser.add_argument("--cloud-topic", default="/cloud_registered_body")
+    parser.add_argument("--sync-slop", type=float, default=0.05)
+    parser.add_argument("--target-spacing", type=float, default=1.0)
+    parser.add_argument("--body-height", type=float, default=0.40)
+    parser.add_argument("--topo-pcd", default="")
+    parser.add_argument("--topo-acc", type=float, default=0.5)
+    parser.add_argument("--no-rviz", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> int:
+    if not sys.stdin.isatty():
+        print("route3d_product_demo 需要在终端中运行，以接收键盘按键。", file=sys.stderr)
+        return 2
+    demo = ProductDemo(parse_args())
+    old_terminal = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        print(
+            "\nroute3d 产品演示已启动：\n"
+            "  1 开始记录   2 停止记录   3 处理最新记录并保存/可视化   q 退出\n",
+            flush=True,
+        )
+        while True:
+            ready, _, _ = select.select([sys.stdin], [], [], 0.25)
+            if not ready:
+                continue
+            key = sys.stdin.read(1).lower()
+            if key == "1":
+                demo.start_recording()
+            elif key == "2":
+                demo.stop_recording()
+            elif key == "3":
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_terminal)
+                demo.process_latest()
+                tty.setcbreak(sys.stdin.fileno())
+            elif key == "q":
+                print("退出演示。", flush=True)
+                break
+    except KeyboardInterrupt:
+        print("\n收到 Ctrl-C，退出演示。", flush=True)
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_terminal)
+        demo.cleanup()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

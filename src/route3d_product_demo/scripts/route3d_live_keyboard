@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""Two-key live Route3D product workflow: 1 starts, 2 stops and saves."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import termios
+import time
+import tty
+from typing import Optional, Sequence, TextIO
+
+import yaml
+
+
+class LiveRouteSession:
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self.workspace = Path(args.workspace).expanduser().resolve()
+        self.results_root = Path(args.results_root).expanduser().resolve()
+        self.results_root.mkdir(parents=True, exist_ok=True)
+        self.session_path: Optional[Path] = None
+        self.recorder: Optional[subprocess.Popen] = None
+        self.skeleton: Optional[subprocess.Popen] = None
+        self.rviz: Optional[subprocess.Popen] = None
+        self.recording = False
+
+    @staticmethod
+    def child_env() -> dict[str, str]:
+        environment = os.environ.copy()
+        environment.setdefault("RCUTILS_COLORIZED_OUTPUT", "1")
+        return environment
+
+    @staticmethod
+    def terminate_process(
+        process: Optional[subprocess.Popen], label: str, timeout: float = 15.0,
+    ) -> None:
+        if process is None or process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGINT)
+            process.wait(timeout=timeout)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=5.0)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        print(f"[{label}] 已停止", flush=True)
+
+    def start_rviz(self) -> None:
+        if self.args.no_rviz or (self.rviz is not None and self.rviz.poll() is None):
+            return
+        try:
+            if self.args.rviz_config:
+                config = Path(self.args.rviz_config).expanduser().resolve()
+            else:
+                prefix = subprocess.check_output(
+                    ["ros2", "pkg", "prefix", "route3d_online_skeleton"],
+                    text=True,
+                    env=self.child_env(),
+                ).strip()
+                config = Path(prefix) / "share" / "route3d_online_skeleton" / \
+                    "rviz" / "online_route_skeleton.rviz"
+            if not config.is_file():
+                raise OSError(f"RViz config does not exist: {config}")
+            self.rviz = subprocess.Popen(
+                ["ros2", "run", "rviz2", "rviz2", "-d", str(config)],
+                cwd=self.workspace,
+                env=self.child_env(),
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print("[RViz] 已启动实时骨架可视化。", flush=True)
+        except (OSError, subprocess.CalledProcessError) as error:
+            print(f"[RViz] 启动失败：{error}", flush=True)
+
+    def start(self) -> None:
+        if self.recording:
+            print("[1] 当前已经在实时构图。", flush=True)
+            return
+        if self.session_path is not None:
+            print("[1] 上一次会话尚未保存，请先按 2。", flush=True)
+            return
+
+        session = Path(tempfile.mkdtemp(prefix="route3d_live_", dir="/tmp"))
+        (session / "live").mkdir(parents=True, exist_ok=True)
+        self.session_path = session
+        live_topo = session / "live" / "topoSingle_live.json"
+        events = session / "events.jsonl"
+
+        skeleton_command = [
+            "ros2", "run", "route3d_online_skeleton", "online_route_skeleton_node",
+            "--ros-args",
+            "-p", f"input_pose_topic:={self.args.synchronized_pose_topic}",
+            "-p", f"output_topo:={live_topo}",
+            "-p", f"events_file:={events}",
+            "-p", f"target_spacing:={self.args.target_spacing}",
+            "-p", f"dedup_distance:={self.args.dedup_distance}",
+            "-p", f"body_height:={self.args.body_height}",
+            "-p", f"relocation_distance:={self.args.relocation_distance}",
+            "-p", f"corner_xy_radius:={self.args.corner_xy_radius}",
+            "-p", f"corner_yaw_degrees:={self.args.corner_yaw_degrees}",
+            "-p", f"corner_min_duration:={self.args.corner_min_duration}",
+            "-p", f"corner_max_z_range:={self.args.corner_max_z_range}",
+            "-p", f"corner_merge_distance:={self.args.corner_merge_distance}",
+            "-p", f"corner_min_separation:={self.args.corner_min_separation}",
+            "-p", f"topo_type:={self.args.topo_type}",
+            "-p", f"topo_acc:={self.args.topo_acc}",
+        ]
+        if self.args.topo_pcd:
+            skeleton_command.extend(["-p", f"topo_pcd:={self.args.topo_pcd}"])
+        recorder_command = [
+            "ros2", "run", "route3d_data_recorder", "route3d_data_recorder_node",
+            "--ros-args",
+            "-p", f"output_directory:={session}",
+            "-p", f"odom_topic:={self.args.odom_topic}",
+            "-p", f"cloud_topic:={self.args.cloud_topic}",
+            "-p", f"synchronized_pose_topic:={self.args.synchronized_pose_topic}",
+            "-p", f"sync_slop_s:={self.args.sync_slop}",
+            "-p", f"queue_size:={self.args.queue_size}",
+            "-p", f"expected_odom_frame:={self.args.expected_odom_frame}",
+            "-p", f"expected_odom_child_frame:={self.args.expected_odom_child_frame}",
+            "-p", f"expected_cloud_frame:={self.args.expected_cloud_frame}",
+        ]
+
+        self.start_rviz()
+        print(f"[1] 启动在线骨架，会话临时目录：{session}", flush=True)
+        self.skeleton = subprocess.Popen(
+            skeleton_command,
+            cwd=self.workspace,
+            env=self.child_env(),
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        # Give DDS discovery a short head start so the first committed frame is also visualized.
+        time.sleep(1.5)
+        if self.skeleton.poll() is not None:
+            print("[1] 在线骨架节点启动失败，请检查上面的日志。", flush=True)
+            self.skeleton = None
+            return
+        self.recorder = subprocess.Popen(
+            recorder_command,
+            cwd=self.workspace,
+            env=self.child_env(),
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        time.sleep(0.3)
+        if self.recorder.poll() is not None:
+            print("[1] 数据记录器启动失败，请检查上面的日志。", flush=True)
+            self.terminate_process(self.skeleton, "在线骨架")
+            self.skeleton = None
+            return
+        self.recording = True
+        print(
+            "[1] 已开始：灰色为实时轨迹，蓝色为普通点，红色为确认拐点，"
+            "橙色为候选拐点。",
+            flush=True,
+        )
+
+    @staticmethod
+    def validate_folder_name(name: str) -> str:
+        name = name.strip()
+        if not name or name in {".", ".."} or Path(name).name != name:
+            raise ValueError("文件夹名称必须是单级目录名，不能包含路径分隔符")
+        return name
+
+    def prompt_save_destination(self, keyboard_stream: TextIO) -> Path:
+        """Keep asking until the user supplies an unused result folder name."""
+        while True:
+            # ros2 launch forwards complete output lines, so print the instruction
+            # before blocking on /dev/tty. This keeps the prompt visible in launch mode.
+            print("输入保存文件夹名称（保存到 data/<name>），然后按回车：", flush=True)
+            print("> ", end="", flush=True)
+            entered_name = keyboard_stream.readline()
+            if entered_name == "":
+                raise ValueError("终端输入已关闭，无法读取保存名称")
+            try:
+                name = self.validate_folder_name(entered_name)
+            except ValueError as error:
+                print(f"[2] 名称不可用：{error}，请重新输入。", flush=True)
+                continue
+            destination = self.results_root / name
+            if destination.exists():
+                print(
+                    f"[2] 结果目录已存在：{destination}，不会覆盖，请重新输入。",
+                    flush=True,
+                )
+                continue
+            return destination
+
+    def run_command(self, command: Sequence[str], label: str) -> None:
+        print(f"[{label}] {' '.join(str(item) for item in command)}", flush=True)
+        result = subprocess.run(
+            list(command),
+            cwd=self.workspace,
+            env=self.child_env(),
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"{label}失败，返回码 {result.returncode}")
+
+    def build_final_outputs(self, session: Path) -> None:
+        graph = session / "route3d_graph.json"
+        geojson = session / "route3d_graph.geojson"
+        targets = session / "route_targets_with_corners.txt"
+        topo = session / "topoSingle_data.json"
+        reduced = session / "selected_route3d_graph.json"
+
+        self.run_command([
+            "ros2", "run", "nav2_route3d", "route_graph_builder_3d",
+            "--map-path", str(session),
+            "--poses-file", "pose.json",
+            "--pcd-dir", "key_frames",
+            "--output-json", str(graph),
+            "--output-geojson", str(geojson),
+        ], "最终构图")
+        self.run_command([
+            "ros2", "run", "route3d_bag_tools", "route_corner_target_generator",
+            "--graph", str(graph),
+            "--output", str(targets),
+            "--output-topo", str(topo),
+            "--target-spacing", str(self.args.target_spacing),
+            "--body-height", str(self.args.body_height),
+            "--dedup-distance", str(self.args.dedup_distance),
+            "--corner-min-separation", str(self.args.corner_min_separation),
+            "--corner-merge-distance", str(self.args.corner_merge_distance),
+            "--corner-max-z-range", str(self.args.corner_max_z_range),
+            "--corner-yaw-xy-radius", str(self.args.corner_xy_radius),
+            "--corner-yaw-angle-deg", str(self.args.corner_yaw_degrees),
+            "--corner-yaw-min-duration", str(self.args.corner_min_duration),
+            "--topo-type", str(self.args.topo_type),
+            "--topo-pcd", self.args.topo_pcd,
+            "--topo-acc", str(self.args.topo_acc),
+        ], "最终拐点与TopoSingle")
+        self.run_command([
+            "ros2", "run", "topo_graph_tools", "nav2_to_topo_single",
+            "--graph", str(graph),
+            "--targets", str(targets),
+            "--output-nav2", str(reduced),
+            "--body-height", str(self.args.body_height),
+        ], "最终可视化子图")
+
+    @staticmethod
+    def topology_summary(path: Path) -> tuple[int, int, int, int]:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        vertices = data.get("vertices", {})
+        edges = data.get("edges", {})
+        corners = sum(
+            bool(vertex.get("meta", {}).get("isCorner", False))
+            for vertex in vertices.values()
+        )
+        return int(data.get("version", 0)), len(vertices), len(edges), corners
+
+    @staticmethod
+    def write_processing_summary(
+        session: Path,
+        live_summary: tuple[int, int, int, int],
+        final_summary: tuple[int, int, int, int],
+    ) -> None:
+        summary = {
+            "status": "complete",
+            "pose_source": "realtime_lio_odom",
+            "live_topology": {
+                "version": live_summary[0],
+                "vertices": live_summary[1],
+                "edges": live_summary[2],
+                "corners": live_summary[3],
+            },
+            "final_topology": {
+                "vertices": final_summary[1],
+                "edges": final_summary[2],
+                "corners": final_summary[3],
+            },
+            "difference": {
+                "vertices": live_summary[1] - final_summary[1],
+                "edges": live_summary[2] - final_summary[2],
+                "corners": live_summary[3] - final_summary[3],
+            },
+            "controller_json": "topoSingle_data.json",
+            "live_json": "live/topoSingle_live.json",
+        }
+        output = session / "processing_summary.json"
+        temporary = output.with_name(output.name + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(summary, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+
+    def stop_and_save(self, keyboard_stream: TextIO) -> None:
+        if not self.recording or self.session_path is None:
+            print("[2] 当前没有正在运行的实时构图会话。", flush=True)
+            return
+        session = self.session_path
+        print("[2] 停止订阅并等待 pose、PCD 和实时骨架完整落盘……", flush=True)
+        self.terminate_process(self.recorder, "记录器", timeout=30.0)
+        self.recorder = None
+        self.terminate_process(self.skeleton, "在线骨架")
+        self.skeleton = None
+        self.recording = False
+
+        try:
+            pose = session / "pose.json"
+            frames = list((session / "key_frames").glob("*.pcd"))
+            live_topo = session / "live" / "topoSingle_live.json"
+            if not pose.exists() or len(frames) < 2 or not live_topo.exists():
+                raise RuntimeError(
+                    f"会话数据不完整：pose={pose.exists()} pcd={len(frames)} "
+                    f"live_topo={live_topo.exists()}")
+
+            # Keep the unmodified real-time trajectory even if pose.json is replaced by an
+            # optimized trajectory in a future product version.
+            shutil.copy2(pose, session / "pose_realtime.json")
+            self.build_final_outputs(session)
+
+            destination = self.prompt_save_destination(keyboard_stream)
+
+            live_summary = self.topology_summary(live_topo)
+            final_summary = self.topology_summary(session / "topoSingle_data.json")
+            self.write_processing_summary(session, live_summary, final_summary)
+            shutil.move(str(session), str(destination))
+            self.session_path = None
+            print(
+                f"[2] 已保存：{destination}\n"
+                f"    实时骨架 version={live_summary[0]} vertices={live_summary[1]} "
+                f"edges={live_summary[2]} corners={live_summary[3]}\n"
+                f"    最终JSON vertices={final_summary[1]} edges={final_summary[2]} "
+                f"corners={final_summary[3]}\n"
+                f"    控制器文件：{destination / 'topoSingle_data.json'}",
+                flush=True,
+            )
+        except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(
+                f"[2] 保存/处理失败：{error}\n原始会话仍保留在：{session}",
+                flush=True,
+            )
+
+    def cleanup(self) -> None:
+        self.terminate_process(self.recorder, "记录器")
+        self.terminate_process(self.skeleton, "在线骨架")
+        self.terminate_process(self.rviz, "RViz")
+        if self.session_path is not None:
+            print(f"未命名会话保留在：{self.session_path}", flush=True)
+
+
+def _yaml_defaults(config_path: Optional[str]) -> dict:
+    if not config_path:
+        return {}
+    path = Path(config_path).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError(f"配置文件不存在：{path}")
+    with path.open("r", encoding="utf-8") as handle:
+        document = yaml.safe_load(handle) or {}
+    root = document.get("route3d_live")
+    if not isinstance(root, dict):
+        raise ValueError("YAML 必须包含 route3d_live 字典")
+    topics = root.get("topics", {})
+    recorder = root.get("recorder", {})
+    skeleton = root.get("skeleton", {})
+    rviz = root.get("rviz", {})
+    for name, value in (
+        ("topics", topics), ("recorder", recorder),
+        ("skeleton", skeleton), ("rviz", rviz),
+    ):
+        if not isinstance(value, dict):
+            raise ValueError(f"route3d_live.{name} 必须是字典")
+    return {
+        "workspace": root.get("workspace", "/home/wei/github_code/topo_graph_ws"),
+        "results_root": root.get(
+            "results_root", "/home/wei/github_code/topo_graph_ws/data"),
+        "odom_topic": topics.get("odom", "/lio_odom"),
+        "cloud_topic": topics.get("cloud", "/cloud_registered_body"),
+        "synchronized_pose_topic": topics.get(
+            "synchronized_pose", "/route3d/synchronized_pose"),
+        "sync_slop": recorder.get("sync_slop", 0.05),
+        "queue_size": recorder.get("queue_size", 100),
+        "expected_odom_frame": recorder.get("expected_odom_frame", ""),
+        "expected_odom_child_frame": recorder.get("expected_odom_child_frame", ""),
+        "expected_cloud_frame": recorder.get("expected_cloud_frame", ""),
+        "target_spacing": skeleton.get("target_spacing", 1.0),
+        "dedup_distance": skeleton.get("dedup_distance", 0.05),
+        "body_height": skeleton.get("body_height", 0.40),
+        "corner_xy_radius": skeleton.get("corner_xy_radius", 0.50),
+        "corner_yaw_degrees": skeleton.get("corner_yaw_degrees", 90.0),
+        "corner_min_duration": skeleton.get("corner_min_duration", 0.50),
+        "corner_max_z_range": skeleton.get("corner_max_z_range", 0.10),
+        "corner_merge_distance": skeleton.get("corner_merge_distance", 0.35),
+        "corner_min_separation": skeleton.get("corner_min_separation", 1.0),
+        "relocation_distance": skeleton.get("relocation_distance", 0.50),
+        "topo_type": skeleton.get("topo_type", 0),
+        "topo_pcd": skeleton.get("topo_pcd", ""),
+        "topo_acc": skeleton.get("topo_acc", 0.50),
+        "rviz_config": rviz.get("config_file", ""),
+        "no_rviz": not bool(rviz.get("enabled", True)),
+    }
+
+
+def parse_args() -> argparse.Namespace:
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config")
+    known, _ = config_parser.parse_known_args()
+    defaults = _yaml_defaults(known.config)
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", help="live_route_product.yaml path")
+    parser.add_argument("--workspace", default=defaults.get(
+        "workspace", "/home/wei/github_code/topo_graph_ws"))
+    parser.add_argument("--results-root", default=defaults.get(
+        "results_root", "/home/wei/github_code/topo_graph_ws/data"))
+    parser.add_argument("--odom-topic", default=defaults.get("odom_topic", "/lio_odom"))
+    parser.add_argument("--cloud-topic", default=defaults.get(
+        "cloud_topic", "/cloud_registered_body"))
+    parser.add_argument("--synchronized-pose-topic", default=defaults.get(
+        "synchronized_pose_topic", "/route3d/synchronized_pose"))
+    parser.add_argument("--sync-slop", type=float, default=defaults.get("sync_slop", 0.05))
+    parser.add_argument("--queue-size", type=int, default=defaults.get("queue_size", 100))
+    parser.add_argument("--expected-odom-frame", default=defaults.get(
+        "expected_odom_frame", ""))
+    parser.add_argument("--expected-odom-child-frame", default=defaults.get(
+        "expected_odom_child_frame", ""))
+    parser.add_argument("--expected-cloud-frame", default=defaults.get(
+        "expected_cloud_frame", ""))
+    parser.add_argument("--target-spacing", type=float, default=defaults.get(
+        "target_spacing", 1.0))
+    parser.add_argument("--dedup-distance", type=float, default=defaults.get(
+        "dedup_distance", 0.05))
+    parser.add_argument("--body-height", type=float, default=defaults.get("body_height", 0.40))
+    parser.add_argument("--corner-xy-radius", type=float, default=defaults.get(
+        "corner_xy_radius", 0.50))
+    parser.add_argument("--corner-yaw-degrees", type=float, default=defaults.get(
+        "corner_yaw_degrees", 90.0))
+    parser.add_argument("--corner-min-duration", type=float, default=defaults.get(
+        "corner_min_duration", 0.50))
+    parser.add_argument("--corner-max-z-range", type=float, default=defaults.get(
+        "corner_max_z_range", 0.10))
+    parser.add_argument("--corner-merge-distance", type=float, default=defaults.get(
+        "corner_merge_distance", 0.35))
+    parser.add_argument("--corner-min-separation", type=float, default=defaults.get(
+        "corner_min_separation", 1.0))
+    parser.add_argument("--relocation-distance", type=float, default=defaults.get(
+        "relocation_distance", 0.50))
+    parser.add_argument("--topo-type", type=int, default=defaults.get("topo_type", 0))
+    parser.add_argument("--topo-pcd", default=defaults.get("topo_pcd", ""))
+    parser.add_argument("--topo-acc", type=float, default=defaults.get("topo_acc", 0.50))
+    parser.add_argument("--rviz-config", default=defaults.get("rviz_config", ""))
+    parser.add_argument("--no-rviz", action="store_true", default=defaults.get(
+        "no_rviz", False))
+    return parser.parse_args()
+
+
+def main() -> int:
+    try:
+        args = parse_args()
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        print(f"配置错误：{error}", file=sys.stderr)
+        return 2
+
+    keyboard_stream = sys.stdin
+    owns_keyboard_stream = False
+    if not keyboard_stream.isatty():
+        try:
+            keyboard_stream = open("/dev/tty", "r", encoding="utf-8", buffering=1)
+            owns_keyboard_stream = True
+        except OSError as error:
+            print(f"无法打开键盘终端 /dev/tty：{error}", file=sys.stderr)
+            return 2
+    session = LiveRouteSession(args)
+    old_terminal = termios.tcgetattr(keyboard_stream)
+    try:
+        tty.setcbreak(keyboard_stream.fileno())
+        print(
+            "\nRoute3D 实时产品流程：\n"
+            "  1  开始记录并实时构建骨架\n"
+            "  2  停止、输入名称并保存全部原始和最终数据\n"
+            "  q  退出（记录中必须先按2）\n",
+            flush=True,
+        )
+        session.start_rviz()
+        while True:
+            ready, _, _ = select.select([keyboard_stream], [], [], 0.25)
+            if not ready:
+                continue
+            key = keyboard_stream.read(1).lower()
+            if key == "1":
+                session.start()
+            elif key == "2":
+                termios.tcsetattr(keyboard_stream, termios.TCSADRAIN, old_terminal)
+                session.stop_and_save(keyboard_stream)
+                tty.setcbreak(keyboard_stream.fileno())
+            elif key == "q":
+                if session.recording:
+                    print("正在记录，先按 2 停止并保存。", flush=True)
+                else:
+                    break
+    except KeyboardInterrupt:
+        print("\n收到 Ctrl-C，正在安全停止子进程。", flush=True)
+    finally:
+        termios.tcsetattr(keyboard_stream, termios.TCSADRAIN, old_terminal)
+        session.cleanup()
+        if owns_keyboard_stream:
+            keyboard_stream.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
