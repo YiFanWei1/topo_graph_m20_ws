@@ -5,8 +5,8 @@
 # transform immediately if another node starts publishing the same parent/child relationship.
 
 route3d_live:
-  workspace: /home/wei/github_code/topo_graph_ws
-  results_root: /home/wei/github_code/topo_graph_ws/data
+  workspace: /home/langyi/workspace/wyf/topo_graph_ws
+  results_root: /home/langyi/workspace/wyf/topo_graph_ws/data
 
   topics:
     odom: /lio_odom

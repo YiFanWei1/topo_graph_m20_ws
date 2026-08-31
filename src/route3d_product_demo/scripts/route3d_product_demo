@@ -258,10 +258,10 @@ class ProductDemo:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--workspace", default="/home/wei/github_code/topo_graph_ws",
+        "--workspace", default="/home/langyi/workspace/wyf/topo_graph_ws",
         help="ROS 2 工作空间路径")
     parser.add_argument(
-        "--results-root", default="/home/wei/github_code/topo_graph_ws/data",
+        "--results-root", default="/home/langyi/workspace/wyf/topo_graph_ws/data",
         help="处理结果的根目录，最终保存到 <root>/<name>")
     parser.add_argument("--odom-topic", default="/lio_odom")
     parser.add_argument("--cloud-topic", default="/cloud_registered_body")

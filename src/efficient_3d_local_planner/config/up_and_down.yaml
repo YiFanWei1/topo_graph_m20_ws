@@ -27,15 +27,15 @@ local_voxel_mapper:
     map.occupied_threshold: 0.40               # 判定为硬障碍的 log-odds 阈值
     map.hit_confirmation_count: 1              # 连续命中达到该次数才建立硬障碍；1 表示单帧确认
     map.raycast_enabled: true                     # 是否用点云射线穿过区域更新空闲栅格
-    map.decay_enabled: false                    # 是否按最后命中时间被动衰减旧障碍
+    map.decay_enabled: true                    # 是否按最后命中时间被动衰减旧障碍
     map.decay_start: 0.40                      # 最后命中后先保持 0.40 s，允许静态障碍短暂漏检而不闪烁
     map.decay_rate: 6.5                        # 饱和 log-odds 约在最后命中后 0.50 s 降到硬障碍阈值以下
-    map.decay_front_only: false                 # 仅对机体前方旧障碍做时间衰减，后方地图保留
+    map.decay_front_only: true                 # 仅对机体前方旧障碍做时间衰减，后方地图保留
     map.decay_front_fov_deg: 120.0    # FOV        # 前向衰减扇区总角度，120 表示左右各 60 度
     map.ray_step_factor: 0.90                  # 射线采样步长相对栅格分辨率的比例
     robot.cylinder_radius: 0.2                 # 单个机体碰撞圆柱的 XY 半径，单位 m
-    robot.soft_clearance: 0.3        #          # 物理碰撞层外的可穿越软代价带，参考 SCAN preferred_clearance
-    map.obstacles_inflation_z_down: 0.10   #    # 障碍物向下膨胀距离，单位 m
+    robot.soft_clearance: 0.4        #          # 物理碰撞层外的可穿越软代价带，参考 SCAN preferred_clearance
+    map.obstacles_inflation_z_down: 0.40   #    # 障碍物向下膨胀距离，单位 m
     map.obstacles_inflation_z_up: 0.0         # 障碍物向上膨胀距离，单位 m
     extrinsic.base_to_lidar_x: 0.15            # 雷达射线起点相对机体的 X 平移，单位 m
     extrinsic.base_to_lidar_y: 0.0             # 雷达相对机体的 Y 平移，单位 m
@@ -139,6 +139,6 @@ local_path_follower:
     controller.max_linear_acceleration: 0.60   # 最大平面线加速度，单位 m/s^2
     controller.max_yaw_acceleration: 1.50      # 提高转向命令的跟随速度，单位 rad/s^2
     controller.minimum_yaw_speed_enabled: false # 是否启用底盘最小角速度死区补偿；关闭时保持原逻辑
-    controller.minimum_yaw_speed: 0.30         # 开启后非零角速度的最小绝对值，正反方向均生效，单位 rad/s
+    controller.minimum_yaw_speed: 0.0         # 开启后非零角速度的最小绝对值，正反方向均生效，单位 rad/s
     controller.odometry_timeout: 10.00          # 里程计超过该时间未更新则停车，单位 s
     controller.path_timeout: 10.00              # 局部路径超过该时间未更新则停车，单位 s

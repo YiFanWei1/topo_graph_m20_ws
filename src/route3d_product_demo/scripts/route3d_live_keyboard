@@ -380,9 +380,9 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
         if not isinstance(value, dict):
             raise ValueError(f"route3d_live.{name} 必须是字典")
     return {
-        "workspace": root.get("workspace", "/home/wei/github_code/topo_graph_ws"),
+        "workspace": root.get("workspace", "/home/langyi/workspace/wyf/topo_graph_ws"),
         "results_root": root.get(
-            "results_root", "/home/wei/github_code/topo_graph_ws/data"),
+            "results_root", "/home/langyi/workspace/wyf/topo_graph_ws/data"),
         "odom_topic": topics.get("odom", "/lio_odom"),
         "cloud_topic": topics.get("cloud", "/cloud_registered_body"),
         "synchronized_pose_topic": topics.get(
@@ -419,9 +419,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", help="live_route_product.yaml path")
     parser.add_argument("--workspace", default=defaults.get(
-        "workspace", "/home/wei/github_code/topo_graph_ws"))
+        "workspace", "/home/langyi/workspace/wyf/topo_graph_ws"))
     parser.add_argument("--results-root", default=defaults.get(
-        "results_root", "/home/wei/github_code/topo_graph_ws/data"))
+        "results_root", "/home/langyi/workspace/wyf/topo_graph_ws/data"))
     parser.add_argument("--odom-topic", default=defaults.get("odom_topic", "/lio_odom"))
     parser.add_argument("--cloud-topic", default=defaults.get(
         "cloud_topic", "/cloud_registered_body"))

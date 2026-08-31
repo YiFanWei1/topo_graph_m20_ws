@@ -22,7 +22,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    workspace = "/home/wei/github_code/topo_graph_ws"
+    workspace = "/home/langyi/workspace/wyf/topo_graph_ws"
     data_root = os.path.join(workspace, "data", "regu")
     tools_share = get_package_share_directory("route3d_bag_tools")
     route_share = get_package_share_directory("nav2_route3d")

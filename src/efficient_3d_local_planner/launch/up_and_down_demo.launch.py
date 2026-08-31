@@ -16,7 +16,7 @@ def generate_launch_description():
     default_config = os.path.join(share, "config", "up_and_down.yaml")
     # 产品运行直接读取在线/离线流程最终生成的 topoSingle 点边文件。
     default_route_file = (
-        "/home/wei/github_code/topo_graph_ws/data/regu/"
+        "/home/langyi/workspace/wyf/topo_graph_ws/data/regu/"
         "topoSingle_data_generated.json"
     )
     default_rviz = os.path.join(share, "rviz", "up_and_down.rviz")
@@ -77,16 +77,16 @@ def generate_launch_description():
             "normal_arrival_tolerance", default_value="2.80",
             description="Pass-through tolerance for ordinary route targets, in metres"),
         DeclareLaunchArgument(
-            "corner_arrival_tolerance", default_value="0.20",
+            "corner_arrival_tolerance", default_value="0.3",
             description="Strict 3-D arrival tolerance for detected corners, in metres"),
         DeclareLaunchArgument(
-            "goal_arrival_tolerance", default_value="0.15",
+            "goal_arrival_tolerance", default_value="0.3",
             description="Strict 3-D arrival tolerance for the selected final goal"),
         DeclareLaunchArgument(
             "finish_distance", default_value="0.10",
             description="Local follower finish distance; keep below final-goal tolerance"),
         DeclareLaunchArgument(
-            "body_height", default_value="0.40",
+            "body_height", default_value="0.2",
             description="Height added to ground targets for body-centre planning"),
         DeclareLaunchArgument(
             "normal_marker_diameter", default_value="0.45",
