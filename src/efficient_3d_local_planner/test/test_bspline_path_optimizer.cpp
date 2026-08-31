@@ -19,7 +19,6 @@ GridSnapshot emptyMap()
   map.resolution = 0.1;
   map.dimensions = Eigen::Vector3i(50, 50, 10);
   map.hard.assign(map.cellCount(), 0U);
-  map.footprint_hard.assign(map.cellCount(), 0U);
   map.soft_cost.assign(map.cellCount(), 0U);
   return map;
 }
@@ -69,7 +68,7 @@ TEST(BsplinePathOptimizer, SoftRepulsionMovesMiddleAwayFromWall)
   for (double x = 0.65; x <= 1.35; x += map.resolution) {
     const int index = map.indexAt(Vector3d(x, 0.25, 0.0));
     ASSERT_GE(index, 0);
-    map.footprint_hard[static_cast<std::size_t>(index)] = 1U;
+    map.hard[static_cast<std::size_t>(index)] = 1U;
   }
 
   BsplinePathOptimizer::Config config;
@@ -102,7 +101,7 @@ TEST(BsplinePathOptimizer, NarrowRetryAcceptsHardFreePathWithReducedClearance)
   for (double x = -0.4; x <= 2.4; x += map.resolution) {
     const int index = map.indexAt(Vector3d(x, 0.20, 0.0));
     ASSERT_GE(index, 0);
-    map.footprint_hard[static_cast<std::size_t>(index)] = 1U;
+    map.hard[static_cast<std::size_t>(index)] = 1U;
   }
   const std::vector<Vector3d> reference{
     Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(2.0, 0.0, 0.0)};
@@ -135,7 +134,7 @@ TEST(BsplinePathOptimizer, ReducedClearanceNeverAllowsHardCollision)
   for (double x = -0.4; x <= 2.4; x += map.resolution) {
     const int index = map.indexAt(Vector3d(x, 0.0, 0.0));
     ASSERT_GE(index, 0);
-    map.footprint_hard[static_cast<std::size_t>(index)] = 1U;
+    map.hard[static_cast<std::size_t>(index)] = 1U;
   }
   BsplinePathOptimizer::Config config;
   config.minimum_acceptable_clearance = 0.0;

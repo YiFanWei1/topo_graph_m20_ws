@@ -21,7 +21,6 @@ namespace
 
 struct ReferenceInflation
 {
-  std::unordered_set<std::uint32_t> footprint;
   std::unordered_map<std::uint32_t, std::uint8_t> soft;
 };
 
@@ -30,11 +29,7 @@ ReferenceInflation buildReferenceInflation(
 {
   ReferenceInflation result;
   const int maximum_xy = static_cast<int>(std::ceil(
-      (config.cylinder_radius + config.soft_clearance) / config.resolution));
-  const int down = static_cast<int>(std::ceil(
-      config.obstacles_inflation_z_down / config.resolution));
-  const int up = static_cast<int>(std::ceil(
-      config.obstacles_inflation_z_up / config.resolution));
+      config.soft_inflation_radius / config.resolution));
   const auto inside = [&layers](const int x, const int y, const int z) {
       return x >= 0 && y >= 0 && z >= 0 && x < layers.dimensions.x() &&
              y < layers.dimensions.y() && z < layers.dimensions.z();
@@ -44,8 +39,8 @@ ReferenceInflation buildReferenceInflation(
         (z * layers.dimensions.y() + y) * layers.dimensions.x() + x);
     };
 
-  // 这是优化前 buildLayers() 的直接参考实现，用硬障碍索引恢复局部坐标后
-  // 重新执行原来的三重循环，专门用于验证新实现没有改变地图语义。
+  const std::unordered_set<std::uint32_t> hard(layers.hard.begin(), layers.hard.end());
+  // 用 hard 索引恢复局部坐标后直接构造单一 soft 膨胀，验证优化实现保持两层语义。
   for (const std::uint32_t obstacle_index : layers.hard) {
     const int obstacle_x = static_cast<int>(obstacle_index % layers.dimensions.x());
     const int yz = static_cast<int>(obstacle_index / layers.dimensions.x());
@@ -54,44 +49,26 @@ ReferenceInflation buildReferenceInflation(
     for (int dx = -maximum_xy; dx <= maximum_xy; ++dx) {
       for (int dy = -maximum_xy; dy <= maximum_xy; ++dy) {
         const double radial = config.resolution * std::hypot(dx, dy);
-        const bool footprint =
-          radial <= config.cylinder_radius + 0.5 * config.resolution;
-        const double clearance = radial - config.cylinder_radius;
-        const bool soft = !footprint && clearance < config.soft_clearance;
-        if (!footprint && !soft) {
+        if (config.soft_inflation_radius <= 1e-9 ||
+          radial > config.soft_inflation_radius + 0.5 * config.resolution)
+        {
           continue;
         }
-        std::uint8_t cost = 0U;
-        if (soft && config.soft_clearance > 1e-9) {
-          const double normalized = std::clamp(
-            (config.soft_clearance - clearance) / config.soft_clearance, 0.0, 1.0);
-          cost = static_cast<std::uint8_t>(
-            std::clamp(std::lround(254.0 * normalized * normalized), 1L, 254L));
+        const double normalized = std::clamp(
+          (config.soft_inflation_radius - radial) / config.soft_inflation_radius, 0.0, 1.0);
+        const std::uint8_t cost = static_cast<std::uint8_t>(
+          std::clamp(std::lround(254.0 * normalized * normalized), 1L, 254L));
+        const int x = obstacle_x + dx;
+        const int y = obstacle_y + dy;
+        const int z = obstacle_z;
+        if (!inside(x, y, z)) {
+          continue;
         }
-        for (int dz = -down; dz <= up; ++dz) {
-          const double vertical = dz * config.resolution;
-          const double half_voxel = 0.5 * config.resolution;
-          if (vertical < -config.obstacles_inflation_z_down - half_voxel ||
-            vertical > config.obstacles_inflation_z_up + half_voxel)
-          {
-            continue;
-          }
-          const int x = obstacle_x + dx;
-          const int y = obstacle_y + dy;
-          const int z = obstacle_z + dz;
-          if (!inside(x, y, z)) {
-            continue;
-          }
-          const std::uint32_t index = linear(x, y, z);
-          if (footprint) {
-            result.footprint.insert(index);
-            result.soft.erase(index);
-          } else if (result.footprint.count(index) == 0U) {
-            auto [iterator, inserted] = result.soft.try_emplace(index, cost);
-            if (!inserted) {
-              iterator->second = std::max(iterator->second, cost);
-            }
-          }
+        const std::uint32_t index = linear(x, y, z);
+        if (hard.count(index) != 0U) {continue;}
+        auto [iterator, inserted] = result.soft.try_emplace(index, cost);
+        if (!inserted) {
+          iterator->second = std::max(iterator->second, cost);
         }
       }
     }
@@ -101,13 +78,13 @@ ReferenceInflation buildReferenceInflation(
 
 }  // namespace
 
-TEST(RollingVoxelMap, RequiresConfirmedHitAndBuildsThreeLayers)
+TEST(RollingVoxelMap, RequiresConfirmedHitAndBuildsTwoLayers)
 {
   RollingVoxelMap::Config config;
   config.resolution = 0.10;
   config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
-  config.cylinder_radius = 0.20;
-  config.soft_clearance = 0.20;
+  config.soft_inflation_radius = 0.40;
+  config.hard_inflation_z_down = 0.00;
   RollingVoxelMap map(config);
 
   const auto update = map.update(
@@ -120,12 +97,52 @@ TEST(RollingVoxelMap, RequiresConfirmedHitAndBuildsThreeLayers)
   const auto layers = map.buildLayers();
   EXPECT_EQ(update.unique_endpoints, 1U);
   EXPECT_EQ(layers.hard.size(), 1U);
-  EXPECT_GT(layers.footprint_hard.size(), layers.hard.size());
   EXPECT_FALSE(layers.soft_indices.empty());
   EXPECT_EQ(layers.soft_indices.size(), layers.soft_costs.size());
   EXPECT_TRUE(std::all_of(
       layers.soft_costs.begin(), layers.soft_costs.end(),
       [](const std::uint8_t value) {return value > 0U && value < 255U;}));
+  EXPECT_EQ(
+    std::count(layers.soft_indices.begin(), layers.soft_indices.end(), layers.hard.front()), 0);
+}
+
+TEST(RollingVoxelMap, SoftCostIsGradedOnlyByHorizontalDistanceFromHard)
+{
+  RollingVoxelMap::Config config;
+  config.resolution = 0.10;
+  config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
+  config.soft_inflation_radius = 0.60;
+  config.hard_inflation_z_down = 0.00;
+  config.hard_inflation_z_up = 0.00;
+  config.hit_confirmation_count = 1;
+  config.raycast_enabled = false;
+  config.decay_enabled = false;
+  RollingVoxelMap map(config);
+  map.update(
+    Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+    {Eigen::Vector3d(0.5, 0.0, 0.0)}, 1.0);
+  const auto layers = map.buildLayers();
+  ASSERT_EQ(layers.hard.size(), 1U);
+
+  std::unordered_map<std::uint32_t, std::uint8_t> soft;
+  for (std::size_t i = 0; i < layers.soft_indices.size(); ++i) {
+    soft.emplace(layers.soft_indices[i], layers.soft_costs[i]);
+  }
+  const std::uint32_t hard = layers.hard.front();
+  const int hard_x = static_cast<int>(hard % layers.dimensions.x());
+  const int hard_yz = static_cast<int>(hard / layers.dimensions.x());
+  const int hard_y = hard_yz % layers.dimensions.y();
+  const int hard_z = hard_yz / layers.dimensions.y();
+  const auto linear = [&layers](const int x, const int y, const int z) {
+      return static_cast<std::uint32_t>(
+        (z * layers.dimensions.y() + y) * layers.dimensions.x() + x);
+    };
+  const std::uint32_t near = linear(hard_x + 1, hard_y, hard_z);
+  const std::uint32_t far = linear(hard_x + 4, hard_y, hard_z);
+  ASSERT_NE(soft.count(near), 0U);
+  ASSERT_NE(soft.count(far), 0U);
+  EXPECT_GT(soft.at(near), soft.at(far));
+  EXPECT_EQ(soft.count(linear(hard_x + 1, hard_y, hard_z + 1)), 0U);
 }
 
 TEST(SensorRangeBox, AcceptsOnlyPointsBetweenInnerAndOuterBoxes)
@@ -193,6 +210,7 @@ TEST(RollingVoxelMap, DisabledRaycastDoesNotClearTraversedObstacle)
   RollingVoxelMap::Config config;
   config.resolution = 0.10;
   config.size = Eigen::Vector3d(6.0, 4.0, 2.0);
+  config.hard_inflation_z_down = 0.00;
   config.raycast_enabled = false;
   config.decay_enabled = false;
   config.hit_confirmation_count = 1;
@@ -213,6 +231,7 @@ TEST(RollingVoxelMap, FrontOnlyDecayRetainsRearUntilBodyTurnsTowardIt)
   RollingVoxelMap::Config config;
   config.resolution = 0.10;
   config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
+  config.hard_inflation_z_down = 0.00;
   config.decay_start = 0.10;
   config.decay_rate = 10.0;
   config.decay_front_only = true;
@@ -244,6 +263,7 @@ TEST(RollingVoxelMap, OmnidirectionalDecayCanStillBeSelected)
   RollingVoxelMap::Config config;
   config.resolution = 0.10;
   config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
+  config.hard_inflation_z_down = 0.00;
   config.decay_start = 0.10;
   config.decay_rate = 10.0;
   config.decay_front_only = false;
@@ -266,6 +286,7 @@ TEST(RollingVoxelMap, FrontDecayUsesConfiguredAngularSector)
   RollingVoxelMap::Config config;
   config.resolution = 0.10;
   config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
+  config.hard_inflation_z_down = 0.00;
   config.decay_start = 0.10;
   config.decay_rate = 10.0;
   config.decay_front_only = true;
@@ -311,6 +332,7 @@ TEST(RollingVoxelMap, BodyExclusionClearsPreviouslyOccupiedVoxels)
   RollingVoxelMap::Config config;
   config.resolution = 0.10;
   config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
+  config.hard_inflation_z_down = 0.00;
   config.hit_confirmation_count = 1;
   RollingVoxelMap map(config);
   map.update(
@@ -329,53 +351,56 @@ TEST(RollingVoxelMap, BodyExclusionClearsPreviouslyOccupiedVoxels)
 TEST(RollingVoxelMap, VerticalInflationUsesIndependentMetricLimits)
 {
   RollingVoxelMap::Config config;
-  config.resolution = 0.15;
-  config.size = Eigen::Vector3d(4.8, 4.8, 2.4);
-  config.cylinder_radius = 0.25;
-  config.obstacles_inflation_z_down = 0.20;
-  config.obstacles_inflation_z_up = 0.20;
+  config.resolution = 0.10;
+  config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
+  config.soft_inflation_radius = 0.25;
+  config.hard_inflation_z_down = 0.40;
+  config.hard_inflation_z_up = 0.10;
   config.hit_confirmation_count = 1;
+  config.raycast_enabled = false;
+  config.decay_enabled = false;
   RollingVoxelMap map(config);
+  const Eigen::Vector3d obstacle(0.55, 0.05, 0.05);
   map.update(
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-    {Eigen::Vector3d(1.0, 0.0, 0.0)}, 1.0);
+    {obstacle}, 1.0);
   const auto layers = map.buildLayers();
   const Eigen::Vector3d origin = map.origin(layers);
-  const Eigen::Vector3i local =
-    ((Eigen::Vector3d(1.05, 0.075, 0.375) - origin) / config.resolution)
-    .array().floor().cast<int>();
-  const std::uint32_t index = static_cast<std::uint32_t>(
-    (local.z() * layers.dimensions.y() + local.y()) * layers.dimensions.x() + local.x());
-  EXPECT_EQ(
-    std::count(layers.footprint_hard.begin(), layers.footprint_hard.end(), index), 0);
+  const Eigen::Vector3i raw_local =
+    ((obstacle - origin) / config.resolution).array().floor().cast<int>();
+  const auto linear = [&layers](const Eigen::Vector3i & local) {
+      return static_cast<std::uint32_t>(
+        (local.z() * layers.dimensions.y() + local.y()) * layers.dimensions.x() + local.x());
+    };
+  const std::unordered_set<std::uint32_t> hard(layers.hard.begin(), layers.hard.end());
+
+  EXPECT_NE(hard.count(linear(raw_local)), 0U);
+  EXPECT_NE(hard.count(linear(raw_local + Eigen::Vector3i(0, 0, -4))), 0U);
+  EXPECT_NE(hard.count(linear(raw_local + Eigen::Vector3i(0, 0, 1))), 0U);
+  EXPECT_EQ(hard.count(linear(raw_local + Eigen::Vector3i(0, 0, -5))), 0U);
+  EXPECT_EQ(hard.count(linear(raw_local + Eigen::Vector3i(0, 0, 2))), 0U);
 }
 
-TEST(RollingVoxelMap, OptimizedLayerAssemblyMatchesOriginalInflationRules)
+TEST(RollingVoxelMap, OptimizedLayerAssemblyMatchesSingleSoftInflationRules)
 {
   RollingVoxelMap::Config config;
   config.resolution = 0.10;
   config.size = Eigen::Vector3d(2.0, 2.0, 1.0);
-  config.cylinder_radius = 0.20;
-  config.soft_clearance = 0.225;
-  config.obstacles_inflation_z_down = 0.15;
-  config.obstacles_inflation_z_up = 0.10;
+  config.soft_inflation_radius = 0.425;
+  config.hard_inflation_z_down = 0.15;
+  config.hard_inflation_z_up = 0.10;
   config.hit_confirmation_count = 1;
   config.raycast_enabled = false;
   config.decay_enabled = false;
   RollingVoxelMap map(config);
 
-  // 相邻障碍用于覆盖硬/软重叠，窗口边缘障碍用于覆盖边界裁剪。
+  // 相邻障碍用于覆盖 soft 代价重叠，窗口边缘障碍用于覆盖边界裁剪。
   map.update(
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     {Eigen::Vector3d(0.05, 0.05, 0.05), Eigen::Vector3d(0.25, 0.05, 0.05),
       Eigen::Vector3d(0.85, 0.85, 0.35)}, 1.0);
   const auto layers = map.buildLayers();
   const auto reference = buildReferenceInflation(layers, config);
-
-  const std::unordered_set<std::uint32_t> actual_footprint(
-    layers.footprint_hard.begin(), layers.footprint_hard.end());
-  ASSERT_EQ(actual_footprint.size(), layers.footprint_hard.size());
-  EXPECT_EQ(actual_footprint, reference.footprint);
 
   std::unordered_map<std::uint32_t, std::uint8_t> actual_soft;
   ASSERT_EQ(layers.soft_indices.size(), layers.soft_costs.size());
@@ -384,7 +409,7 @@ TEST(RollingVoxelMap, OptimizedLayerAssemblyMatchesOriginalInflationRules)
   }
   ASSERT_EQ(actual_soft.size(), layers.soft_indices.size());
   EXPECT_EQ(actual_soft, reference.soft);
-  for (const auto index : actual_footprint) {
+  for (const auto index : layers.hard) {
     EXPECT_EQ(actual_soft.count(index), 0U);
   }
 }

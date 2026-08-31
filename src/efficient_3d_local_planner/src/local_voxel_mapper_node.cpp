@@ -39,7 +39,7 @@ namespace efficient_3d_local_planner
 //       -> 按消息时间戳寻找最近里程计
 //       -> 将机体系点云变换到 camera_init
 //       -> 射线清空 + 端点占据更新 + 时间衰减
-//       -> 构建原始硬障碍、机器人 footprint 硬膨胀、软安全代价三层地图
+//       -> 构建原始 hard 与按水平距离分级的单一 soft 膨胀两层地图
 //       -> 发布给 A* 规划器，并按需发布 RViz 点云。
 //
 // 性能设计的关键是“接收和计算解耦”：DDS 订阅回调只把消息放入内存队列，真正的
@@ -81,14 +81,15 @@ public:
     config.decay_front_only = declare_parameter<bool>("map.decay_front_only", true);
     config.decay_front_fov_deg = declare_parameter<double>("map.decay_front_fov_deg", 180.0);
     config.ray_step_factor = declare_parameter<double>("map.ray_step_factor", 0.90);
-    // cylinder_radius 不是障碍自身膨胀，而是机器人单个碰撞圆柱半径。buildLayers()
-    // 先以该半径生成 footprint_hard，再从其外边界向外生成 soft_clearance 代价带。
-    config.cylinder_radius = declare_parameter<double>("robot.cylinder_radius", 0.25);
-    config.obstacles_inflation_z_down = declare_parameter<double>(
-      "map.obstacles_inflation_z_down", 0.10);
-    config.obstacles_inflation_z_up = declare_parameter<double>(
-      "map.obstacles_inflation_z_up", 0.00);
-    config.soft_clearance = declare_parameter<double>("robot.soft_clearance", 0.225);
+    // hard 外只构建一个按水平距离分级的 soft_cost 层。该半径覆盖旧版两段膨胀的
+    // 总范围，soft 内部不再存在额外的硬分界。
+    config.soft_inflation_radius = declare_parameter<double>(
+      "map.soft_inflation_radius", 0.475);
+    // hard 只允许沿 Z 膨胀，向上/向下距离分别开放，默认向下覆盖机身以下 0.40m。
+    config.hard_inflation_z_down = declare_parameter<double>(
+      "map.hard_inflation_z_down", 0.40);
+    config.hard_inflation_z_up = declare_parameter<double>(
+      "map.hard_inflation_z_up", 0.00);
     // 启动阶段一次性验证参数并预计算膨胀偏移模板；运行过程中不动态重建地图配置。
     validate(config);
     map_ = std::make_unique<RollingVoxelMap>(config);
@@ -170,17 +171,14 @@ public:
       std::max(sync_queue, odometry_qos_depth_));
 
     // -------- 地图发布 --------
-    // /grid 是规划器实际消费的紧凑索引消息，始终发布；三个 PointCloud2 主要用于 RViz，
+    // /grid 是规划器实际消费的紧凑索引消息，始终发布；两个 PointCloud2 主要用于 RViz，
     // processFrame() 仅在确实有订阅者时构造它们，避免无人观察时浪费序列化 CPU。
     grid_pub_ = create_publisher<efficient_3d_local_planner_msgs::msg::VoxelGrid>(
       "/local_voxel_map/grid", rclcpp::SensorDataQoS().keep_last(1));
-    // hard_occupied：未经机器人半径膨胀的原始占据端点。
+    // hard_occupied：原始占据仅沿 Z 膨胀后的不可通行体素，不包含 XY footprint 膨胀。
     hard_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       "/local_voxel_map/hard_occupied", rclcpp::SensorDataQoS().keep_last(1));
-    // footprint_hard：对原始障碍按机器人碰撞圆柱半径膨胀后的绝对禁止区域。
-    footprint_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-      "/local_voxel_map/footprint_hard", rclcpp::SensorDataQoS().keep_last(1));
-    // soft_cost：从 footprint_hard 外缘继续向外延伸的可穿越代价带，值越大越近障碍。
+    // soft_cost：从 hard 向外一次性膨胀，值按 XY 到 hard 的距离分级，越近代价越大。
     soft_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       "/local_voxel_map/soft_cost", rclcpp::SensorDataQoS().keep_last(1));
     bounds_pub_ = create_publisher<visualization_msgs::msg::Marker>(
@@ -265,8 +263,8 @@ private:
       config.log_hit <= 0.0 || config.log_miss >= 0.0 || config.log_min >= config.log_max ||
       config.hit_confirmation_count < 1 ||
       config.decay_front_fov_deg <= 0.0 || config.decay_front_fov_deg > 180.0 ||
-      config.cylinder_radius <= 0.0 || config.soft_clearance < 0.0 ||
-      config.obstacles_inflation_z_down < 0.0 || config.obstacles_inflation_z_up < 0.0)
+      config.soft_inflation_radius < 0.0 ||
+      config.hard_inflation_z_down < 0.0 || config.hard_inflation_z_up < 0.0)
     {
       throw std::invalid_argument("invalid voxel-map parameters");
     }
@@ -424,10 +422,9 @@ private:
     message.size_y = static_cast<std::uint32_t>(layers.dimensions.y());
     message.size_z = static_cast<std::uint32_t>(layers.dimensions.z());
     message.revision = ++revision_;
-    // 三层含义不能混淆：hard 是传感器占据；footprint_hard 已含机器人圆柱半径；
-    // soft 是 footprint_hard 外的额外安全距离代价。
+    // 两层含义：hard 是传感器占据沿 Z 膨胀后的绝对禁止层；soft 是 hard 外按水平距离分级的
+    // 单一膨胀代价层，允许 A* 在放宽阶段以附加代价穿越。
     message.hard_occupied_indices = layers.hard;
-    message.footprint_hard_indices = layers.footprint_hard;
     message.soft_indices = layers.soft_indices;
     message.soft_cost_values = layers.soft_costs;
     grid_pub_->publish(message);
@@ -796,7 +793,6 @@ private:
     add("touched_voxels", update.touched_voxels);
     add("stored_voxels", update.stored_voxels);
     add("hard_voxels", layers.hard.size());
-    add("footprint_voxels", layers.footprint_hard.size());
     add("soft_voxels", layers.soft_indices.size());
     // last_* 观察最新一帧尖峰，average_* 观察节点启动以来所有成功帧的累计均值。
     add("last_sync_error_ms", timing.synchronization_error_ms);
@@ -861,7 +857,7 @@ private:
         std::chrono::duration<double, std::milli>(update_end - transform_end).count();
       timing.raycast_ms = update.raycast_ms;
 
-      // 从当前占据表构建三层稠密索引。膨胀偏移已在地图构造时预计算，避免每帧重复
+      // 从当前占据表构建 hard + soft 两层稠密索引。膨胀偏移已在地图构造时预计算，避免每帧重复
       // hypot 和代价函数计算。
       const auto layers = map_->buildLayers();
       const auto layers_end = std::chrono::steady_clock::now();
@@ -872,9 +868,6 @@ private:
       publishGrid(layers, cloud->header.stamp);
       if (hard_pub_->get_subscription_count() > 0U) {
         hard_pub_->publish(makeCloud(layers.hard, layers, cloud->header.stamp));
-      }
-      if (footprint_pub_->get_subscription_count() > 0U) {
-        footprint_pub_->publish(makeCloud(layers.footprint_hard, layers, cloud->header.stamp));
       }
       if (soft_pub_->get_subscription_count() > 0U) {
         soft_pub_->publish(makeSoftCloud(layers, cloud->header.stamp));
@@ -950,7 +943,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Publisher<efficient_3d_local_planner_msgs::msg::VoxelGrid>::SharedPtr grid_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr hard_pub_, footprint_pub_, soft_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr hard_pub_, soft_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr bounds_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr range_bounds_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr body_exclusion_bounds_pub_;

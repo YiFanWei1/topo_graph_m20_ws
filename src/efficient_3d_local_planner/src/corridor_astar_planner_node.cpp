@@ -32,7 +32,7 @@ namespace efficient_3d_local_planner
 {
 
 // 走廊约束三维 A* 规划节点的数据流：
-//   活动全局路径（地面高度） + 机器人里程计 + 三层局部体素地图
+//   活动全局路径（地面高度） + 机器人里程计 + hard/soft 两层局部体素地图
 //       -> 坐标变换并把地面路径抬高到机身中心
 //       -> 截取有限前视距离的三维 guide
 //       -> 空旷时严格直连，否则执行严格/放宽两阶段 Guided A*
@@ -129,7 +129,7 @@ public:
       "optimization.max_clearance_repair_iterations", 25);
     optimization_config.max_step = declare_parameter<double>("optimization.max_step", 0.04);
     // lambda_* 是四类目标函数的权重，不是米制距离。clearance_distance 才是期望离开
-    // footprint_hard 的额外距离；minimum_acceptable_clearance 是成功验收硬门限。
+    // hard 的额外距离；minimum_acceptable_clearance 是成功验收硬门限。
     optimization_config.lambda_smooth = declare_parameter<double>(
       "optimization.lambda_smooth", 1.0);
     optimization_config.lambda_collision = declare_parameter<double>(
@@ -264,7 +264,7 @@ private:
     const efficient_3d_local_planner_msgs::msg::VoxelGrid & message)
   {
     // 线上的 VoxelGrid 用稀疏索引节省带宽；A* 高频随机查询需要 O(1)，因此回调中把
-    // 三层索引展开为等长稠密 byte 数组。越界索引被忽略，随后 valid() 复查结构尺寸。
+    // hard/soft 两层索引展开为等长稠密 byte 数组。越界索引被忽略，随后 valid() 复查结构尺寸。
     auto snapshot = std::make_shared<GridSnapshot>();
     snapshot->origin = Eigen::Vector3d(message.origin.x, message.origin.y, message.origin.z);
     snapshot->resolution = message.resolution;
@@ -274,15 +274,10 @@ private:
     snapshot->revision = message.revision;
     const std::size_t count = snapshot->cellCount();
     snapshot->hard.assign(count, 0U);
-    snapshot->footprint_hard.assign(count, 0U);
     snapshot->soft_cost.assign(count, 0U);
-    // hard 仅用于诊断/距离计算；实际物理碰撞查询使用已经包含机器人半径的
-    // footprint_hard。soft_cost 的 1~254 表示从安全带外缘到硬层边缘逐渐增大的代价。
+    // hard 是唯一绝对禁止层；soft_cost 的 1~254 表示从膨胀外缘到 hard 逐渐增大的代价。
     for (const auto index : message.hard_occupied_indices) {
       if (index < count) {snapshot->hard[index] = 1U;}
-    }
-    for (const auto index : message.footprint_hard_indices) {
-      if (index < count) {snapshot->footprint_hard[index] = 1U;}
     }
     const std::size_t soft_count = std::min(
       message.soft_indices.size(), message.soft_cost_values.size());
@@ -421,12 +416,11 @@ private:
     RCLCPP_DEBUG_THROTTLE(
       get_logger(), *get_clock(), 1000,
       "map_update rev=%lu generation=%lu current_path_id=%lu path_points=%zu "
-      "hard=%zu footprint_hard=%zu soft=%zu callback_ms=%.2f invalidations=%lu",
+      "hard=%zu soft=%zu callback_ms=%.2f invalidations=%lu",
       static_cast<unsigned long>(message->revision),
       static_cast<unsigned long>(generation_.load()),
       static_cast<unsigned long>(path_id_to_validate), path_to_validate.size(),
-      message->hard_occupied_indices.size(), message->footprint_hard_indices.size(),
-      message->soft_indices.size(), callback_ms,
+      message->hard_occupied_indices.size(), message->soft_indices.size(), callback_ms,
       static_cast<unsigned long>(path_invalidations_.load()));
     // 不论旧路径是否仍有效，新地图都可能改善或恶化搜索结果，因此唤醒一次规划线程。
     condition_.notify_one();
@@ -702,7 +696,7 @@ private:
     add("rejected_diagonal_corner", result.rejected_diagonal_corner);
     add("rejected_hard_collision", result.rejected_hard_collision);
     add("rejected_soft_layer", result.rejected_soft_layer);
-    // 前/后圆柱分别报告起点和目标是否落入 footprint_hard，定位“原地不动却无路”时
+    // 前/后采样点分别报告起点和目标是否落入沿 Z 膨胀后的 hard，定位“原地不动却无路”时
     // 是机器人前半身还是后半身已经贴入硬障碍。
     add("start_front_hard", result.start_front_hard);
     add("start_rear_hard", result.start_rear_hard);

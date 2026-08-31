@@ -34,7 +34,6 @@ struct GridSnapshot
   Eigen::Vector3i dimensions{Eigen::Vector3i::Zero()};
   std::uint64_t revision{0};
   std::vector<std::uint8_t> hard;
-  std::vector<std::uint8_t> footprint_hard;
   std::vector<std::uint8_t> soft_cost;
 
   std::size_t cellCount() const
@@ -45,7 +44,7 @@ struct GridSnapshot
   bool valid() const
   {
     return resolution > 0.0 && (dimensions.array() > 0).all() &&
-           footprint_hard.size() == cellCount() && soft_cost.size() == cellCount();
+           hard.size() == cellCount() && soft_cost.size() == cellCount();
   }
 
   int linear(const Eigen::Vector3i & cell) const
@@ -75,10 +74,10 @@ struct GridSnapshot
 
   int indexAt(const Eigen::Vector3d & point) const {return linear(pointToCell(point));}
 
-  bool footprintAt(const Eigen::Vector3d & point) const
+  bool hardAt(const Eigen::Vector3d & point) const
   {
     const int index = indexAt(point);
-    return index < 0 || footprint_hard[static_cast<std::size_t>(index)] != 0U;
+    return index < 0 || hard[static_cast<std::size_t>(index)] != 0U;
   }
 
   double softAt(const Eigen::Vector3d & point) const
@@ -261,7 +260,7 @@ public:
     const Eigen::Vector3d heading(std::cos(yaw), std::sin(yaw), 0.0);
     const Eigen::Vector3d front = position + config_.cylinder_offset * heading;
     const Eigen::Vector3d rear = position - config_.cylinder_offset * heading;
-    if (map.footprintAt(front) || map.footprintAt(rear)) {return false;}
+    if (map.hardAt(front) || map.hardAt(rear)) {return false;}
     const double cost = std::max(map.softAt(front), map.softAt(rear));
     if (soft_cost) {*soft_cost = cost;}
     return !strict_soft || cost <= 0.0;
@@ -272,8 +271,8 @@ public:
     bool & front_hard, bool & rear_hard) const
   {
     const Eigen::Vector3d heading(std::cos(yaw), std::sin(yaw), 0.0);
-    front_hard = map.footprintAt(position + config_.cylinder_offset * heading);
-    rear_hard = map.footprintAt(position - config_.cylinder_offset * heading);
+    front_hard = map.hardAt(position + config_.cylinder_offset * heading);
+    rear_hard = map.hardAt(position - config_.cylinder_offset * heading);
   }
 
   bool insideCorridor(
@@ -768,7 +767,7 @@ private:
               current_cell + Eigen::Vector3i(kDx[heading], 0, 0));
             const Eigen::Vector3d side_y = map.cellCenter(
               current_cell + Eigen::Vector3i(0, kDy[heading], 0));
-            if (map.footprintAt(side_x) || map.footprintAt(side_y)) {
+            if (map.hardAt(side_x) || map.hardAt(side_y)) {
               ++result.rejected_diagonal_corner;
               continue;
             }

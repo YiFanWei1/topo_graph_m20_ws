@@ -6,6 +6,5 @@ uint32 size_y
 uint32 size_z
 uint64 revision
 uint32[] hard_occupied_indices
-uint32[] footprint_hard_indices
 uint32[] soft_indices
 uint8[] soft_cost_values

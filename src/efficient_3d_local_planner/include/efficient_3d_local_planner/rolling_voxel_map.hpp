@@ -38,10 +38,9 @@ public:
     bool decay_front_only{true};
     double decay_front_fov_deg{180.0};
     double ray_step_factor{0.90};
-    double cylinder_radius{0.25};
-    double obstacles_inflation_z_down{0.10};
-    double obstacles_inflation_z_up{0.00};
-    double soft_clearance{0.225};
+    double soft_inflation_radius{0.475};
+    double hard_inflation_z_down{0.40};
+    double hard_inflation_z_up{0.00};
   };
 
   struct Layers
@@ -49,7 +48,6 @@ public:
     Eigen::Vector3i min_key{Eigen::Vector3i::Zero()};
     Eigen::Vector3i dimensions{Eigen::Vector3i::Zero()};
     std::vector<std::uint32_t> hard;
-    std::vector<std::uint32_t> footprint_hard;
     std::vector<std::uint32_t> soft_indices;
     std::vector<std::uint8_t> soft_costs;
   };
@@ -267,30 +265,46 @@ public:
 
     std::vector<VoxelKey> occupied;
     occupied.reserve(cells_.size() / 4U);
-    layers.hard.reserve(cells_.size() / 4U);
     for (const auto & item : cells_) {
       if (item.second.hard_confirmed && item.second.log_odds >= config_.occupied_threshold) {
         occupied.push_back(item.first);
-        // cells_ 中的体素键天然唯一，并且 update() 已经清除了滚动窗口外的体素，
-        // 因此这里不需要再通过 unordered_set 去重。
-        layers.hard.push_back(linearIndex(item.first, last_minimum_));
       }
     }
 
-    // 每个索引只需一个字节：0 表示未触及，1~254 表示软代价，255 表示硬膨胀。
-    // 相比每帧创建三个哈希容器，这种连续内存访问更适合数万个障碍体素的大地图。
-    constexpr std::uint8_t kFootprintHard = 255U;
+    // 两层地图使用一个临时 byte 数组构建：0 表示未触及，1~254 表示按水平距离
+    // 分级的软代价，255 只在内部标记完成 Z 膨胀的 hard，避免 hard 同时出现在 soft 输出中。
+    constexpr std::uint8_t kHard = 255U;
     const std::size_t cell_count =
       static_cast<std::size_t>(dimensions_.x()) *
       static_cast<std::size_t>(dimensions_.y()) *
       static_cast<std::size_t>(dimensions_.z());
     std::vector<std::uint8_t> layer_state(cell_count, 0U);
+    std::vector<VoxelKey> hard_cells;
+    const std::size_t maximum_hard = std::min(
+      cell_count, occupied.size() * hard_z_offsets_.size());
+    layers.hard.reserve(maximum_hard);
+    hard_cells.reserve(maximum_hard);
+
+    // hard 只沿 Z 膨胀，不做任何 XY 膨胀。重复的垂直列通过 layer_state 去重。
+    for (const auto & obstacle : occupied) {
+      for (const int dz : hard_z_offsets_) {
+        const VoxelKey candidate{obstacle.x, obstacle.y, obstacle.z + dz};
+        if (!insideWindow(candidate, last_minimum_)) {continue;}
+        const std::uint32_t index = linearIndex(candidate, last_minimum_);
+        if (layer_state[index] == kHard) {continue;}
+        layer_state[index] = kHard;
+        layers.hard.push_back(index);
+        hard_cells.push_back(candidate);
+      }
+    }
+
     std::vector<std::uint32_t> touched_indices;
     const std::size_t maximum_touched = std::min(
-      cell_count, occupied.size() * inflation_offsets_.size());
+      cell_count, hard_cells.size() * inflation_offsets_.size());
     touched_indices.reserve(maximum_touched);
 
-    for (const auto & obstacle : occupied) {
+    // soft 以已经完成 Z 膨胀的 hard 为种子，仅沿 XY 生成一次距离代价场。
+    for (const auto & obstacle : hard_cells) {
       for (const auto & offset : inflation_offsets_) {
         const VoxelKey candidate{
           obstacle.x + offset.dx, obstacle.y + offset.dy, obstacle.z + offset.dz};
@@ -299,30 +313,23 @@ public:
         }
         const std::uint32_t index = linearIndex(candidate, last_minimum_);
         std::uint8_t & state = layer_state[index];
+        if (state == kHard) {
+          continue;
+        }
         if (state == 0U) {
           touched_indices.push_back(index);
         }
-        if (offset.cost == kFootprintHard) {
-          // 硬膨胀始终覆盖软代价，与旧实现中的 soft_map.erase() 语义一致。
-          state = kFootprintHard;
-        } else if (state != kFootprintHard) {
-          // 多个障碍的软膨胀重叠时保留最大代价。
-          state = std::max(state, offset.cost);
-        }
+        // 多个障碍的软膨胀重叠时保留最大代价，即采用最近 hard 的代价。
+        state = std::max(state, offset.cost);
       }
     }
 
-    layers.footprint_hard.reserve(touched_indices.size());
     layers.soft_indices.reserve(touched_indices.size());
     layers.soft_costs.reserve(touched_indices.size());
     for (const std::uint32_t index : touched_indices) {
       const std::uint8_t state = layer_state[index];
-      if (state == kFootprintHard) {
-        layers.footprint_hard.push_back(index);
-      } else {
-        layers.soft_indices.push_back(index);
-        layers.soft_costs.push_back(state);
-      }
+      layers.soft_indices.push_back(index);
+      layers.soft_costs.push_back(state);
     }
     return layers;
   }
@@ -362,48 +369,43 @@ private:
 
   void buildInflationOffsets()
   {
-    constexpr std::uint8_t kFootprintHard = 255U;
     const int maximum_xy = static_cast<int>(std::ceil(
-        (config_.cylinder_radius + config_.soft_clearance) / config_.resolution));
+        config_.soft_inflation_radius / config_.resolution));
     const int down = static_cast<int>(std::ceil(
-        config_.obstacles_inflation_z_down / config_.resolution));
+        config_.hard_inflation_z_down / config_.resolution));
     const int up = static_cast<int>(std::ceil(
-        config_.obstacles_inflation_z_up / config_.resolution));
+        config_.hard_inflation_z_up / config_.resolution));
+    hard_z_offsets_.reserve(static_cast<std::size_t>(down + up + 1));
+    for (int dz = -down; dz <= up; ++dz) {
+      const double vertical = dz * config_.resolution;
+      const double half_voxel = 0.5 * config_.resolution;
+      if (vertical < -config_.hard_inflation_z_down - half_voxel ||
+        vertical > config_.hard_inflation_z_up + half_voxel)
+      {
+        continue;
+      }
+      hard_z_offsets_.push_back(dz);
+    }
     inflation_offsets_.reserve(
       static_cast<std::size_t>(2 * maximum_xy + 1) *
-      static_cast<std::size_t>(2 * maximum_xy + 1) *
-      static_cast<std::size_t>(down + up + 1));
+      static_cast<std::size_t>(2 * maximum_xy + 1));
 
-    // 膨胀参数在地图对象生命周期内不变，把几何距离、垂直范围和软代价
-    // 预先算成偏移模板，避免 buildLayers() 在每一帧为每个障碍重复计算。
+    // 只有一个软膨胀：代价从 hard 附近向 soft_inflation_radius 外缘连续衰减。
+    // 分级只使用 XY 距离；每个完成 Z 膨胀的 hard 体素独立生成同高度软代价。
     for (int dx = -maximum_xy; dx <= maximum_xy; ++dx) {
       for (int dy = -maximum_xy; dy <= maximum_xy; ++dy) {
         const double radial = config_.resolution * std::hypot(dx, dy);
-        const bool footprint = radial <= config_.cylinder_radius + 0.5 * config_.resolution;
-        const double clearance = radial - config_.cylinder_radius;
-        const bool soft = !footprint && clearance < config_.soft_clearance;
-        if (!footprint && !soft) {
+        if (config_.soft_inflation_radius <= 1e-9 ||
+          radial > config_.soft_inflation_radius + 0.5 * config_.resolution)
+        {
           continue;
         }
+        const double normalized = std::clamp(
+          (config_.soft_inflation_radius - radial) / config_.soft_inflation_radius, 0.0, 1.0);
+        const std::uint8_t cost = static_cast<std::uint8_t>(
+          std::clamp(std::lround(254.0 * normalized * normalized), 1L, 254L));
 
-        std::uint8_t cost = kFootprintHard;
-        if (soft && config_.soft_clearance > 1e-9) {
-          const double normalized = std::clamp(
-            (config_.soft_clearance - clearance) / config_.soft_clearance, 0.0, 1.0);
-          cost = static_cast<std::uint8_t>(
-            std::clamp(std::lround(254.0 * normalized * normalized), 1L, 254L));
-        }
-
-        for (int dz = -down; dz <= up; ++dz) {
-          const double vertical = dz * config_.resolution;
-          const double half_voxel = 0.5 * config_.resolution;
-          if (vertical < -config_.obstacles_inflation_z_down - half_voxel ||
-            vertical > config_.obstacles_inflation_z_up + half_voxel)
-          {
-            continue;
-          }
-          inflation_offsets_.push_back(InflationOffset{dx, dy, dz, cost});
-        }
+        inflation_offsets_.push_back(InflationOffset{dx, dy, 0, cost});
       }
     }
   }
@@ -411,6 +413,7 @@ private:
   Config config_;
   Eigen::Vector3i dimensions_{Eigen::Vector3i::Ones()};
   Eigen::Vector3i last_minimum_{Eigen::Vector3i::Zero()};
+  std::vector<int> hard_z_offsets_;
   std::vector<InflationOffset> inflation_offsets_;
   std::unordered_map<VoxelKey, Cell, VoxelKeyHash> cells_;
 };

@@ -20,7 +20,6 @@ GridSnapshot makeMap()
   map.dimensions = Eigen::Vector3i(60, 60, 12);
   map.revision = 1U;
   map.hard.assign(map.cellCount(), 0U);
-  map.footprint_hard.assign(map.cellCount(), 0U);
   map.soft_cost.assign(map.cellCount(), 0U);
   return map;
 }
@@ -39,7 +38,7 @@ void setVerticalBand(GridSnapshot & map, const double x, const bool hard, const 
   for (std::size_t index = 0; index < map.cellCount(); ++index) {
     const Eigen::Vector3d point = map.cellCenter(map.cellFromLinear(static_cast<int>(index)));
     if (std::abs(point.x() - x) <= 0.35 && std::abs(point.y()) <= 1.7) {
-      if (hard) {map.footprint_hard[index] = 1U;}
+      if (hard) {map.hard[index] = 1U;}
       if (soft) {map.soft_cost[index] = 220U;}
     }
   }
@@ -163,7 +162,7 @@ TEST(GuidedAStar, StrictSimplificationRejectsShortcutThroughSoftLayer)
       map, from, 0.0, to, 0.0, guide, guide_distance, true));
 }
 
-TEST(GuidedAStar, NeverCrossesPhysicalFootprintWall)
+TEST(GuidedAStar, NeverCrossesHardWall)
 {
   GridSnapshot map = makeMap();
   setVerticalBand(map, 0.0, true, false);
@@ -195,7 +194,7 @@ TEST(GuidedAStar, SnapsOccupiedLookaheadGoalToNearbyFreePose)
   for (std::size_t index = 0; index < map.cellCount(); ++index) {
     const Eigen::Vector3d point = map.cellCenter(map.cellFromLinear(static_cast<int>(index)));
     if ((point - requested_goal).norm() < 0.22) {
-      map.footprint_hard[index] = 1U;
+      map.hard[index] = 1U;
     }
   }
   GuidedAStar planner;
@@ -213,7 +212,7 @@ TEST(GuidedAStar, RecoversFromOccupiedRequestedStartLikeScanPlanner)
   const Eigen::Vector3d requested_start(-2.0, 0.0, 0.0);
   const int front = map.indexAt(requested_start + Eigen::Vector3d(0.18, 0.0, 0.0));
   ASSERT_GE(front, 0);
-  map.footprint_hard[static_cast<std::size_t>(front)] = 1U;
+  map.hard[static_cast<std::size_t>(front)] = 1U;
 
   GuidedAStar planner;
   ASSERT_FALSE(planner.poseValid(map, requested_start, 0.0, false));

@@ -376,7 +376,7 @@ private:
     const int z = centre.z();
     const int point_index = map.linear(centre);
     const bool inside = point_index < 0 ||
-      map.footprint_hard[static_cast<std::size_t>(point_index)] != 0U;
+      map.hard[static_cast<std::size_t>(point_index)] != 0U;
     const double search_distance = inside ?
       influence_distance + config_.max_deviation + config_.goal_max_deviation :
       influence_distance;
@@ -388,7 +388,7 @@ private:
         const Eigen::Vector3i cell(centre.x() + dx, centre.y() + dy, z);
         const int index = map.linear(cell);
         if (index < 0) {continue;}
-        const bool hard = map.footprint_hard[static_cast<std::size_t>(index)] != 0U;
+        const bool hard = map.hard[static_cast<std::size_t>(index)] != 0U;
         if (hard == inside) {continue;}
         const Eigen::Vector2d delta = map.cellCenter(cell).head<2>() - point.head<2>();
         const double distance = delta.norm();
@@ -616,7 +616,7 @@ private:
       for (const double sign : {-1.0, 1.0}) {
         Eigen::Vector3d centre = samples[i].position;
         centre.head<2>() += sign * config_.cylinder_offset * heading;
-        hard = hard || map.footprintAt(centre);
+        hard = hard || map.hardAt(centre);
         result.minimum_clearance = std::min(
           result.minimum_clearance,
           repulsionAt(map, centre, config_.clearance_distance).clearance);
