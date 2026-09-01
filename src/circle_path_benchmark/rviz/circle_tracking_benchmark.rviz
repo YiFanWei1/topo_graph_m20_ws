@@ -1,0 +1,77 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+      Plane: XY
+      Plane Cell Count: 40
+      Color: 100; 100; 100
+    - Class: rviz_default_plugins/PointCloud2
+      Name: 510 PCD
+      Enabled: true
+      Topic:
+        Value: /circle_benchmark/map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/Path
+      Name: Fixed Circle Reference
+      Enabled: true
+      Topic:
+        Value: /circle_benchmark/reference_path
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Line Style: Lines
+      Line Width: 0.04
+      Color: 0; 255; 80
+    - Class: rviz_default_plugins/Path
+      Name: Actual Odometry Track
+      Enabled: true
+      Topic:
+        Value: /circle_benchmark/actual_path
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Line Style: Lines
+      Line Width: 0.05
+      Color: 255; 0; 255
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Controller Lookahead
+      Enabled: true
+      Topic:
+        Value: /local_planner/controller_lookahead
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+  Global Options:
+    Fixed Frame: camera_init
+    Background Color: 35; 35; 35
+    Frame Rate: 30
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 12
+      Pitch: 1.2
+      Yaw: 0.8
+      Focal Point:
+        X: 0
+        Y: -2
+        Z: 0
+Window Geometry:
+  Width: 1400
+  Height: 900

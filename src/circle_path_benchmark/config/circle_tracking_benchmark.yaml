@@ -1,0 +1,45 @@
+circle_path_benchmark:
+  ros__parameters:
+    benchmark.path_file: ""
+    benchmark.pcd_file: ""
+    benchmark.output_directory: /tmp/circle_path_benchmark
+    benchmark.enable_motion: false
+    benchmark.require_pcd: true
+    benchmark.publish_rate: 5.0
+    topics.odometry: /lio_odom_hf
+    topics.cmd_vel: /cmd_vel_smoothed
+    topics.control_path: /local_planner/local_path
+    safety.start_position_tolerance: 0.20
+    safety.start_yaw_tolerance_degrees: 20.0
+    safety.completion_angle_tolerance_degrees: 8.0
+    safety.completion_position_tolerance: 0.20
+    safety.max_duration: 45.0
+    record.actual_path_spacing: 0.01
+
+# 与正式导航使用同一个控制器实现，但先用较低速度测试半径 0.8m 的固定圆。
+local_path_follower:
+  ros__parameters:
+    controller.enabled: true
+    controller.control_rate: 200.0
+    controller.nominal_speed: 0.20
+    controller.max_vx: 0.30
+    controller.max_vy: 0.30
+    controller.max_vyaw: 1.60
+    controller.position_gain: 0.80
+    controller.yaw_gain: 2.0
+    controller.lookahead_base: 0.15
+    controller.lookahead_speed_gain: 0.40
+    controller.lookahead_min: 0.15
+    controller.lookahead_max: 0.35
+    controller.tangent_window: 0.30
+    controller.finish_distance: 0.10
+    controller.braking_deceleration: 0.60
+    controller.translation_yaw_limit: 1.047198
+    controller.full_speed_yaw_limit: 0.174533
+    controller.yaw_deadband: 0.04
+    controller.max_linear_acceleration: 0.40
+    controller.max_yaw_acceleration: 1.00
+    controller.minimum_yaw_speed_enabled: false
+    controller.minimum_yaw_speed: 0.0
+    controller.odometry_timeout: 0.30
+    controller.path_timeout: 1.00

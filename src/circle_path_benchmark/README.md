@@ -1,0 +1,54 @@
+# Circle Path Controller Benchmark
+
+该包绕过地图构建和 A*，只测试现有 `local_path_follower_node` 对固定圆的跟踪效果。
+绿色是离线参考圆，紫色是实时里程计轨迹。每次运行保存 rosbag、`trajectory.csv`
+和 `metrics.json`，其中负的径向误差表示向圆内侧切弯。
+
+## 1. 离线生成并验证 0.8m 圆
+
+```bash
+ros2 run circle_path_benchmark generate_circle_path \
+  --pcd /home/langyi/workspace/map/510/map/510.pcd \
+  --output /home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/circle_510.yaml \
+  --center-x 0.0 --center-y -2.0 --path-z 0.0 \
+  --radius 0.8 --spacing 0.05 --start-angle-deg 0 --direction ccw
+```
+
+默认起点为 `(0.8,-2.0,0.0)`，逆时针切向朝向 `+Y`（yaw=90°）。生成器会检查
+机器人高度范围内的 PCD 点；圆周净空小于 `robot_radius=0.30m` 时拒绝生成。
+
+## 2. 先只看路径，不发有效控制路径
+
+```bash
+ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
+  path_file:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/circle_510.yaml \
+  pcd_file:=/home/langyi/workspace/map/510/map/510.pcd \
+  output_root:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/runs \
+  enable_motion:=false
+```
+
+## 3. 实机一圈测试
+
+把机器人移动到起点并朝向 +Y，确认急停和控制适配器后运行：
+
+```bash
+ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
+  path_file:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/circle_510.yaml \
+  pcd_file:=/home/langyi/workspace/map/510/map/510.pcd \
+  output_root:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/runs \
+  enable_motion:=true
+```
+
+只有起点三维误差不超过 0.20m、偏航误差不超过 20° 时才会发布有效控制路径。完成
+一圈或超过 45s 后自动发布空路径停车。`enable_motion` 只控制路径是否送入控制器，
+真正发往机器人仍需要单独启动 `robot_control_adapter`。
+
+## 4. 生成离线对比图
+
+```bash
+ros2 run circle_path_benchmark plot_circle_result \
+  --session /home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/runs/<本次目录>
+```
+
+输出 `comparison.png`。左图叠加固定圆和里程计轨迹，右图显示有符号径向误差；负值
+表示机器人位于参考圆内侧，也就是切弯方向。
