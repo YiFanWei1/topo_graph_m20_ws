@@ -425,6 +425,7 @@ private:
     message.revision = ++revision_;
     // 两层含义：hard 是传感器占据沿 Z 膨胀后的绝对禁止层；soft 是 hard 外按水平距离分级的
     // 单一膨胀代价层，允许 A* 在放宽阶段以附加代价穿越。
+    message.raw_occupied_indices = layers.raw_occupied_indices;
     message.hard_occupied_indices = layers.hard;
     message.soft_indices = layers.soft_indices;
     message.soft_cost_values = layers.soft_costs;

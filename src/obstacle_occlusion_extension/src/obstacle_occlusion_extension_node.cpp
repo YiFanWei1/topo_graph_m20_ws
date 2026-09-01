@@ -5,6 +5,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/point_field.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <tf2/time.hpp>
 #include <tf2/exceptions.hpp>
@@ -40,6 +41,11 @@ public:
       "extension.minimum_obstacle_range", 0.20);
     extension_config_.maximum_obstacle_range = declare_parameter<double>(
       "extension.maximum_obstacle_range", 8.0);
+    inflation_config_.horizontal_fill_cells = declare_parameter<int>(
+      "inflation.horizontal_fill_cells", 1);
+    inflation_config_.hard_z_down = declare_parameter<double>("inflation.hard_z_down", 0.40);
+    inflation_config_.hard_z_up = declare_parameter<double>("inflation.hard_z_up", 0.0);
+    inflation_config_.soft_radius = declare_parameter<double>("inflation.soft_radius", 0.60);
     tf_timeout_ = declare_parameter<double>("tf.timeout", 0.05);
     const std::string grid_topic = declare_parameter<std::string>(
       "input.voxel_grid_topic", "/local_voxel_map/grid");
@@ -49,14 +55,24 @@ public:
       "output.extension_topic", "/local_voxel_map/occlusion_extension");
     const std::string augmented_grid_topic = declare_parameter<std::string>(
       "output.augmented_grid_topic", "/local_voxel_map/grid_with_occlusion");
-    if (!extension_config_.valid() || !std::isfinite(tf_timeout_) || tf_timeout_ <= 0.0) {
-      throw std::invalid_argument("occlusion extension distances and TF timeout are invalid");
+    const std::string augmented_hard_topic = declare_parameter<std::string>(
+      "output.augmented_hard_topic", "/local_voxel_map/hard_with_occlusion");
+    const std::string augmented_soft_topic = declare_parameter<std::string>(
+      "output.augmented_soft_topic", "/local_voxel_map/soft_cost_with_occlusion");
+    if (!extension_config_.valid() || !inflation_config_.valid() ||
+      !std::isfinite(tf_timeout_) || tf_timeout_ <= 0.0)
+    {
+      throw std::invalid_argument("occlusion extension, inflation, or TF parameters are invalid");
     }
 
     // 这是低频、深度 1 的可视化输出。使用 Reliable 可同时兼容 RViz 在配置加载阶段
     // 创建的 Reliable/Best-Effort 订阅，避免显示项因 QoS 不匹配而永远收不到点云。
     cloud_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       output_topic, rclcpp::QoS(1).reliable().durability_volatile());
+    augmented_hard_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      augmented_hard_topic, rclcpp::QoS(1).reliable().durability_volatile());
+    augmented_soft_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      augmented_soft_topic, rclcpp::QoS(1).reliable().durability_volatile());
     // 规划地图保持与原 mapper 相同的 SensorDataQoS。无论扩展开关或 TF 是否可用，
     // 每一帧输入 grid 都会在该话题发布，确保下游规划器不会因本节点等待位姿而断图。
     grid_publisher_ = create_publisher<VoxelGrid>(
@@ -75,9 +91,12 @@ public:
     RCLCPP_INFO(
       get_logger(),
       "occlusion extension ready: enabled=%s distance=%.2fm range=[%.2f,%.2f]m "
+      "inflation=[fill=%d z_down=%.2f z_up=%.2f soft=%.2f] "
       "grid=%s odom=%s cloud=%s augmented_grid=%s hard_injection=%s",
       enabled_ ? "true" : "false", extension_config_.distance,
       extension_config_.minimum_obstacle_range, extension_config_.maximum_obstacle_range,
+      inflation_config_.horizontal_fill_cells, inflation_config_.hard_z_down,
+      inflation_config_.hard_z_up, inflation_config_.soft_radius,
       grid_topic.c_str(), odometry_topic.c_str(), output_topic.c_str(),
       augmented_grid_topic.c_str(), enabled_ ? "enabled" : "disabled");
   }
@@ -115,6 +134,62 @@ private:
       ++z;
     }
     return cloud;
+  }
+
+  sensor_msgs::msg::PointCloud2 makeSoftCloud(
+    const VoxelGrid & grid, const GridGeometry & geometry,
+    const std::vector<std::uint32_t> & indices,
+    const std::vector<std::uint8_t> & costs) const
+  {
+    sensor_msgs::msg::PointCloud2 cloud;
+    cloud.header = grid.header;
+    cloud.height = 1U;
+    cloud.is_dense = true;
+    const std::size_t count = std::min(indices.size(), costs.size());
+    sensor_msgs::PointCloud2Modifier modifier(cloud);
+    modifier.setPointCloud2Fields(
+      4, "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+      "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+      "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+      "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
+    modifier.resize(count);
+    sensor_msgs::PointCloud2Iterator<float> x(cloud, "x");
+    sensor_msgs::PointCloud2Iterator<float> y(cloud, "y");
+    sensor_msgs::PointCloud2Iterator<float> z(cloud, "z");
+    sensor_msgs::PointCloud2Iterator<float> intensity(cloud, "intensity");
+    for (std::size_t i = 0; i < count; ++i) {
+      const std::uint32_t index = indices[i];
+      const std::uint32_t local_x = index % geometry.size_x;
+      const std::uint32_t yz = index / geometry.size_x;
+      const std::uint32_t local_y = yz % geometry.size_y;
+      const std::uint32_t local_z = yz / geometry.size_y;
+      *x = static_cast<float>(
+        geometry.origin_x + (static_cast<double>(local_x) + 0.5) * geometry.resolution);
+      *y = static_cast<float>(
+        geometry.origin_y + (static_cast<double>(local_y) + 0.5) * geometry.resolution);
+      *z = static_cast<float>(
+        geometry.origin_z + (static_cast<double>(local_z) + 0.5) * geometry.resolution);
+      *intensity = static_cast<float>(costs[i]) / 254.0F;
+      ++x;
+      ++y;
+      ++z;
+      ++intensity;
+    }
+    return cloud;
+  }
+
+  void publishLayerClouds(
+    const VoxelGrid & grid, const GridGeometry & geometry,
+    const std::vector<std::uint32_t> & hard_indices,
+    const std::vector<std::uint32_t> & soft_indices,
+    const std::vector<std::uint8_t> & soft_costs)
+  {
+    if (augmented_hard_publisher_->get_subscription_count() > 0U) {
+      augmented_hard_publisher_->publish(makeCloud(grid, geometry, hard_indices));
+    }
+    if (augmented_soft_publisher_->get_subscription_count() > 0U) {
+      augmented_soft_publisher_->publish(makeSoftCloud(grid, geometry, soft_indices, soft_costs));
+    }
   }
 
   bool observerInGridFrame(const std::string & grid_frame, double & x, double & y)
@@ -167,6 +242,9 @@ private:
     std::vector<std::uint32_t> added;
     if (!enabled_ || extension_config_.distance <= 0.0) {
       cloud_publisher_->publish(makeCloud(*grid, geometry, added));
+      publishLayerClouds(
+        *grid, geometry, grid->hard_occupied_indices, grid->soft_indices,
+        grid->soft_cost_values);
       grid_publisher_->publish(*grid);
       return;
     }
@@ -174,30 +252,62 @@ private:
     double observer_y = 0.0;
     if (!observerInGridFrame(grid->header.frame_id, observer_x, observer_y)) {
       cloud_publisher_->publish(makeCloud(*grid, geometry, added));
+      publishLayerClouds(
+        *grid, geometry, grid->hard_occupied_indices, grid->soft_indices,
+        grid->soft_cost_values);
+      grid_publisher_->publish(*grid);
+      return;
+    }
+    if (grid->raw_occupied_indices.empty() && !grid->hard_occupied_indices.empty()) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "voxel grid has hard cells but no raw occupancy; passing through without extension");
+      cloud_publisher_->publish(makeCloud(*grid, geometry, added));
+      publishLayerClouds(
+        *grid, geometry, grid->hard_occupied_indices, grid->soft_indices,
+        grid->soft_cost_values);
       grid_publisher_->publish(*grid);
       return;
     }
     added = computeOcclusionExtension(
-      geometry, grid->hard_occupied_indices, observer_x, observer_y, extension_config_);
+      geometry, grid->raw_occupied_indices, observer_x, observer_y, extension_config_);
+    const InflatedLayers extension_layers = inflateObstacleSeeds(
+      geometry, added, inflation_config_);
+    const InflatedLayers merged_layers = mergeInflatedLayers(
+      grid->hard_occupied_indices, grid->soft_indices, grid->soft_cost_values,
+      extension_layers, geometry.cellCount());
     VoxelGrid augmented = *grid;
-    augmented.hard_occupied_indices = mergeHardIndices(
-      grid->hard_occupied_indices, added, geometry.cellCount());
-    cloud_publisher_->publish(makeCloud(*grid, geometry, added));
+    augmented.raw_occupied_indices = mergeHardIndices(
+      grid->raw_occupied_indices, added, geometry.cellCount());
+    augmented.hard_occupied_indices = merged_layers.hard_indices;
+    augmented.soft_indices = merged_layers.soft_indices;
+    augmented.soft_cost_values = merged_layers.soft_costs;
+    cloud_publisher_->publish(makeCloud(*grid, geometry, extension_layers.hard_indices));
+    publishLayerClouds(
+      augmented, geometry, augmented.hard_occupied_indices, augmented.soft_indices,
+      augmented.soft_cost_values);
     grid_publisher_->publish(augmented);
     RCLCPP_DEBUG_THROTTLE(
       get_logger(), *get_clock(), 1000,
-      "occlusion extension: revision=%lu hard=%zu added=%zu observer=[%.2f %.2f]",
-      grid->revision, grid->hard_occupied_indices.size(), added.size(), observer_x, observer_y);
+      "occlusion extension: revision=%lu raw=%zu added_raw=%zu added_hard=%zu "
+      "hard=%zu->%zu soft=%zu->%zu observer=[%.2f %.2f]",
+      grid->revision, grid->raw_occupied_indices.size(), added.size(),
+      extension_layers.hard_indices.size(), grid->hard_occupied_indices.size(),
+      augmented.hard_occupied_indices.size(), grid->soft_indices.size(),
+      augmented.soft_indices.size(), observer_x, observer_y);
   }
 
   bool enabled_{true};
   ExtensionConfig extension_config_;
+  InflationConfig inflation_config_;
   double tf_timeout_{0.05};
   std::mutex mutex_;
   nav_msgs::msg::Odometry::SharedPtr latest_odometry_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr augmented_hard_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr augmented_soft_publisher_;
   rclcpp::Publisher<VoxelGrid>::SharedPtr grid_publisher_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
   rclcpp::Subscription<VoxelGrid>::SharedPtr grid_subscription_;

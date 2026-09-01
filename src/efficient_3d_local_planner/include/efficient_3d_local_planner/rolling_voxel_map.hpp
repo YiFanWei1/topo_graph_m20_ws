@@ -47,6 +47,7 @@ public:
   {
     Eigen::Vector3i min_key{Eigen::Vector3i::Zero()};
     Eigen::Vector3i dimensions{Eigen::Vector3i::Zero()};
+    std::vector<std::uint32_t> raw_occupied_indices;
     std::vector<std::uint32_t> hard;
     std::vector<std::uint32_t> soft_indices;
     std::vector<std::uint8_t> soft_costs;
@@ -268,6 +269,15 @@ public:
     for (const auto & item : cells_) {
       if (item.second.hard_confirmed && item.second.log_odds >= config_.occupied_threshold) {
         occupied.push_back(item.first);
+      }
+    }
+
+    // 保留膨胀前的传感器占据，供后处理节点先生成遮挡后影，再让后影独立经过
+    // 与基础障碍完全相同的水平补空、Z hard 和 soft 膨胀。
+    layers.raw_occupied_indices.reserve(occupied.size());
+    for (const auto & obstacle : occupied) {
+      if (insideWindow(obstacle, last_minimum_)) {
+        layers.raw_occupied_indices.push_back(linearIndex(obstacle, last_minimum_));
       }
     }
 

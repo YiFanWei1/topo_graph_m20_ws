@@ -55,6 +55,29 @@ struct ExtensionConfig
   }
 };
 
+struct InflationConfig
+{
+  int horizontal_fill_cells{1};
+  double hard_z_down{0.40};
+  double hard_z_up{0.0};
+  double soft_radius{0.60};
+
+  bool valid() const noexcept
+  {
+    return horizontal_fill_cells >= 0 && horizontal_fill_cells <= 16 &&
+           std::isfinite(hard_z_down) && hard_z_down >= 0.0 &&
+           std::isfinite(hard_z_up) && hard_z_up >= 0.0 &&
+           std::isfinite(soft_radius) && soft_radius >= 0.0;
+  }
+};
+
+struct InflatedLayers
+{
+  std::vector<std::uint32_t> hard_indices;
+  std::vector<std::uint32_t> soft_indices;
+  std::vector<std::uint8_t> soft_costs;
+};
+
 inline std::vector<std::uint32_t> computeOcclusionExtension(
   const GridGeometry & grid, const std::vector<std::uint32_t> & hard_indices,
   const double observer_x, const double observer_y, const ExtensionConfig & config)
@@ -150,6 +173,138 @@ inline std::vector<std::uint32_t> mergeHardIndices(
     };
   append_unique(hard_indices);
   append_unique(added_indices);
+  return merged;
+}
+
+inline InflatedLayers inflateObstacleSeeds(
+  const GridGeometry & grid, const std::vector<std::uint32_t> & seed_indices,
+  const InflationConfig & config)
+{
+  InflatedLayers layers;
+  if (!grid.valid() || !config.valid() || seed_indices.empty()) {
+    return layers;
+  }
+
+  constexpr std::uint8_t kHard = 255U;
+  const std::size_t cell_count = grid.cellCount();
+  std::vector<std::uint8_t> state(cell_count, 0U);
+  const int down = static_cast<int>(std::ceil(config.hard_z_down / grid.resolution));
+  const int up = static_cast<int>(std::ceil(config.hard_z_up / grid.resolution));
+  const double half_voxel = 0.5 * grid.resolution;
+
+  for (const std::uint32_t seed : seed_indices) {
+    if (seed >= cell_count) {continue;}
+    const int seed_x = static_cast<int>(seed % grid.size_x);
+    const std::uint32_t yz = seed / grid.size_x;
+    const int seed_y = static_cast<int>(yz % grid.size_y);
+    const int seed_z = static_cast<int>(yz / grid.size_y);
+    for (int dx = -config.horizontal_fill_cells; dx <= config.horizontal_fill_cells; ++dx) {
+      for (int dy = -config.horizontal_fill_cells; dy <= config.horizontal_fill_cells; ++dy) {
+        const int x = seed_x + dx;
+        const int y = seed_y + dy;
+        if (x < 0 || y < 0 || x >= static_cast<int>(grid.size_x) ||
+          y >= static_cast<int>(grid.size_y))
+        {
+          continue;
+        }
+        for (int dz = -down; dz <= up; ++dz) {
+          const double vertical = static_cast<double>(dz) * grid.resolution;
+          if (vertical < -config.hard_z_down - half_voxel ||
+            vertical > config.hard_z_up + half_voxel)
+          {
+            continue;
+          }
+          const int z = seed_z + dz;
+          if (z < 0 || z >= static_cast<int>(grid.size_z)) {continue;}
+          const std::uint32_t index = grid.index(
+            static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
+            static_cast<std::uint32_t>(z));
+          if (state[index] == kHard) {continue;}
+          state[index] = kHard;
+          layers.hard_indices.push_back(index);
+        }
+      }
+    }
+  }
+
+  if (config.soft_radius <= 1e-9 || layers.hard_indices.empty()) {
+    return layers;
+  }
+  const int maximum_xy = static_cast<int>(std::ceil(config.soft_radius / grid.resolution));
+  std::vector<std::uint32_t> touched;
+  for (const std::uint32_t hard : layers.hard_indices) {
+    const int hard_x = static_cast<int>(hard % grid.size_x);
+    const std::uint32_t yz = hard / grid.size_x;
+    const int hard_y = static_cast<int>(yz % grid.size_y);
+    const std::uint32_t hard_z = yz / grid.size_y;
+    for (int dx = -maximum_xy; dx <= maximum_xy; ++dx) {
+      for (int dy = -maximum_xy; dy <= maximum_xy; ++dy) {
+        const double radial = grid.resolution * std::hypot(dx, dy);
+        if (radial > config.soft_radius + half_voxel) {continue;}
+        const int x = hard_x + dx;
+        const int y = hard_y + dy;
+        if (x < 0 || y < 0 || x >= static_cast<int>(grid.size_x) ||
+          y >= static_cast<int>(grid.size_y))
+        {
+          continue;
+        }
+        const std::uint32_t index = grid.index(
+          static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y), hard_z);
+        if (state[index] == kHard) {continue;}
+        const double normalized = std::clamp(
+          (config.soft_radius - radial) / config.soft_radius, 0.0, 1.0);
+        const std::uint8_t cost = static_cast<std::uint8_t>(
+          std::clamp(std::lround(254.0 * normalized * normalized), 1L, 254L));
+        if (state[index] == 0U) {touched.push_back(index);}
+        state[index] = std::max(state[index], cost);
+      }
+    }
+  }
+  layers.soft_indices.reserve(touched.size());
+  layers.soft_costs.reserve(touched.size());
+  for (const std::uint32_t index : touched) {
+    layers.soft_indices.push_back(index);
+    layers.soft_costs.push_back(state[index]);
+  }
+  return layers;
+}
+
+inline InflatedLayers mergeInflatedLayers(
+  const std::vector<std::uint32_t> & base_hard,
+  const std::vector<std::uint32_t> & base_soft_indices,
+  const std::vector<std::uint8_t> & base_soft_costs,
+  const InflatedLayers & extension, const std::size_t cell_count)
+{
+  InflatedLayers merged;
+  merged.hard_indices = mergeHardIndices(base_hard, extension.hard_indices, cell_count);
+  if (cell_count == 0U) {return merged;}
+
+  std::vector<std::uint8_t> hard(cell_count, 0U);
+  for (const std::uint32_t index : merged.hard_indices) {
+    hard[index] = 1U;
+  }
+  std::vector<std::uint8_t> costs(cell_count, 0U);
+  std::vector<std::uint32_t> touched;
+  const auto merge_soft = [&costs, &touched, cell_count](
+      const std::vector<std::uint32_t> & indices,
+      const std::vector<std::uint8_t> & values) {
+      const std::size_t count = std::min(indices.size(), values.size());
+      for (std::size_t i = 0; i < count; ++i) {
+        const std::uint32_t index = indices[i];
+        if (index >= cell_count || values[i] == 0U) {continue;}
+        if (costs[index] == 0U) {touched.push_back(index);}
+        costs[index] = std::max(costs[index], values[i]);
+      }
+    };
+  merge_soft(base_soft_indices, base_soft_costs);
+  merge_soft(extension.soft_indices, extension.soft_costs);
+  merged.soft_indices.reserve(touched.size());
+  merged.soft_costs.reserve(touched.size());
+  for (const std::uint32_t index : touched) {
+    if (hard[index] != 0U) {continue;}
+    merged.soft_indices.push_back(index);
+    merged.soft_costs.push_back(costs[index]);
+  }
   return merged;
 }
 
