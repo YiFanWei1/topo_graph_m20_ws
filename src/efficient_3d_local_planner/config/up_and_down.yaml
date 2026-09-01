@@ -98,6 +98,7 @@ local_voxel_mapper:
 corridor_astar_planner:
   ros__parameters:
     frames.planning: camera_init               # A* 搜索使用的固定坐标系
+    input.voxel_grid_topic: /local_voxel_map/grid_with_occlusion # extension 关闭时也会原样透传基础地图
     input.path_topic: /recorded_waypoint_route/active_segment_ground # 当前目标的滚动路径窗，保留中间黄色点且覆盖机器人所在路段
     planner.path_height: 0.40                  # 全局路径整体向上抬升高度，单位 m
     planner.project_start_z: true              # 起点 Z 是否投影到抬升后的全局路径
@@ -185,11 +186,12 @@ local_path_follower:
 
 obstacle_occlusion_extension:
   ros__parameters:
-    extension.enabled: true                    # 当前仅发布可视化点云，不写入规划器 hard 层
+    extension.enabled: true                    # true 将后向补障合入规划 hard；false 原样透传基础地图
     extension.distance: 0.60                   # 从已检测 hard 背向机器人延伸的距离，单位 m
     extension.minimum_obstacle_range: 0.20     # 忽略距机器人过近、射线方向不稳定的 hard
     extension.maximum_obstacle_range: 8.00     # 只处理该水平距离内的 hard；0 表示不限制
     input.voxel_grid_topic: /local_voxel_map/grid
     input.odometry_topic: /lio_odom_hf
     output.extension_topic: /local_voxel_map/occlusion_extension
+    output.augmented_grid_topic: /local_voxel_map/grid_with_occlusion
     tf.timeout: 0.05                            # 里程计坐标系转换到栅格坐标系的等待时间，单位 s

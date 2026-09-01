@@ -53,6 +53,8 @@ public:
     // 输入路线保存的是地面坐标，path_height_ 将每个点抬升到机器人机身中心高度；
     // planning_frame_ 通常为 camera_init，所有地图、里程计和输出路径最终都在该系表达。
     planning_frame_ = declare_parameter<std::string>("frames.planning", "camera_init");
+    map_topic_ = declare_parameter<std::string>(
+      "input.voxel_grid_topic", "/local_voxel_map/grid");
     path_topic_ = declare_parameter<std::string>("input.path_topic", "/plan");
     path_height_ = declare_parameter<double>("planner.path_height", 0.40);
     // 楼梯点云和里程计高度会有小误差。允许在 start_z_max_correction_ 内把规划起点 Z
@@ -217,7 +219,7 @@ public:
     // 标准 /plan 的 Reliable+Volatile，也能接收拓扑路线节点提供的
     // Reliable+TransientLocal；若订阅端请求 TransientLocal，则无法匹配 /plan。
     map_sub_ = create_subscription<efficient_3d_local_planner_msgs::msg::VoxelGrid>(
-      "/local_voxel_map/grid", rclcpp::SensorDataQoS().keep_last(1),
+      map_topic_, rclcpp::SensorDataQoS().keep_last(1),
       std::bind(&CorridorAStarPlannerNode::mapCallback, this, std::placeholders::_1));
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/lio_odom_hf", rclcpp::SensorDataQoS().keep_last(5),
@@ -229,9 +231,9 @@ public:
     // 所有算法对象和 ROS 通信对象建立后再启动工作线程。
     worker_ = std::thread(&CorridorAStarPlannerNode::workerLoop, this);
     RCLCPP_DEBUG(
-      get_logger(), "guided 3-D A*: path=%s horizon=%.1fm corridor=[%.1fm, +/-%.1fm] "
+      get_logger(), "guided 3-D A*: map=%s path=%s horizon=%.1fm corridor=[%.1fm, +/-%.1fm] "
       "soft_weight=%.1f control_bspline=%d clearance=%.3fm narrow=[%d %.3fm]",
-      path_topic_.c_str(), horizon_, config.corridor_xy, config.corridor_z,
+      map_topic_.c_str(), path_topic_.c_str(), horizon_, config.corridor_xy, config.corridor_z,
       config.soft_weight, optimization_config.enabled,
       optimization_config.clearance_distance, narrow_config.enabled,
       narrow_config.minimum_acceptable_clearance);
@@ -1139,6 +1141,8 @@ private:
   // stop_ 同时控制 worker 主循环和 GuidedAStar 的取消回调。
   std::atomic<bool> stop_{false};
   std::thread worker_;
+
+  std::string map_topic_;
 
   // -------- ROS 通信对象 --------
   rclcpp::Subscription<efficient_3d_local_planner_msgs::msg::VoxelGrid>::SharedPtr map_sub_;

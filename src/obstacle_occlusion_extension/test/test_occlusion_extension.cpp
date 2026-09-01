@@ -9,6 +9,7 @@
 using obstacle_occlusion_extension::ExtensionConfig;
 using obstacle_occlusion_extension::GridGeometry;
 using obstacle_occlusion_extension::computeOcclusionExtension;
+using obstacle_occlusion_extension::mergeHardIndices;
 
 namespace
 {
@@ -95,4 +96,11 @@ TEST(OcclusionExtension, AppliesConfiguredObstacleRange)
   EXPECT_FALSE(contains(added, grid.index(3U, 3U, 1U)));
   EXPECT_TRUE(contains(added, grid.index(7U, 3U, 1U)));
   EXPECT_FALSE(contains(added, grid.index(11U, 3U, 1U)));
+}
+
+TEST(OcclusionExtension, MergesAddedVoxelsIntoHardWithoutDuplicates)
+{
+  const auto merged = mergeHardIndices({1U, 3U, 3U}, {2U, 3U, 99U}, 8U);
+
+  EXPECT_EQ(merged, (std::vector<std::uint32_t>{1U, 3U, 2U}));
 }

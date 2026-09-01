@@ -127,4 +127,30 @@ inline std::vector<std::uint32_t> computeOcclusionExtension(
   return added;
 }
 
+inline std::vector<std::uint32_t> mergeHardIndices(
+  const std::vector<std::uint32_t> & hard_indices,
+  const std::vector<std::uint32_t> & added_indices,
+  const std::size_t cell_count)
+{
+  std::vector<std::uint32_t> merged;
+  if (cell_count == 0U) {
+    return merged;
+  }
+  merged.reserve(std::min(cell_count, hard_indices.size() + added_indices.size()));
+  std::vector<std::uint8_t> present(cell_count, 0U);
+  const auto append_unique = [&merged, &present, cell_count](
+      const std::vector<std::uint32_t> & indices) {
+      for (const std::uint32_t index : indices) {
+        if (index >= cell_count || present[index] != 0U) {
+          continue;
+        }
+        present[index] = 1U;
+        merged.push_back(index);
+      }
+    };
+  append_unique(hard_indices);
+  append_unique(added_indices);
+  return merged;
+}
+
 }  // namespace obstacle_occlusion_extension

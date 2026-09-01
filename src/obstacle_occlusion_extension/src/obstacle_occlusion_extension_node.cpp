@@ -47,14 +47,20 @@ public:
       "input.odometry_topic", "/lio_odom_hf");
     const std::string output_topic = declare_parameter<std::string>(
       "output.extension_topic", "/local_voxel_map/occlusion_extension");
+    const std::string augmented_grid_topic = declare_parameter<std::string>(
+      "output.augmented_grid_topic", "/local_voxel_map/grid_with_occlusion");
     if (!extension_config_.valid() || !std::isfinite(tf_timeout_) || tf_timeout_ <= 0.0) {
       throw std::invalid_argument("occlusion extension distances and TF timeout are invalid");
     }
 
     // 这是低频、深度 1 的可视化输出。使用 Reliable 可同时兼容 RViz 在配置加载阶段
     // 创建的 Reliable/Best-Effort 订阅，避免显示项因 QoS 不匹配而永远收不到点云。
-    publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+    cloud_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       output_topic, rclcpp::QoS(1).reliable().durability_volatile());
+    // 规划地图保持与原 mapper 相同的 SensorDataQoS。无论扩展开关或 TF 是否可用，
+    // 每一帧输入 grid 都会在该话题发布，确保下游规划器不会因本节点等待位姿而断图。
+    grid_publisher_ = create_publisher<VoxelGrid>(
+      augmented_grid_topic, rclcpp::SensorDataQoS().keep_last(1));
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
       odometry_topic, rclcpp::SensorDataQoS().keep_last(100),
       [this](nav_msgs::msg::Odometry::SharedPtr message) {
@@ -69,10 +75,11 @@ public:
     RCLCPP_INFO(
       get_logger(),
       "occlusion extension ready: enabled=%s distance=%.2fm range=[%.2f,%.2f]m "
-      "grid=%s odom=%s output=%s visualization_only=true",
+      "grid=%s odom=%s cloud=%s augmented_grid=%s hard_injection=%s",
       enabled_ ? "true" : "false", extension_config_.distance,
       extension_config_.minimum_obstacle_range, extension_config_.maximum_obstacle_range,
-      grid_topic.c_str(), odometry_topic.c_str(), output_topic.c_str());
+      grid_topic.c_str(), odometry_topic.c_str(), output_topic.c_str(),
+      augmented_grid_topic.c_str(), enabled_ ? "enabled" : "disabled");
   }
 
 private:
@@ -154,21 +161,29 @@ private:
       static_cast<double>(grid->resolution), grid->size_x, grid->size_y, grid->size_z};
     if (!geometry.valid()) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "received invalid voxel grid");
+      grid_publisher_->publish(*grid);
       return;
     }
+    std::vector<std::uint32_t> added;
     if (!enabled_ || extension_config_.distance <= 0.0) {
-      publisher_->publish(makeCloud(*grid, geometry, {}));
+      cloud_publisher_->publish(makeCloud(*grid, geometry, added));
+      grid_publisher_->publish(*grid);
       return;
     }
     double observer_x = 0.0;
     double observer_y = 0.0;
     if (!observerInGridFrame(grid->header.frame_id, observer_x, observer_y)) {
-      publisher_->publish(makeCloud(*grid, geometry, {}));
+      cloud_publisher_->publish(makeCloud(*grid, geometry, added));
+      grid_publisher_->publish(*grid);
       return;
     }
-    const auto added = computeOcclusionExtension(
+    added = computeOcclusionExtension(
       geometry, grid->hard_occupied_indices, observer_x, observer_y, extension_config_);
-    publisher_->publish(makeCloud(*grid, geometry, added));
+    VoxelGrid augmented = *grid;
+    augmented.hard_occupied_indices = mergeHardIndices(
+      grid->hard_occupied_indices, added, geometry.cellCount());
+    cloud_publisher_->publish(makeCloud(*grid, geometry, added));
+    grid_publisher_->publish(augmented);
     RCLCPP_DEBUG_THROTTLE(
       get_logger(), *get_clock(), 1000,
       "occlusion extension: revision=%lu hard=%zu added=%zu observer=[%.2f %.2f]",
@@ -182,7 +197,8 @@ private:
   nav_msgs::msg::Odometry::SharedPtr latest_odometry_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_publisher_;
+  rclcpp::Publisher<VoxelGrid>::SharedPtr grid_publisher_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
   rclcpp::Subscription<VoxelGrid>::SharedPtr grid_subscription_;
 };

@@ -2,7 +2,7 @@
 <package format="3">
   <name>obstacle_occlusion_extension</name>
   <version>0.1.0</version>
-  <description>Visualize conservative voxels behind observed obstacles in a rolling 3-D map.</description>
+  <description>Extend occluded obstacle backsides into a rolling 3-D hard layer.</description>
   <maintainer email="wei@example.com">wei</maintainer>
   <license>Apache-2.0</license>
 
