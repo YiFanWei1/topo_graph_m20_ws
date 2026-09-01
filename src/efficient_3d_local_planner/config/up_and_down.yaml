@@ -1,6 +1,60 @@
+up_and_down_demo:
+  ros__parameters:
+    # launch 本身只读取这一节；所有运行开关、话题和静态 TF 均在此配置。
+    path_source: topology                      # topology: 拓扑 JSON；plan: 实时 nav_msgs/Path
+    topics.topology_path: /recorded_waypoint_route/active_segment_ground
+    topics.global_plan: /plan                  # path_source=plan 时订阅的地面全局路径
+    topics.cmd_vel: /cmd_vel_smoothed          # 实机确认安全后可改为 /cmd_vel
+    rviz.enabled: true
+    rviz.config_file: ""                       # 空值使用包内 rviz/up_and_down.rviz
+    static_tf.publish: true                    # 已有其他发布源时必须改为 false，避免 TF 冲突
+    static_tf.map_to_camera_init.parent_frame: map
+    static_tf.map_to_camera_init.child_frame: camera_init
+    static_tf.map_to_camera_init.translation: [0.0, 0.0, 0.0]
+    static_tf.map_to_camera_init.rotation_rpy: [0.0, 0.0, 0.0]
+    static_tf.body_to_base_link.parent_frame: body
+    static_tf.body_to_base_link.child_frame: base_link
+    static_tf.body_to_base_link.translation: [-0.15, 0.0, -0.21]
+    static_tf.body_to_base_link.rotation_rpy: [0.0, 0.0, 0.0]
+
+target_path_generator:
+  ros__parameters:
+    use_sim_time: false                        # 实机用系统时间；播放 bag 时在本 YAML 中改为 true
+    route_file: /home/langyi/workspace/wyf/topo_graph_ws/data/regu/topoSingle_data_generated.json
+    frames.fallback: camera_init               # JSON 未写 frame_id 时使用的路线坐标系
+    route.spacing: 0.10                        # 稀疏拓扑点之间的三维插值最大间距，单位 m
+    route.body_height: 0.40                    # 地面路线可视化抬升到机身中心的高度，单位 m
+    visualization.normal_marker_diameter: 0.45 # 普通拓扑点球体直径，单位 m
+    visualization.corner_marker_diameter: 0.75 # 拐点球体直径，单位 m
+
+target_route_sequencer:
+  ros__parameters:
+    use_sim_time: false                        # 必须与同一流程中的其他节点保持一致
+    input.odometry_topic: /lio_odom_hf
+    input.goal_id_topic: /recorded_waypoint_route/goal_id
+    route.body_height: 0.40                    # 地面目标转换为机身中心目标时增加的高度，单位 m
+    route.spacing: 0.10                        # 临时连接与活动路线段的插值间距，单位 m
+    route.normal_arrival_tolerance: 2.80       # 普通点通过半径，单位 m
+    route.corner_arrival_tolerance: 0.30       # 拐点严格三维到点半径，单位 m
+    route.goal_arrival_tolerance: 0.30         # 最终目标严格三维到点半径，单位 m
+    route.max_start_distance: 3.0              # 起点距最近记录点超过该值时拒绝目标，单位 m
+    route.update_rate: 50.0                    # 缓存里程计后的路线状态更新频率，单位 Hz
+
+map_to_camera_init_static_tf:
+  ros__parameters:
+    use_sim_time: false
+
+body_to_base_link_static_tf:
+  ros__parameters:
+    use_sim_time: false
+
+efficient_3d_local_planner_rviz:
+  ros__parameters:
+    use_sim_time: false
+
 local_voxel_mapper:
   ros__parameters:
-    use_sim_time: false                        # 实机使用系统时间；播放 bag 时由 launch 显式覆盖为 true
+    use_sim_time: false                        # 实机使用系统时间；播放 bag 时在本 YAML 中改为 true
     frames.planning: camera_init               # 地图和规划结果使用的固定坐标系
     frames.base: base_link                     # 机器人机体坐标系
     frames.lidar: livox_lidar                  # 雷达坐标系名称
@@ -54,7 +108,7 @@ local_voxel_mapper:
 
 corridor_astar_planner:
   ros__parameters:
-    use_sim_time: false                        # 实机使用系统时间；播放 bag 时由 launch 显式覆盖为 true
+    use_sim_time: false                        # 实机使用系统时间；播放 bag 时在本 YAML 中改为 true
     frames.planning: camera_init               # A* 搜索使用的固定坐标系
     input.path_topic: /recorded_waypoint_route/active_segment_ground # 当前目标的滚动路径窗，保留中间黄色点且覆盖机器人所在路段
     planner.path_height: 0.40                  # 全局路径整体向上抬升高度，单位 m
@@ -116,7 +170,7 @@ corridor_astar_planner:
 
 local_path_follower:
   ros__parameters:
-    use_sim_time: false                        # 实机使用系统时间；播放 bag 时由 launch 显式覆盖为 true
+    use_sim_time: false                        # 实机使用系统时间；播放 bag 时在本 YAML 中改为 true
     controller.enabled: true                   # 是否启用局部路径跟踪控制器
     controller.control_rate: 200.0              # 速度控制循环频率，单位 Hz
     controller.nominal_speed: 0.5             # 正常路径跟踪速度，单位 m/s
