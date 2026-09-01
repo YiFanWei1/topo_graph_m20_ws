@@ -42,7 +42,7 @@ target_route_sequencer:
     route.max_start_distance: 3.0              # 起点距最近记录点超过该值时拒绝目标，单位 m
     route.update_rate: 50.0                    # 缓存里程计后的路线状态更新频率，单位 Hz
     # 统一属性解析接口：当前只看 JSON 顶点 meta.isSlope；以后特殊点规则集中扩展 resolver。
-    profile.normal.path_height: 0.0            # 普通点按地面路径高度规划
+    profile.normal.path_height: 0.1            # 普通点按地面路径高度规划
     profile.normal.extension_enabled: true     # 普通点启用障碍物后向补全
     profile.normal.soft_radius: 0.60           # 普通点基础障碍与后向补障共用的 Soft 半径
     profile.slope.path_height: 0.4             # 坡点（含坡段前后 2m）抬升到机身中心
@@ -59,7 +59,7 @@ local_voxel_mapper:
     frames.lidar: livox_lidar                  # 雷达坐标系名称
     input.cloud_topic: /cloud_registered_body  # 输入点云话题，点坐标已经位于 base_link
     input.odometry_topic: /lio_odom_hf         # 输入高频里程计话题
-    map.resolution: 0.08                        # 三维栅格分辨率，单位 m
+    map.resolution: 0.1                        # 三维栅格分辨率，单位 m
     map.size_x: 8.0                           # 滚动地图 X 方向长度，单位 m
     map.size_y: 8.0                           # 滚动地图 Y 方向长度，单位 m
     map.size_z: 3.0                           # 滚动地图 Z 方向高度，单位 m
@@ -110,7 +110,7 @@ corridor_astar_planner:
     frames.planning: camera_init               # A* 搜索使用的固定坐标系
     input.voxel_grid_topic: /local_voxel_map/grid_with_occlusion # extension 关闭时也会原样透传基础地图
     input.path_topic: /recorded_waypoint_route/active_segment_ground # 当前目标的滚动路径窗，保留中间黄色点且覆盖机器人所在路段
-    planner.path_height: 0.40                  # 全局路径整体向上抬升高度，单位 m
+    planner.path_height: 0.3                  # 全局路径整体向上抬升高度，单位 m
     planner.project_start_z: true              # 起点 Z 是否投影到抬升后的全局路径
     planner.start_z_max_correction: 0.60       # 起点 Z 允许的最大投影修正量，单位 m
     planner.reject_wrong_path_level: true      # 路径高度与机器人相差过大时保留旧路径，不向错误楼层搜索
@@ -196,12 +196,18 @@ local_path_follower:
 
 obstacle_occlusion_extension:
   ros__parameters:
-    extension.enabled: true                    # true 将后向补障合入规划 hard；false 原样透传基础地图
-    extension.distance: 0.60                   # 从已检测 hard 背向机器人延伸的距离，单位 m
+    extension.enabled: false                    # true 将后向补障合入规划 hard；false 原样透传基础地图
+    extension.distance: 0.7                   # 从已检测 hard 背向机器人延伸的距离，单位 m
     extension.minimum_obstacle_range: 0.20     # 忽略距机器人过近、射线方向不稳定的 hard
     extension.maximum_obstacle_range: 8.00     # 只处理该水平距离内的 hard；0 表示不限制
+    inflation.horizontal_fill_cells: 1         # 后影原始占据先补一个水平八邻域，与基础障碍一致
+    inflation.hard_z_down: 0.40                # 后影 Hard 沿 Z 向下膨胀，单位 m
+    inflation.hard_z_up: 0.00                  # 后影 Hard 沿 Z 向上膨胀，单位 m
+    inflation.soft_radius: 0.60                # 后影 Hard 外的分级 Soft 半径，单位 m
     input.voxel_grid_topic: /local_voxel_map/grid
     input.odometry_topic: /lio_odom_hf
     output.extension_topic: /local_voxel_map/occlusion_extension
     output.augmented_grid_topic: /local_voxel_map/grid_with_occlusion
+    output.augmented_hard_topic: /local_voxel_map/hard_with_occlusion
+    output.augmented_soft_topic: /local_voxel_map/soft_cost_with_occlusion
     tf.timeout: 0.05                            # 里程计坐标系转换到栅格坐标系的等待时间，单位 s
