@@ -17,7 +17,7 @@ ros2 run circle_path_benchmark generate_circle_path \
 默认起点为 `(0.8,-2.0,0.0)`，逆时针切向朝向 `+Y`（yaw=90°）。生成器会检查
 机器人高度范围内的 PCD 点；圆周净空小于 `robot_radius=0.30m` 时拒绝生成。
 
-## 2. 先只看路径，不发有效控制路径
+## 2. 使用启动时定位作为圆心，只看路径
 
 ```bash
 ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
@@ -27,9 +27,18 @@ ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
   enable_motion:=false
 ```
 
+默认 `center_from_initial_odometry:=true`。节点收到第一帧 `/lio_odom_hf` 后，将该帧
+`x/y/z` 永久锁定为圆心，并使用该帧 yaw 确定圆周起点的切向；之后机器人移动不会
+改变圆心。机器人初始位于圆心，因此还需要移动到 RViz 中的绿色圆周起点才能使能。
+动态生成的圆会重新进行 PCD 净空检查，未通过时只能显示，不能发送控制路径。
+
+RViz 使用固定 `camera_init` 下的正交俯视视角，不跟随机器人位置或姿态改变视角。
+如果确实需要使用 YAML 中保存的旧圆心，显式设置
+`center_from_initial_odometry:=false`。
+
 ## 3. 实机一圈测试
 
-把机器人移动到起点并朝向 +Y，确认急停和控制适配器后运行：
+把机器人移动到绿色圆周起点并保持启动时的朝向，确认急停和控制适配器后运行：
 
 ```bash
 ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \

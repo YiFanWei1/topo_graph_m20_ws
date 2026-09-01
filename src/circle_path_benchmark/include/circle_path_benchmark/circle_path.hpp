@@ -36,6 +36,12 @@ inline double normalizeAngle(double angle)
   return angle;
 }
 
+inline double startAngleForTangentYaw(const CircleSpec & spec, double tangent_yaw)
+{
+  const double direction_sign = spec.clockwise ? -1.0 : 1.0;
+  return normalizeAngle(tangent_yaw - direction_sign * 0.5 * kPi);
+}
+
 inline void validateCircleSpec(const CircleSpec & spec)
 {
   if (!std::isfinite(spec.center_x) || !std::isfinite(spec.center_y) ||

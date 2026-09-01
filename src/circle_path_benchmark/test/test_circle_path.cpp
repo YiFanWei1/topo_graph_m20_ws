@@ -34,3 +34,23 @@ TEST(CirclePath, DirectionAndRadialErrorAreSigned)
   ccw.clockwise = true;
   EXPECT_NEAR(benchmark::directedAngularDelta(ccw, 3.1, -3.1), -0.083185307, 1e-6);
 }
+
+TEST(CirclePath, InitialTangentYawDefinesDynamicCircleStart)
+{
+  benchmark::CircleSpec ccw;
+  ccw.center_x = 3.0;
+  ccw.center_y = -4.0;
+  ccw.start_angle = benchmark::startAngleForTangentYaw(ccw, 0.0);
+  const auto ccw_path = benchmark::generateCircle(ccw);
+  EXPECT_NEAR(ccw_path.front().x, 3.0, 1e-9);
+  EXPECT_NEAR(ccw_path.front().y, -4.8, 1e-9);
+  EXPECT_NEAR(ccw_path.front().yaw, 0.0, 1e-9);
+
+  benchmark::CircleSpec clockwise = ccw;
+  clockwise.clockwise = true;
+  clockwise.start_angle = benchmark::startAngleForTangentYaw(clockwise, 0.0);
+  const auto clockwise_path = benchmark::generateCircle(clockwise);
+  EXPECT_NEAR(clockwise_path.front().x, 3.0, 1e-9);
+  EXPECT_NEAR(clockwise_path.front().y, -3.2, 1e-9);
+  EXPECT_NEAR(clockwise_path.front().yaw, 0.0, 1e-9);
+}

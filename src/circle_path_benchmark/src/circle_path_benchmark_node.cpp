@@ -49,8 +49,13 @@ public:
     control_path_topic_ = declare_parameter<std::string>(
       "topics.control_path", "/local_planner/local_path");
     initial_enable_ = declare_parameter<bool>("benchmark.enable_motion", false);
+    center_from_initial_odometry_ = declare_parameter<bool>(
+      "benchmark.center_from_initial_odometry", true);
     require_pcd_ = declare_parameter<bool>("benchmark.require_pcd", true);
     publish_rate_ = declare_parameter<double>("benchmark.publish_rate", 5.0);
+    robot_radius_ = declare_parameter<double>("safety.robot_radius", 0.30);
+    body_half_height_ = declare_parameter<double>("safety.body_half_height", 0.35);
+    allow_unsafe_circle_ = declare_parameter<bool>("safety.allow_unsafe_circle", false);
     start_position_tolerance_ = declare_parameter<double>(
       "safety.start_position_tolerance", 0.20);
     start_yaw_tolerance_ = declare_parameter<double>(
@@ -64,13 +69,19 @@ public:
 
     if (path_file_.empty() || output_directory_.empty() || publish_rate_ <= 0.0 ||
       start_position_tolerance_ <= 0.0 || start_yaw_tolerance_ <= 0.0 ||
-      max_duration_ <= 0.0 || actual_path_spacing_ <= 0.0)
+      max_duration_ <= 0.0 || actual_path_spacing_ <= 0.0 || robot_radius_ <= 0.0 ||
+      body_half_height_ <= 0.0)
     {
       throw std::invalid_argument("benchmark paths and positive safety parameters are required");
     }
     loadPath(path_file_);
     loadCloud(pcd_override_.empty() ? source_pcd_ : pcd_override_);
     openOutputs();
+    path_ready_ = !center_from_initial_odometry_;
+    if (path_ready_) {
+      circle_safe_ = validateCurrentCircle(initialization_error_);
+      writeResolvedPath();
+    }
 
     const auto latched_qos = rclcpp::QoS(1).reliable().transient_local();
     reference_pub_ = create_publisher<nav_msgs::msg::Path>(
@@ -99,17 +110,19 @@ public:
       std::bind(&CirclePathBenchmarkNode::timerCallback, this));
 
     auto_arm_pending_ = initial_enable_;
-    publishReference();
+    if (path_ready_) {publishReference();}
     publishCloud();
     publishEmptyControlPath("startup_disarmed");
-    RCLCPP_WARN(
-      get_logger(),
-      "circle benchmark ready: radius=%.2f start=[%.2f %.2f %.2f yaw=%.1fdeg] "
-      "motion=%s output=%s",
-      spec_.radius, points_.front().x, points_.front().y, points_.front().z,
-      points_.front().yaw * 180.0 / kPi,
-      initial_enable_ ? "waiting_for_start_check" : "DISARMED",
-      output_directory_.c_str());
+    if (center_from_initial_odometry_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "waiting for first odometry: its position will be locked as the %.2fm circle center; "
+        "motion=%s output=%s",
+        spec_.radius, initial_enable_ ? "waiting_for_start_check" : "DISARMED",
+        output_directory_.c_str());
+    } else {
+      logCircleReady();
+    }
   }
 
   ~CirclePathBenchmarkNode() override
@@ -189,14 +202,163 @@ private:
   void openOutputs()
   {
     std::filesystem::create_directories(output_directory_);
-    std::filesystem::copy_file(
-      path_file_, std::filesystem::path(output_directory_) / "reference_circle.yaml",
-      std::filesystem::copy_options::overwrite_existing);
     trajectory_.open(std::filesystem::path(output_directory_) / "trajectory.csv");
     if (!trajectory_) {throw std::runtime_error("failed to open trajectory.csv");}
     trajectory_ << "stamp_sec,x,y,z,yaw,active,progress_rad,radial_error_m,"
                    "abs_radial_error_m,cmd_vx,cmd_vy,cmd_wz\n";
     trajectory_.flush();
+  }
+
+  static std::string yamlQuote(const std::string & value)
+  {
+    std::string escaped;
+    escaped.reserve(value.size() + 2U);
+    escaped.push_back('"');
+    for (const char character : value) {
+      if (character == '\\' || character == '"') {escaped.push_back('\\');}
+      escaped.push_back(character);
+    }
+    escaped.push_back('"');
+    return escaped;
+  }
+
+  void writeResolvedPath()
+  {
+    const auto output = std::filesystem::path(output_directory_) / "reference_circle.yaml";
+    const auto temporary = output.string() + ".tmp";
+    std::ofstream stream(temporary);
+    if (!stream) {throw std::runtime_error("failed to write resolved circle path");}
+    stream << std::setprecision(10)
+           << "version: 1\n"
+           << "frame_id: " << yamlQuote(frame_id_) << "\n"
+           << "source_pcd: " << yamlQuote(
+      pcd_override_.empty() ? source_pcd_ : pcd_override_) << "\n"
+           << "center_source: " << (
+      center_from_initial_odometry_ ? "initial_odometry" : "path_file") << "\n"
+           << "circle:\n"
+           << "  center: [" << spec_.center_x << ", " << spec_.center_y << ", "
+           << spec_.path_z << "]\n"
+           << "  radius: " << spec_.radius << "\n"
+           << "  sample_spacing: " << spec_.sample_spacing << "\n"
+           << "  start_angle: " << spec_.start_angle << "\n"
+           << "  direction: " << (spec_.clockwise ? "cw" : "ccw") << "\n"
+           << "validation:\n"
+           << "  robot_radius: " << robot_radius_ << "\n"
+           << "  body_half_height: " << body_half_height_ << "\n"
+           << "  pcd_slab_points: " << pcd_slab_points_ << "\n"
+           << "  minimum_clearance: " << minimum_clearance_ << "\n"
+           << "  inside_pcd_bounds: " << (inside_pcd_bounds_ ? "true" : "false") << "\n"
+           << "  safe: " << (circle_safe_ ? "true" : "false") << "\n"
+           << "points:\n";
+    for (const auto & point : points_) {
+      stream << "  - [" << point.x << ", " << point.y << ", " << point.z << ", "
+             << point.yaw << "]\n";
+    }
+    stream.flush();
+    if (!stream) {throw std::runtime_error("failed while writing resolved circle path");}
+    std::filesystem::rename(temporary, output);
+  }
+
+  bool validateCurrentCircle(std::string & reason)
+  {
+    pcd_slab_points_ = 0U;
+    minimum_clearance_ = std::numeric_limits<double>::infinity();
+    inside_pcd_bounds_ = false;
+    if (cloud_.empty()) {
+      reason = require_pcd_ ? "pcd_unavailable" : "pcd_check_disabled";
+      return !require_pcd_;
+    }
+
+    double minimum_x = std::numeric_limits<double>::infinity();
+    double maximum_x = -minimum_x;
+    double minimum_y = minimum_x;
+    double maximum_y = -minimum_x;
+    for (const auto & point : cloud_) {
+      if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
+        continue;
+      }
+      minimum_x = std::min(minimum_x, static_cast<double>(point.x));
+      maximum_x = std::max(maximum_x, static_cast<double>(point.x));
+      minimum_y = std::min(minimum_y, static_cast<double>(point.y));
+      maximum_y = std::max(maximum_y, static_cast<double>(point.y));
+      if (point.z < spec_.path_z - body_half_height_ ||
+        point.z > spec_.path_z + body_half_height_)
+      {
+        continue;
+      }
+      ++pcd_slab_points_;
+      const double radial_distance = std::hypot(
+        point.x - spec_.center_x, point.y - spec_.center_y);
+      minimum_clearance_ = std::min(
+        minimum_clearance_, std::abs(radial_distance - spec_.radius));
+    }
+    if (pcd_slab_points_ == 0U) {
+      reason = "no_pcd_points_in_body_height_slab";
+      return false;
+    }
+    const double required_extent = spec_.radius + robot_radius_;
+    inside_pcd_bounds_ =
+      spec_.center_x - required_extent >= minimum_x &&
+      spec_.center_x + required_extent <= maximum_x &&
+      spec_.center_y - required_extent >= minimum_y &&
+      spec_.center_y + required_extent <= maximum_y;
+    if (!inside_pcd_bounds_) {
+      reason = "circle_outside_pcd_bounds";
+      return false;
+    }
+    if (minimum_clearance_ < robot_radius_) {
+      reason = "pcd_clearance=" + number(minimum_clearance_) +
+        "_below_robot_radius=" + number(robot_radius_);
+      return false;
+    }
+    reason = "safe";
+    return true;
+  }
+
+  void initializeCircleFromOdometry(const nav_msgs::msg::Odometry & odometry)
+  {
+    if (path_ready_) {return;}
+    if (odometry.header.frame_id.empty() || odometry.header.frame_id != frame_id_) {
+      initialization_error_ = "odometry_frame_mismatch expected=" + frame_id_ +
+        " actual=" + odometry.header.frame_id;
+      return;
+    }
+    const auto & pose = odometry.pose.pose;
+    const double initial_yaw = tf2::getYaw(pose.orientation);
+    if (!std::isfinite(pose.position.x) || !std::isfinite(pose.position.y) ||
+      !std::isfinite(pose.position.z) || !std::isfinite(initial_yaw))
+    {
+      initialization_error_ = "initial_odometry_pose_is_not_finite";
+      return;
+    }
+    spec_.center_x = pose.position.x;
+    spec_.center_y = pose.position.y;
+    spec_.path_z = pose.position.z;
+    spec_.start_angle = startAngleForTangentYaw(spec_, initial_yaw);
+    points_ = generateCircle(spec_);
+    circle_safe_ = validateCurrentCircle(initialization_error_);
+    path_ready_ = true;
+    writeResolvedPath();
+    publishReference();
+    logCircleReady();
+    if (!circle_safe_ && !allow_unsafe_circle_) {
+      RCLCPP_ERROR(
+        get_logger(), "dynamic circle is visualization-only and cannot be armed: %s",
+        initialization_error_.c_str());
+    }
+  }
+
+  void logCircleReady() const
+  {
+    RCLCPP_WARN(
+      get_logger(),
+      "circle locked: center=[%.2f %.2f %.2f] radius=%.2f "
+      "start=[%.2f %.2f %.2f yaw=%.1fdeg] pcd_safe=%s motion=%s output=%s",
+      spec_.center_x, spec_.center_y, spec_.path_z, spec_.radius,
+      points_.front().x, points_.front().y, points_.front().z,
+      points_.front().yaw * 180.0 / kPi, circle_safe_ ? "true" : "false",
+      initial_enable_ ? "waiting_for_start_check" : "DISARMED",
+      output_directory_.c_str());
   }
 
   nav_msgs::msg::Path makeReferencePath() const
@@ -246,6 +408,10 @@ private:
 
   std::pair<bool, std::string> startCheck() const
   {
+    if (!path_ready_) {return {false, "waiting_for_initial_odometry_center"};}
+    if (!circle_safe_ && !allow_unsafe_circle_) {
+      return {false, "unsafe_circle=" + initialization_error_};
+    }
     if (!latest_odometry_) {return {false, "no_odometry"};}
     if (latest_odometry_->header.frame_id != frame_id_) {
       return {false, "odometry_frame_mismatch"};
@@ -312,6 +478,9 @@ private:
   void odomCallback(nav_msgs::msg::Odometry::ConstSharedPtr message)
   {
     latest_odometry_ = message;
+    if (center_from_initial_odometry_ && !path_ready_) {
+      initializeCircleFromOdometry(*message);
+    }
     if (auto_arm_pending_) {
       std::string reason;
       if (!arm(reason)) {
@@ -320,6 +489,8 @@ private:
           "motion not armed: %s; move robot to start pose first", reason.c_str());
       }
     }
+
+    if (!path_ready_) {return;}
 
     const auto & pose = message->pose.pose;
     const double yaw = tf2::getYaw(pose.orientation);
@@ -378,7 +549,7 @@ private:
 
   void timerCallback()
   {
-    publishReference();
+    if (path_ready_) {publishReference();}
     publishCloud();
     if (active_) {
       control_path_pub_->publish(makeReferencePath());
@@ -401,11 +572,27 @@ private:
     diagnostic_msgs::msg::DiagnosticStatus status;
     status.name = "circle_path_benchmark/tracking";
     status.hardware_id = "fixed_circle";
-    status.level = active_ ? diagnostic_msgs::msg::DiagnosticStatus::WARN :
-      diagnostic_msgs::msg::DiagnosticStatus::OK;
-    status.message = active_ ? "active" : (completed_ ? "complete" : "disarmed");
+    if (!path_ready_) {
+      status.level = diagnostic_msgs::msg::DiagnosticStatus::STALE;
+      status.message = "waiting_for_initial_odometry";
+    } else if (!circle_safe_ && !allow_unsafe_circle_) {
+      status.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+      status.message = "unsafe_circle_visualization_only";
+    } else {
+      status.level = active_ ? diagnostic_msgs::msg::DiagnosticStatus::WARN :
+        diagnostic_msgs::msg::DiagnosticStatus::OK;
+      status.message = active_ ? "active" : (completed_ ? "complete" : "disarmed");
+    }
     status.values = {
       keyValue("active", active_ ? "true" : "false"),
+      keyValue("path_ready", path_ready_ ? "true" : "false"),
+      keyValue("center_source", center_from_initial_odometry_ ?
+        "initial_odometry" : "path_file"),
+      keyValue("circle_safe", circle_safe_ ? "true" : "false"),
+      keyValue("circle_center_x", path_ready_ ? number(spec_.center_x) : "waiting"),
+      keyValue("circle_center_y", path_ready_ ? number(spec_.center_y) : "waiting"),
+      keyValue("circle_center_z", path_ready_ ? number(spec_.path_z) : "waiting"),
+      keyValue("initialization_error", initialization_error_),
       keyValue("completed", completed_ ? "true" : "false"),
       keyValue("progress_rad", number(accumulated_progress_)),
       keyValue("progress_percent", number(100.0 * accumulated_progress_ / (2.0 * kPi), 1)),
@@ -453,6 +640,7 @@ private:
   std::string cmd_vel_topic_;
   std::string control_path_topic_;
   std::string last_stop_reason_{"not_started"};
+  std::string initialization_error_{"waiting_for_initial_odometry"};
   CircleSpec spec_;
   std::vector<CirclePoint> points_;
   pcl::PointCloud<pcl::PointXYZ> cloud_;
@@ -461,10 +649,14 @@ private:
   geometry_msgs::msg::Twist latest_command_;
   std::ofstream trajectory_;
   bool initial_enable_{false};
+  bool center_from_initial_odometry_{true};
   bool require_pcd_{true};
+  bool allow_unsafe_circle_{false};
   bool auto_arm_pending_{false};
   bool active_{false};
   bool completed_{false};
+  bool path_ready_{false};
+  bool circle_safe_{false};
   double publish_rate_{5.0};
   double start_position_tolerance_{0.20};
   double start_yaw_tolerance_{20.0 * kPi / 180.0};
@@ -472,6 +664,11 @@ private:
   double completion_position_tolerance_{0.20};
   double max_duration_{45.0};
   double actual_path_spacing_{0.01};
+  double robot_radius_{0.30};
+  double body_half_height_{0.35};
+  double minimum_clearance_{std::numeric_limits<double>::infinity()};
+  std::size_t pcd_slab_points_{0U};
+  bool inside_pcd_bounds_{false};
   std::optional<double> previous_angle_;
   double accumulated_progress_{0.0};
   std::chrono::steady_clock::time_point start_steady_;

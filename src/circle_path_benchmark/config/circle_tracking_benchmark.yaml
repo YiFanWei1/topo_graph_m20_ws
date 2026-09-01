@@ -4,11 +4,17 @@ circle_path_benchmark:
     benchmark.pcd_file: ""
     benchmark.output_directory: /tmp/circle_path_benchmark
     benchmark.enable_motion: false
+    # true: 第一帧有效里程计的位置锁定为圆心，初始 yaw 用作圆周起点切向。
+    benchmark.center_from_initial_odometry: true
     benchmark.require_pcd: true
     benchmark.publish_rate: 5.0
     topics.odometry: /lio_odom_hf
     topics.cmd_vel: /cmd_vel_smoothed
     topics.control_path: /local_planner/local_path
+    safety.robot_radius: 0.30
+    safety.body_half_height: 0.35
+    # 动态圆未通过 PCD 净空检查时只显示，不允许控制；实机不要设为 true。
+    safety.allow_unsafe_circle: false
     safety.start_position_tolerance: 0.20
     safety.start_yaw_tolerance_degrees: 20.0
     safety.completion_angle_tolerance_degrees: 8.0

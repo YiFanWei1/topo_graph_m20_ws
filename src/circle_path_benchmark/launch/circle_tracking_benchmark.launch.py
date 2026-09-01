@@ -41,6 +41,8 @@ def _setup(context):
     cmd_vel_topic = LaunchConfiguration("cmd_vel_topic").perform(context)
     path_topic = "/local_planner/local_path"
     enable_motion = _as_bool(LaunchConfiguration("enable_motion").perform(context))
+    center_from_odometry = _as_bool(
+        LaunchConfiguration("center_from_initial_odometry").perform(context))
     record_bag = _as_bool(LaunchConfiguration("record_bag").perform(context))
     show_rviz = _as_bool(LaunchConfiguration("rviz").perform(context))
 
@@ -58,6 +60,7 @@ def _setup(context):
                 "benchmark.pcd_file": str(pcd_file),
                 "benchmark.output_directory": str(session),
                 "benchmark.enable_motion": enable_motion,
+                "benchmark.center_from_initial_odometry": center_from_odometry,
                 "topics.odometry": odom_topic,
                 "topics.cmd_vel": cmd_vel_topic,
                 "topics.control_path": path_topic,
@@ -112,6 +115,7 @@ def generate_launch_description():
         DeclareLaunchArgument("odom_topic", default_value="/lio_odom_hf"),
         DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel_smoothed"),
         DeclareLaunchArgument("enable_motion", default_value="false"),
+        DeclareLaunchArgument("center_from_initial_odometry", default_value="true"),
         DeclareLaunchArgument("record_bag", default_value="true"),
         DeclareLaunchArgument("rviz", default_value="true"),
         OpaqueFunction(function=_setup),

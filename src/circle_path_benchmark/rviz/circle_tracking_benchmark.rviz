@@ -64,14 +64,11 @@ Visualization Manager:
     Frame Rate: 30
   Views:
     Current:
-      Class: rviz_default_plugins/Orbit
-      Distance: 12
-      Pitch: 1.2
-      Yaw: 0.8
-      Focal Point:
-        X: 0
-        Y: -2
-        Z: 0
+      Class: rviz_default_plugins/TopDownOrtho
+      Angle: 0
+      Scale: 40
+      X: 0
+      Y: -6
 Window Geometry:
   Width: 1400
   Height: 900
