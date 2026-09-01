@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Annotate a topoSingle JSON file with slope-related vertex metadata."""
+
+import argparse
+import json
+from pathlib import Path
+
+from route_slope_annotator.slope_analysis import SlopeConfig, annotate_document
+
+
+def parser():
+    result = argparse.ArgumentParser()
+    result.add_argument("--input", required=True)
+    result.add_argument("--output", required=True)
+    result.add_argument("--fit-radius", type=float, default=2.0)
+    result.add_argument("--grade-threshold", type=float, default=0.12)
+    result.add_argument("--minimum-core-length", type=float, default=2.0)
+    result.add_argument("--minimum-height-change", type=float, default=0.20)
+    result.add_argument("--maximum-core-gap", type=float, default=1.0)
+    result.add_argument("--buffer-distance", type=float, default=3.0)
+    result.add_argument("--flat-path-height", type=float, default=0.0)
+    result.add_argument("--slope-path-height", type=float, default=0.4)
+    return result
+
+
+def main():
+    args = parser().parse_args()
+    input_path = Path(args.input).expanduser().resolve()
+    output_path = Path(args.output).expanduser().resolve()
+    if input_path == output_path:
+        raise SystemExit("input and output must differ; the source JSON is never overwritten")
+    with input_path.open("r", encoding="utf-8") as stream:
+        document = json.load(stream)
+    config = SlopeConfig(
+        fit_radius=args.fit_radius,
+        grade_threshold=args.grade_threshold,
+        minimum_core_length=args.minimum_core_length,
+        minimum_height_change=args.minimum_height_change,
+        maximum_core_gap=args.maximum_core_gap,
+        buffer_distance=args.buffer_distance,
+        flat_path_height=args.flat_path_height,
+        slope_path_height=args.slope_path_height)
+    annotated = annotate_document(document, config)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as stream:
+        json.dump(annotated, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+    annotation = annotated["slopeAnnotation"]
+    print(f"Wrote {output_path}")
+    print("Counts: " + ", ".join(
+        f"{key}={value}" for key, value in annotation["counts"].items()))
+    for segment in annotation["segments"]:
+        print(
+            "Segment {startVertex}-{endVertex}: {direction}, "
+            "grade={meanGrade:.3f}, length={length:.2f}m, dz={heightChange:.2f}m".format(
+                **segment))
+
+
+if __name__ == "__main__":
+    main()

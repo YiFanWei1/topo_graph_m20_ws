@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""ROS entry point for annotated topology point visualization."""
+
+from route_slope_annotator.slope_visualizer import main
+
+
+if __name__ == "__main__":
+    main()
