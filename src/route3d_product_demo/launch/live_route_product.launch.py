@@ -18,7 +18,7 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
+from launch_ros.substitutions import FindPackagePrefix, FindPackageShare
 from launch.substitutions import PathJoinSubstitution
 
 
@@ -80,7 +80,10 @@ def _launch_from_yaml(context):
 
     keyboard = ExecuteProcess(
         cmd=[
-            "ros2", "run", "route3d_product_demo", "route3d_live_keyboard",
+            PathJoinSubstitution([
+                FindPackagePrefix("route3d_product_demo"),
+                "lib", "route3d_product_demo", "route3d_live_keyboard",
+            ]),
             "--config", str(config_path),
         ],
         output="screen",

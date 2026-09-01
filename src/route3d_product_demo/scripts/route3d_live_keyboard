@@ -607,6 +607,18 @@ def main() -> int:
         print(f"初始化错误：{error}", file=sys.stderr)
         return 2
     old_terminal = termios.tcgetattr(keyboard_stream)
+    shutdown_signal: Optional[int] = None
+
+    def request_shutdown(signum, _frame) -> None:
+        nonlocal shutdown_signal
+        if shutdown_signal is not None:
+            return
+        shutdown_signal = signum
+        raise KeyboardInterrupt
+
+    previous_int_handler = signal.signal(signal.SIGINT, request_shutdown)
+    previous_term_handler = signal.signal(signal.SIGTERM, request_shutdown)
+    previous_hup_handler = signal.signal(signal.SIGHUP, request_shutdown)
     try:
         tty.setcbreak(keyboard_stream.fileno())
         print(
@@ -634,10 +646,18 @@ def main() -> int:
                 else:
                     break
     except KeyboardInterrupt:
-        print("\n收到 Ctrl-C，正在安全停止子进程。", flush=True)
+        reason = "Ctrl-C/SIGINT" if shutdown_signal in (None, signal.SIGINT) else \
+            signal.Signals(shutdown_signal).name
+        print(f"\n收到 {reason}，正在安全停止子进程。", flush=True)
     finally:
-        termios.tcsetattr(keyboard_stream, termios.TCSADRAIN, old_terminal)
+        try:
+            termios.tcsetattr(keyboard_stream, termios.TCSADRAIN, old_terminal)
+        except OSError:
+            pass
         session.cleanup()
+        signal.signal(signal.SIGINT, previous_int_handler)
+        signal.signal(signal.SIGTERM, previous_term_handler)
+        signal.signal(signal.SIGHUP, previous_hup_handler)
         if owns_keyboard_stream:
             keyboard_stream.close()
     return 0
