@@ -14,7 +14,7 @@ class SlopeConfig:
     minimum_core_length: float = 2.0
     minimum_height_change: float = 0.20
     maximum_core_gap: float = 1.0
-    buffer_distance: float = 3.0
+    buffer_distance: float = 2.0
 
     def validate(self):
         values = (

@@ -31,7 +31,7 @@ class SlopeVisualizer(Node):
         self.declare_parameter("minimum_core_length", 2.0)
         self.declare_parameter("minimum_height_change", 0.20)
         self.declare_parameter("maximum_core_gap", 1.0)
-        self.declare_parameter("buffer_distance", 3.0)
+        self.declare_parameter("buffer_distance", 2.0)
         self.declare_parameter("point_z_offset", 0.08)
         self.declare_parameter("show_vertex_ids", True)
 

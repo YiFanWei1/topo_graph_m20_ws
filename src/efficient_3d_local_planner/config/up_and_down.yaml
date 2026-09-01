@@ -45,7 +45,7 @@ target_route_sequencer:
     profile.normal.path_height: 0.0            # 普通点按地面路径高度规划
     profile.normal.extension_enabled: true     # 普通点启用障碍物后向补全
     profile.normal.soft_radius: 0.60           # 普通点基础障碍与后向补障共用的 Soft 半径
-    profile.slope.path_height: 0.4             # 坡点（含坡段前后 3m）抬升到机身中心
+    profile.slope.path_height: 0.4             # 坡点（含坡段前后 2m）抬升到机身中心
     profile.slope.extension_enabled: false     # 坡点关闭后向补全，避免把坡面误延伸为 hard
     profile.slope.soft_radius: 0.20            # 坡点缩小 Soft 范围，单位 m
     profile.planner_node: /corridor_astar_planner
