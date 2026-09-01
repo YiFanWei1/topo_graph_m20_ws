@@ -52,6 +52,7 @@ class SlopeVisualizer(Node):
             maximum_core_gap=float(self.get_parameter("maximum_core_gap").value),
             buffer_distance=float(self.get_parameter("buffer_distance").value))
         self.document = annotate_document(source, config)
+        self.buffer_distance = config.buffer_distance
         if output_file:
             output_path = Path(output_file).expanduser().resolve()
             if output_path == input_path:
@@ -142,7 +143,8 @@ class SlopeVisualizer(Node):
         first = vertices["1"]["pos"]
         labels = [
             ("normal", "GREEN: normal point"),
-            ("slope", "RED: slope point (core +/-3m)"),
+            ("slope", "RED: slope point (core +/-%.1fm)" %
+             self.buffer_distance),
         ]
         for index, (terrain_type, text) in enumerate(labels):
             legend = self.marker("legend", index, Marker.TEXT_VIEW_FACING)
