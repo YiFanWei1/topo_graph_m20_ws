@@ -176,6 +176,56 @@ inline std::vector<std::uint32_t> mergeHardIndices(
   return merged;
 }
 
+namespace detail
+{
+
+// Exact one-dimensional squared Euclidean distance transform using the lower
+// envelope of parabolas (Felzenszwalb/Huttenlocher). Inputs are zero at feature
+// cells and kInfiniteDistance elsewhere. Scratch buffers are owned by the caller
+// so processing every row/column does not allocate repeatedly.
+inline void squaredDistanceTransform1D(
+  const std::vector<int> & input, std::vector<int> & output, const int length,
+  std::vector<int> & sites, std::vector<double> & boundaries,
+  const int infinite_distance)
+{
+  int envelope_size = 0;
+  sites[0] = 0;
+  boundaries[0] = -std::numeric_limits<double>::infinity();
+  boundaries[1] = std::numeric_limits<double>::infinity();
+  for (int q = 1; q < length; ++q) {
+    double intersection = 0.0;
+    do {
+      const int previous = sites[envelope_size];
+      const auto numerator = static_cast<double>(
+        static_cast<long long>(input[q]) + static_cast<long long>(q) * q -
+        static_cast<long long>(input[previous]) -
+        static_cast<long long>(previous) * previous);
+      intersection = numerator / static_cast<double>(2 * (q - previous));
+      if (envelope_size == 0 || intersection > boundaries[envelope_size]) {
+        break;
+      }
+      --envelope_size;
+    } while (true);
+    ++envelope_size;
+    sites[envelope_size] = q;
+    boundaries[envelope_size] = intersection;
+    boundaries[envelope_size + 1] = std::numeric_limits<double>::infinity();
+  }
+
+  envelope_size = 0;
+  for (int q = 0; q < length; ++q) {
+    while (boundaries[envelope_size + 1] < static_cast<double>(q)) {
+      ++envelope_size;
+    }
+    const int nearest = sites[envelope_size];
+    const long long delta = static_cast<long long>(q - nearest);
+    output[q] = static_cast<int>(std::min<long long>(
+      infinite_distance, static_cast<long long>(input[nearest]) + delta * delta));
+  }
+}
+
+}  // namespace detail
+
 inline InflatedLayers inflateObstacleSeeds(
   const GridGeometry & grid, const std::vector<std::uint32_t> & seed_indices,
   const InflationConfig & config)
@@ -230,41 +280,80 @@ inline InflatedLayers inflateObstacleSeeds(
   if (config.soft_radius <= 1e-9 || layers.hard_indices.empty()) {
     return layers;
   }
-  const int maximum_xy = static_cast<int>(std::ceil(config.soft_radius / grid.resolution));
-  std::vector<std::uint32_t> touched;
-  for (const std::uint32_t hard : layers.hard_indices) {
-    const int hard_x = static_cast<int>(hard % grid.size_x);
-    const std::uint32_t yz = hard / grid.size_x;
-    const int hard_y = static_cast<int>(yz % grid.size_y);
-    const std::uint32_t hard_z = yz / grid.size_y;
-    for (int dx = -maximum_xy; dx <= maximum_xy; ++dx) {
-      for (int dy = -maximum_xy; dy <= maximum_xy; ++dy) {
-        const double radial = grid.resolution * std::hypot(dx, dy);
-        if (radial > config.soft_radius + half_voxel) {continue;}
-        const int x = hard_x + dx;
-        const int y = hard_y + dy;
-        if (x < 0 || y < 0 || x >= static_cast<int>(grid.size_x) ||
-          y >= static_cast<int>(grid.size_y))
-        {
-          continue;
-        }
-        const std::uint32_t index = grid.index(
-          static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y), hard_z);
-        if (state[index] == kHard) {continue;}
-        const double normalized = std::clamp(
-          (config.soft_radius - radial) / config.soft_radius, 0.0, 1.0);
-        const std::uint8_t cost = static_cast<std::uint8_t>(
-          std::clamp(std::lround(254.0 * normalized * normalized), 1L, 254L));
-        if (state[index] == 0U) {touched.push_back(index);}
-        state[index] = std::max(state[index], cost);
+
+  // The old implementation drew one soft disk around every hard voxel. Dense
+  // obstacles therefore revisited the same cells millions of times. The maximum
+  // disk cost at a cell depends only on its nearest hard voxel, so an exact 2-D
+  // Euclidean distance transform per Z layer produces identical occupancy/costs
+  // in O(size_x * size_y * size_z), independent of hard-voxel density.
+  constexpr int kInfiniteDistance = 1 << 28;
+  const int width = static_cast<int>(grid.size_x);
+  const int height = static_cast<int>(grid.size_y);
+  const int maximum_dimension = std::max(width, height);
+  const std::size_t layer_size =
+    static_cast<std::size_t>(grid.size_x) * static_cast<std::size_t>(grid.size_y);
+  std::vector<int> horizontal_distance(layer_size, kInfiniteDistance);
+  std::vector<int> squared_distance(layer_size, kInfiniteDistance);
+  std::vector<int> input(static_cast<std::size_t>(maximum_dimension), kInfiniteDistance);
+  std::vector<int> output(static_cast<std::size_t>(maximum_dimension), kInfiniteDistance);
+  std::vector<int> sites(static_cast<std::size_t>(maximum_dimension), 0);
+  std::vector<double> boundaries(static_cast<std::size_t>(maximum_dimension + 1), 0.0);
+
+  layers.soft_indices.reserve(std::min(cell_count, layers.hard_indices.size() * 2U));
+  layers.soft_costs.reserve(layers.soft_indices.capacity());
+  for (std::uint32_t z = 0U; z < grid.size_z; ++z) {
+    const std::size_t layer_offset = static_cast<std::size_t>(z) * layer_size;
+    bool layer_has_hard = false;
+    for (std::size_t local = 0U; local < layer_size; ++local) {
+      if (state[layer_offset + local] == kHard) {
+        layer_has_hard = true;
+        break;
       }
     }
-  }
-  layers.soft_indices.reserve(touched.size());
-  layers.soft_costs.reserve(touched.size());
-  for (const std::uint32_t index : touched) {
-    layers.soft_indices.push_back(index);
-    layers.soft_costs.push_back(state[index]);
+    if (!layer_has_hard) {continue;}
+
+    for (int y = 0; y < height; ++y) {
+      const std::size_t row_offset = static_cast<std::size_t>(y) * grid.size_x;
+      for (int x = 0; x < width; ++x) {
+        input[static_cast<std::size_t>(x)] =
+          state[layer_offset + row_offset + static_cast<std::size_t>(x)] == kHard ?
+          0 : kInfiniteDistance;
+      }
+      detail::squaredDistanceTransform1D(
+        input, output, width, sites, boundaries, kInfiniteDistance);
+      for (int x = 0; x < width; ++x) {
+        horizontal_distance[row_offset + static_cast<std::size_t>(x)] =
+          output[static_cast<std::size_t>(x)];
+      }
+    }
+
+    for (int x = 0; x < width; ++x) {
+      for (int y = 0; y < height; ++y) {
+        input[static_cast<std::size_t>(y)] = horizontal_distance[
+          static_cast<std::size_t>(y) * grid.size_x + static_cast<std::size_t>(x)];
+      }
+      detail::squaredDistanceTransform1D(
+        input, output, height, sites, boundaries, kInfiniteDistance);
+      for (int y = 0; y < height; ++y) {
+        squared_distance[
+          static_cast<std::size_t>(y) * grid.size_x + static_cast<std::size_t>(x)] =
+          output[static_cast<std::size_t>(y)];
+      }
+    }
+
+    for (std::size_t local = 0U; local < layer_size; ++local) {
+      const std::size_t index = layer_offset + local;
+      if (state[index] == kHard) {continue;}
+      const double radial = grid.resolution * std::sqrt(
+        static_cast<double>(squared_distance[local]));
+      if (radial > config.soft_radius + half_voxel) {continue;}
+      const double normalized = std::clamp(
+        (config.soft_radius - radial) / config.soft_radius, 0.0, 1.0);
+      const std::uint8_t cost = static_cast<std::uint8_t>(
+        std::clamp(std::lround(254.0 * normalized * normalized), 1L, 254L));
+      layers.soft_indices.push_back(static_cast<std::uint32_t>(index));
+      layers.soft_costs.push_back(cost);
+    }
   }
   return layers;
 }
