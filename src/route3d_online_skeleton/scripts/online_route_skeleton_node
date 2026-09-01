@@ -17,6 +17,8 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from visualization_msgs.msg import Marker, MarkerArray
 
+from route_slope_annotator.slope_analysis import SlopeConfig, annotate_document
+
 
 Point3 = Tuple[float, float, float]
 Quaternion = Tuple[float, float, float, float]
@@ -40,6 +42,7 @@ class Target:
     is_corner: bool
     turn_degrees: float
     segment: int
+    is_slope: bool = False
 
 
 def distance_3d(first: Point3, second: Point3) -> float:
@@ -126,6 +129,21 @@ class OnlineRouteSkeleton(Node):
         self.topo_type = int(self.declare_parameter("topo_type", 0).value)
         self.topo_pcd = str(self.declare_parameter("topo_pcd", "").value)
         self.topo_acc = float(self.declare_parameter("topo_acc", 0.50).value)
+        self.slope_enabled = bool(self.declare_parameter("slope.enabled", True).value)
+        self.slope_config = SlopeConfig(
+            fit_radius=float(self.declare_parameter("slope.fit_radius", 2.0).value),
+            grade_threshold=float(self.declare_parameter(
+                "slope.grade_threshold", 0.12).value),
+            minimum_core_length=float(self.declare_parameter(
+                "slope.minimum_core_length", 2.0).value),
+            minimum_height_change=float(self.declare_parameter(
+                "slope.minimum_height_change", 0.20).value),
+            maximum_core_gap=float(self.declare_parameter(
+                "slope.maximum_core_gap", 1.0).value),
+            buffer_distance=float(self.declare_parameter(
+                "slope.buffer_distance", 3.0).value),
+        )
+        self.slope_config.validate()
 
         for name, value in (
             ("target_spacing", self.target_spacing),
@@ -402,9 +420,43 @@ class OnlineRouteSkeleton(Node):
 
     def _topology_changed(self) -> None:
         self.targets.sort(key=lambda target: (target.distance, target.segment))
+        self._refresh_slope_flags()
         self.version += 1
         self.visual_dirty = True
         self.write_topology()
+
+    def _refresh_slope_flags(self) -> None:
+        """Refresh provisional slope flags independently for each route segment."""
+        previous_flags = [target.is_slope for target in self.targets]
+        for target in self.targets:
+            target.is_slope = False
+        if self.slope_enabled:
+            segment_indices = {}
+            for index, target in enumerate(self.targets):
+                segment_indices.setdefault(target.segment, []).append(index)
+            for indices in segment_indices.values():
+                if len(indices) < 2:
+                    continue
+                document = {"vertices": {}}
+                for local_id, target_index in enumerate(indices, 1):
+                    target = self.targets[target_index]
+                    document["vertices"][str(local_id)] = {
+                        "pos": [
+                            target.point[0], target.point[1],
+                            target.point[2] - self.body_height,
+                        ],
+                        "meta": {},
+                    }
+                annotated = annotate_document(document, self.slope_config)
+                for local_id, target_index in enumerate(indices, 1):
+                    self.targets[target_index].is_slope = bool(
+                        annotated["vertices"][str(local_id)]["meta"]["isSlope"])
+
+        updated_flags = [target.is_slope for target in self.targets]
+        if updated_flags != previous_flags and rclpy.ok():
+            self.get_logger().info(
+                f"live slope update: slopes={sum(updated_flags)}/{len(updated_flags)} "
+                f"buffer={self.slope_config.buffer_distance:.2f}m")
 
     def topology_dict(self) -> dict:
         vertices = {}
@@ -420,6 +472,7 @@ class OnlineRouteSkeleton(Node):
                     "type": 0,
                     "typeId": 0,
                     "isCorner": target.is_corner,
+                    "isSlope": target.is_slope,
                     "state": "confirmed",
                     "source": "online_synchronized_pose",
                     "sourceDistance": target.distance,
@@ -514,9 +567,26 @@ class OnlineRouteSkeleton(Node):
         normal.color.a = 1.0
         normal.points = [
             self._point_message(target.point, -self.body_height)
-            for target in self.targets if not target.is_corner
+            for target in self.targets if not target.is_corner and not target.is_slope
         ]
         markers.markers.append(normal)
+
+        slopes = Marker()
+        slopes.header = path.header
+        slopes.ns = "live_slope_nodes"
+        slopes.id = 6
+        slopes.type = Marker.SPHERE_LIST
+        slopes.action = Marker.ADD
+        slopes.scale.x = slopes.scale.y = slopes.scale.z = 0.26
+        slopes.color.r = 1.0
+        slopes.color.g = 0.85
+        slopes.color.b = 0.05
+        slopes.color.a = 1.0
+        slopes.points = [
+            self._point_message(target.point, -self.body_height)
+            for target in self.targets if target.is_slope and not target.is_corner
+        ]
+        markers.markers.append(slopes)
 
         corners = Marker()
         corners.header = path.header
@@ -550,11 +620,16 @@ class OnlineRouteSkeleton(Node):
                 target.point, -self.body_height + 0.28)
             label.pose.orientation.w = 1.0
             label.scale.z = 0.30 if target.is_corner else 0.24
-            label.color.r = 1.0
-            label.color.g = 0.15 if target.is_corner else 0.90
-            label.color.b = 0.05
+            if target.is_corner:
+                label.color.r, label.color.g, label.color.b = 1.0, 0.15, 0.10
+            elif target.is_slope:
+                label.color.r, label.color.g, label.color.b = 1.0, 0.85, 0.05
+            else:
+                label.color.r, label.color.g, label.color.b = 0.15, 0.55, 1.0
             label.color.a = 1.0
-            label.text = f"C{vertex_id}" if target.is_corner else str(vertex_id)
+            prefix = "SC" if target.is_corner and target.is_slope else (
+                "C" if target.is_corner else ("S" if target.is_slope else ""))
+            label.text = f"{prefix}{vertex_id}"
             markers.markers.append(label)
 
         candidate = self._corner_candidate()
@@ -611,6 +686,7 @@ class OnlineRouteSkeleton(Node):
                     segment=self.segment,
                 ))
         self.targets.sort(key=lambda target: (target.distance, target.segment))
+        self._refresh_slope_flags()
         self.finalized = True
         self.version += 1
         self.write_topology()
@@ -618,6 +694,7 @@ class OnlineRouteSkeleton(Node):
             "poses": len(self.raw_poses),
             "vertices": len(self.targets),
             "corners": sum(target.is_corner for target in self.targets),
+            "slopes": sum(target.is_slope for target in self.targets),
             "distance_m": self.total_distance,
             "pose_jumps": len(self.jump_points),
         })
@@ -626,6 +703,7 @@ class OnlineRouteSkeleton(Node):
                 f"live skeleton complete: poses={len(self.raw_poses)} "
                 f"vertices={len(self.targets)} "
                 f"corners={sum(t.is_corner for t in self.targets)} "
+                f"slopes={sum(t.is_slope for t in self.targets)} "
                 f"output={self.output_topo}")
 
 

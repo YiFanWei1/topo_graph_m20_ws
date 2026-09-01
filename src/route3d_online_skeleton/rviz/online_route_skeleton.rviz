@@ -69,6 +69,7 @@ Visualization Manager:
         live_corner_nodes: true
         live_edges: true
         live_normal_nodes: true
+        live_slope_nodes: true
         live_target_ids: true
         pose_jump_events: true
       Topic:

@@ -37,8 +37,8 @@ route3d_live:
     topo_pcd: ""
     topo_acc: 0.50
 
-  # 按 2 保存时，对最终 topoSingle_data.json 离线分析 Z 变化并写入
-  # vertices.<id>.meta.isSlope。坡段前后 buffer_distance 米也标记为坡点。
+  # 记录过程中实时分析 Z 变化并显示坡点；按 2 保存时对最终 JSON 完整重算。
+  # 最终写入 vertices.<id>.meta.isSlope，坡段前后 buffer_distance 米也标记为坡点。
   slope:
     enabled: true
     fit_radius: 2.0

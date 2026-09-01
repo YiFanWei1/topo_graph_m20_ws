@@ -12,6 +12,7 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>python3</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>route_slope_annotator</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
 
   <export>

@@ -155,6 +155,13 @@ class LiveRouteSession:
             "-p", f"corner_min_separation:={self.args.corner_min_separation}",
             "-p", f"topo_type:={self.args.topo_type}",
             "-p", f"topo_acc:={self.args.topo_acc}",
+            "-p", f"slope.enabled:={str(self.args.slope_enabled).lower()}",
+            "-p", f"slope.fit_radius:={self.args.slope_fit_radius}",
+            "-p", f"slope.grade_threshold:={self.args.slope_grade_threshold}",
+            "-p", f"slope.minimum_core_length:={self.args.slope_minimum_core_length}",
+            "-p", f"slope.minimum_height_change:={self.args.slope_minimum_height_change}",
+            "-p", f"slope.maximum_core_gap:={self.args.slope_maximum_core_gap}",
+            "-p", f"slope.buffer_distance:={self.args.slope_buffer_distance}",
         ]
         if self.args.topo_pcd:
             skeleton_command.extend(["-p", f"topo_pcd:={self.args.topo_pcd}"])
@@ -202,8 +209,8 @@ class LiveRouteSession:
             return
         self.recording = True
         print(
-            "[1] 已开始：灰色为实时轨迹，蓝色为普通点，红色为确认拐点，"
-            "橙色为候选拐点。",
+            "[1] 已开始：灰色为实时轨迹，蓝色为普通点，黄色为实时坡点，"
+            "红色为确认拐点，橙色为候选拐点。",
             flush=True,
         )
 
