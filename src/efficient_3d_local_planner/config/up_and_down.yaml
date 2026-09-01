@@ -1,3 +1,7 @@
+/**:
+  ros__parameters:
+    use_sim_time: false                        # 实机 false；播放 bag 时改为 true，统一作用于全部节点
+
 up_and_down_demo:
   ros__parameters:
     # launch 本身只读取这一节；所有运行开关、话题和静态 TF 均在此配置。
@@ -19,7 +23,6 @@ up_and_down_demo:
 
 target_path_generator:
   ros__parameters:
-    use_sim_time: false                        # 实机用系统时间；播放 bag 时在本 YAML 中改为 true
     route_file: /home/langyi/workspace/wyf/topo_graph_ws/data/regu/topoSingle_data_generated.json
     frames.fallback: camera_init               # JSON 未写 frame_id 时使用的路线坐标系
     route.spacing: 0.10                        # 稀疏拓扑点之间的三维插值最大间距，单位 m
@@ -29,7 +32,6 @@ target_path_generator:
 
 target_route_sequencer:
   ros__parameters:
-    use_sim_time: false                        # 必须与同一流程中的其他节点保持一致
     input.odometry_topic: /lio_odom_hf
     input.goal_id_topic: /recorded_waypoint_route/goal_id
     route.body_height: 0.40                    # 地面目标转换为机身中心目标时增加的高度，单位 m
@@ -40,21 +42,8 @@ target_route_sequencer:
     route.max_start_distance: 3.0              # 起点距最近记录点超过该值时拒绝目标，单位 m
     route.update_rate: 50.0                    # 缓存里程计后的路线状态更新频率，单位 Hz
 
-map_to_camera_init_static_tf:
-  ros__parameters:
-    use_sim_time: false
-
-body_to_base_link_static_tf:
-  ros__parameters:
-    use_sim_time: false
-
-efficient_3d_local_planner_rviz:
-  ros__parameters:
-    use_sim_time: false
-
 local_voxel_mapper:
   ros__parameters:
-    use_sim_time: false                        # 实机使用系统时间；播放 bag 时在本 YAML 中改为 true
     frames.planning: camera_init               # 地图和规划结果使用的固定坐标系
     frames.base: base_link                     # 机器人机体坐标系
     frames.lidar: livox_lidar                  # 雷达坐标系名称
@@ -108,7 +97,6 @@ local_voxel_mapper:
 
 corridor_astar_planner:
   ros__parameters:
-    use_sim_time: false                        # 实机使用系统时间；播放 bag 时在本 YAML 中改为 true
     frames.planning: camera_init               # A* 搜索使用的固定坐标系
     input.path_topic: /recorded_waypoint_route/active_segment_ground # 当前目标的滚动路径窗，保留中间黄色点且覆盖机器人所在路段
     planner.path_height: 0.40                  # 全局路径整体向上抬升高度，单位 m
@@ -170,7 +158,6 @@ corridor_astar_planner:
 
 local_path_follower:
   ros__parameters:
-    use_sim_time: false                        # 实机使用系统时间；播放 bag 时在本 YAML 中改为 true
     controller.enabled: true                   # 是否启用局部路径跟踪控制器
     controller.control_rate: 200.0              # 速度控制循环频率，单位 Hz
     controller.nominal_speed: 0.5             # 正常路径跟踪速度，单位 m/s
