@@ -85,7 +85,8 @@ public:
     // 总范围，soft 内部不再存在额外的硬分界。
     config.soft_inflation_radius = declare_parameter<double>(
       "map.soft_inflation_radius", 0.475);
-    // hard 只允许沿 Z 膨胀，向上/向下距离分别开放，默认向下覆盖机身以下 0.40m。
+    // 原始 hard 先固定补齐水平八邻域（一个分辨率），再沿 Z 膨胀；向上/向下距离
+    // 分别开放，默认向下覆盖机身以下 0.40m。
     config.hard_inflation_z_down = declare_parameter<double>(
       "map.hard_inflation_z_down", 0.40);
     config.hard_inflation_z_up = declare_parameter<double>(
@@ -175,7 +176,7 @@ public:
     // processFrame() 仅在确实有订阅者时构造它们，避免无人观察时浪费序列化 CPU。
     grid_pub_ = create_publisher<efficient_3d_local_planner_msgs::msg::VoxelGrid>(
       "/local_voxel_map/grid", rclcpp::SensorDataQoS().keep_last(1));
-    // hard_occupied：原始占据仅沿 Z 膨胀后的不可通行体素，不包含 XY footprint 膨胀。
+    // hard_occupied：原始占据先补齐一圈水平八邻域，再沿 Z 膨胀；不包含 footprint。
     hard_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       "/local_voxel_map/hard_occupied", rclcpp::SensorDataQoS().keep_last(1));
     // soft_cost：从 hard 向外一次性膨胀，值按 XY 到 hard 的距离分级，越近代价越大。

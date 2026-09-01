@@ -77,8 +77,8 @@ local_voxel_mapper:
     map.decay_front_fov_deg: 120.0    # FOV        # 前向衰减扇区总角度，120 表示左右各 60 度
     map.ray_step_factor: 0.90                  # 射线采样步长相对栅格分辨率的比例
     map.soft_inflation_radius: 0.60            # hard 外单一软膨胀半径；等于旧 0.20m footprint + 0.40m soft
-    map.hard_inflation_z_down: 0.40           # hard 沿 Z 向下膨胀距离，单位 m
-    map.hard_inflation_z_up: 0.00             # hard 沿 Z 向上膨胀距离，单位 m
+    map.hard_inflation_z_down: 0.40           # hard 先补水平八邻域，再沿 Z 向下膨胀，单位 m
+    map.hard_inflation_z_up: 0.00             # 同一水平补空区域沿 Z 向上膨胀，单位 m
     extrinsic.base_to_lidar_x: 0.15            # 雷达射线起点相对机体的 X 平移，单位 m
     extrinsic.base_to_lidar_y: 0.0             # 雷达相对机体的 Y 平移，单位 m
     extrinsic.base_to_lidar_z: 0.21            # 雷达射线起点相对机体的 Z 平移，单位 m

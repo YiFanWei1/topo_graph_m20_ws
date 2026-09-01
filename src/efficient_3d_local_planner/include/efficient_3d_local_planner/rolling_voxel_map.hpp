@@ -280,21 +280,29 @@ public:
       static_cast<std::size_t>(dimensions_.z());
     std::vector<std::uint8_t> layer_state(cell_count, 0U);
     std::vector<VoxelKey> hard_cells;
+    constexpr std::size_t kHorizontalFillCount = 9U;
     const std::size_t maximum_hard = std::min(
-      cell_count, occupied.size() * hard_z_offsets_.size());
+      cell_count, occupied.size() * kHorizontalFillCount * hard_z_offsets_.size());
     layers.hard.reserve(maximum_hard);
     hard_cells.reserve(maximum_hard);
 
-    // hard 只沿 Z 膨胀，不做任何 XY 膨胀。重复的垂直列通过 layer_state 去重。
+    // 原始 hard 在向 Z 延伸前，先将同高度的水平八邻域补成 3x3 hard 区域。
+    // 这不是机器人 footprint：固定只补一圈（一个地图分辨率），用于封闭离散点云
+    // 在台阶/地面边缘留下的一体素孔洞。补齐后的九根垂直列通过 layer_state 去重。
     for (const auto & obstacle : occupied) {
-      for (const int dz : hard_z_offsets_) {
-        const VoxelKey candidate{obstacle.x, obstacle.y, obstacle.z + dz};
-        if (!insideWindow(candidate, last_minimum_)) {continue;}
-        const std::uint32_t index = linearIndex(candidate, last_minimum_);
-        if (layer_state[index] == kHard) {continue;}
-        layer_state[index] = kHard;
-        layers.hard.push_back(index);
-        hard_cells.push_back(candidate);
+      for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+          for (const int dz : hard_z_offsets_) {
+            const VoxelKey candidate{
+              obstacle.x + dx, obstacle.y + dy, obstacle.z + dz};
+            if (!insideWindow(candidate, last_minimum_)) {continue;}
+            const std::uint32_t index = linearIndex(candidate, last_minimum_);
+            if (layer_state[index] == kHard) {continue;}
+            layer_state[index] = kHard;
+            layers.hard.push_back(index);
+            hard_cells.push_back(candidate);
+          }
+        }
       }
     }
 

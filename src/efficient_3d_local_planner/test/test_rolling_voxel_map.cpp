@@ -96,7 +96,7 @@ TEST(RollingVoxelMap, RequiresConfirmedHitAndBuildsTwoLayers)
     {Eigen::Vector3d(1.0, 0.0, 0.0)}, 1.1);
   const auto layers = map.buildLayers();
   EXPECT_EQ(update.unique_endpoints, 1U);
-  EXPECT_EQ(layers.hard.size(), 1U);
+  EXPECT_EQ(layers.hard.size(), 9U);
   EXPECT_FALSE(layers.soft_indices.empty());
   EXPECT_EQ(layers.soft_indices.size(), layers.soft_costs.size());
   EXPECT_TRUE(std::all_of(
@@ -122,27 +122,28 @@ TEST(RollingVoxelMap, SoftCostIsGradedOnlyByHorizontalDistanceFromHard)
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     {Eigen::Vector3d(0.5, 0.0, 0.0)}, 1.0);
   const auto layers = map.buildLayers();
-  ASSERT_EQ(layers.hard.size(), 1U);
+  ASSERT_EQ(layers.hard.size(), 9U);
 
   std::unordered_map<std::uint32_t, std::uint8_t> soft;
   for (std::size_t i = 0; i < layers.soft_indices.size(); ++i) {
     soft.emplace(layers.soft_indices[i], layers.soft_costs[i]);
   }
-  const std::uint32_t hard = layers.hard.front();
-  const int hard_x = static_cast<int>(hard % layers.dimensions.x());
-  const int hard_yz = static_cast<int>(hard / layers.dimensions.x());
-  const int hard_y = hard_yz % layers.dimensions.y();
-  const int hard_z = hard_yz / layers.dimensions.y();
+  const Eigen::Vector3d origin = map.origin(layers);
+  const Eigen::Vector3i raw_local =
+    ((Eigen::Vector3d(0.5, 0.0, 0.0) - origin) / config.resolution)
+    .array().floor().cast<int>();
   const auto linear = [&layers](const int x, const int y, const int z) {
       return static_cast<std::uint32_t>(
         (z * layers.dimensions.y() + y) * layers.dimensions.x() + x);
     };
-  const std::uint32_t near = linear(hard_x + 1, hard_y, hard_z);
-  const std::uint32_t far = linear(hard_x + 4, hard_y, hard_z);
+  // 原始体素左右一格已经成为 hard；从补空 hard 的外侧开始检查 soft 梯度。
+  const std::uint32_t near = linear(raw_local.x() + 2, raw_local.y(), raw_local.z());
+  const std::uint32_t far = linear(raw_local.x() + 5, raw_local.y(), raw_local.z());
   ASSERT_NE(soft.count(near), 0U);
   ASSERT_NE(soft.count(far), 0U);
   EXPECT_GT(soft.at(near), soft.at(far));
-  EXPECT_EQ(soft.count(linear(hard_x + 1, hard_y, hard_z + 1)), 0U);
+  EXPECT_EQ(
+    soft.count(linear(raw_local.x() + 2, raw_local.y(), raw_local.z() + 1)), 0U);
 }
 
 TEST(SensorRangeBox, AcceptsOnlyPointsBetweenInnerAndOuterBoxes)
@@ -218,12 +219,12 @@ TEST(RollingVoxelMap, DisabledRaycastDoesNotClearTraversedObstacle)
   map.update(
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     {Eigen::Vector3d(1.0, 0.0, 0.0)}, 1.0);
-  ASSERT_EQ(map.buildLayers().hard.size(), 1U);
+  ASSERT_EQ(map.buildLayers().hard.size(), 9U);
 
   map.update(
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     {Eigen::Vector3d(2.0, 0.0, 0.0)}, 1.1);
-  EXPECT_EQ(map.buildLayers().hard.size(), 2U);
+  EXPECT_EQ(map.buildLayers().hard.size(), 18U);
 }
 
 TEST(RollingVoxelMap, FrontOnlyDecayRetainsRearUntilBodyTurnsTowardIt)
@@ -242,13 +243,13 @@ TEST(RollingVoxelMap, FrontOnlyDecayRetainsRearUntilBodyTurnsTowardIt)
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     {Eigen::Vector3d(1.0, 0.0, 0.0), Eigen::Vector3d(-1.0, 0.0, 0.0)}, 1.0,
     Eigen::Quaterniond::Identity());
-  ASSERT_EQ(map.buildLayers().hard.size(), 2U);
+  ASSERT_EQ(map.buildLayers().hard.size(), 18U);
 
   // Facing +X: the front obstacle decays, while the rear obstacle remains.
   map.update(
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), {}, 2.0,
     Eigen::Quaterniond::Identity());
-  EXPECT_EQ(map.buildLayers().hard.size(), 1U);
+  EXPECT_EQ(map.buildLayers().hard.size(), 9U);
 
   // After turning around, the retained -X obstacle is now in front and may decay.
   constexpr double kPi = 3.14159265358979323846;
@@ -302,13 +303,13 @@ TEST(RollingVoxelMap, FrontDecayUsesConfiguredAngularSector)
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     {point_at_angle(30.0 * kPi / 180.0), point_at_angle(80.0 * kPi / 180.0)},
     1.0, Eigen::Quaterniond::Identity());
-  ASSERT_EQ(map.buildLayers().hard.size(), 2U);
+  ASSERT_EQ(map.buildLayers().hard.size(), 18U);
 
   map.update(
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), {}, 2.0,
     Eigen::Quaterniond::Identity());
   // The 30-degree obstacle decays; the 80-degree obstacle is retained.
-  EXPECT_EQ(map.buildLayers().hard.size(), 1U);
+  EXPECT_EQ(map.buildLayers().hard.size(), 9U);
 }
 
 TEST(RollingVoxelMap, RollingWindowPrunesOldCells)
@@ -338,14 +339,14 @@ TEST(RollingVoxelMap, BodyExclusionClearsPreviouslyOccupiedVoxels)
   map.update(
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     {Eigen::Vector3d(0.4, 0.05, 0.0), Eigen::Vector3d(0.4, 0.25, 0.0)}, 1.0);
-  ASSERT_EQ(map.buildLayers().hard.size(), 2U);
+  ASSERT_EQ(map.buildLayers().hard.size(), 15U);
 
   const std::size_t cleared = map.clearBodyExclusion(
     Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(),
     Eigen::Vector3d(0.55, 0.10, 0.35));
 
   EXPECT_EQ(cleared, 1U);
-  EXPECT_EQ(map.buildLayers().hard.size(), 1U);
+  EXPECT_EQ(map.buildLayers().hard.size(), 9U);
 }
 
 TEST(RollingVoxelMap, VerticalInflationUsesIndependentMetricLimits)
@@ -374,6 +375,15 @@ TEST(RollingVoxelMap, VerticalInflationUsesIndependentMetricLimits)
     };
   const std::unordered_set<std::uint32_t> hard(layers.hard.begin(), layers.hard.end());
 
+  ASSERT_EQ(hard.size(), 54U);  // 3x3 水平补空 * [-4, +1] 六层 Z 体素
+  for (int dx = -1; dx <= 1; ++dx) {
+    for (int dy = -1; dy <= 1; ++dy) {
+      EXPECT_NE(hard.count(linear(raw_local + Eigen::Vector3i(dx, dy, 0))), 0U);
+      EXPECT_NE(hard.count(linear(raw_local + Eigen::Vector3i(dx, dy, -4))), 0U);
+    }
+  }
+  EXPECT_EQ(hard.count(linear(raw_local + Eigen::Vector3i(2, 0, 0))), 0U);
+  EXPECT_EQ(hard.count(linear(raw_local + Eigen::Vector3i(0, 2, -4))), 0U);
   EXPECT_NE(hard.count(linear(raw_local)), 0U);
   EXPECT_NE(hard.count(linear(raw_local + Eigen::Vector3i(0, 0, -4))), 0U);
   EXPECT_NE(hard.count(linear(raw_local + Eigen::Vector3i(0, 0, 1))), 0U);
