@@ -112,6 +112,13 @@ def _launch_setup(context, package_share):
             output="screen",
         ),
         Node(
+            package="obstacle_occlusion_extension",
+            executable="obstacle_occlusion_extension_node",
+            name="obstacle_occlusion_extension",
+            parameters=[config_path],
+            output="screen",
+        ),
+        Node(
             package="efficient_3d_local_planner",
             executable="corridor_astar_planner_node",
             name="corridor_astar_planner",

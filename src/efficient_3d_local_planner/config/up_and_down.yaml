@@ -182,3 +182,14 @@ local_path_follower:
     controller.minimum_yaw_speed: 0.0         # 开启后非零角速度的最小绝对值，正反方向均生效，单位 rad/s
     controller.odometry_timeout: 10.00          # 里程计超过该时间未更新则停车，单位 s
     controller.path_timeout: 10.00              # 局部路径超过该时间未更新则停车，单位 s
+
+obstacle_occlusion_extension:
+  ros__parameters:
+    extension.enabled: true                    # 当前仅发布可视化点云，不写入规划器 hard 层
+    extension.distance: 0.60                   # 从已检测 hard 背向机器人延伸的距离，单位 m
+    extension.minimum_obstacle_range: 0.20     # 忽略距机器人过近、射线方向不稳定的 hard
+    extension.maximum_obstacle_range: 8.00     # 只处理该水平距离内的 hard；0 表示不限制
+    input.voxel_grid_topic: /local_voxel_map/grid
+    input.odometry_topic: /lio_odom_hf
+    output.extension_topic: /local_voxel_map/occlusion_extension
+    tf.timeout: 0.05                            # 里程计坐标系转换到栅格坐标系的等待时间，单位 s
