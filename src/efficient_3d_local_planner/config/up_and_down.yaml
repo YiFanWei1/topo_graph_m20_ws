@@ -6,7 +6,7 @@ local_voxel_mapper:
     frames.lidar: livox_lidar                  # 雷达坐标系名称
     input.cloud_topic: /cloud_registered_body  # 输入点云话题，点坐标已经位于 base_link
     input.odometry_topic: /lio_odom_hf         # 输入高频里程计话题
-    map.resolution: 0.1                        # 三维栅格分辨率，单位 m
+    map.resolution: 0.08                        # 三维栅格分辨率，单位 m
     map.size_x: 8.0                           # 滚动地图 X 方向长度，单位 m
     map.size_y: 8.0                           # 滚动地图 Y 方向长度，单位 m
     map.size_z: 3.0                           # 滚动地图 Z 方向高度，单位 m

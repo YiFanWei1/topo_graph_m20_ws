@@ -86,7 +86,7 @@ def generate_launch_description():
             "finish_distance", default_value="0.10",
             description="Local follower finish distance; keep below final-goal tolerance"),
         DeclareLaunchArgument(
-            "body_height", default_value="0.2",
+            "body_height", default_value="0.4",
             description="Height added to ground targets for body-centre planning"),
         DeclareLaunchArgument(
             "normal_marker_diameter", default_value="0.45",

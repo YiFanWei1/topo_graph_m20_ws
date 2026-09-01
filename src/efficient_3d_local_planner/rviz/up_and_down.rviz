@@ -5,6 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /Traversable soft cost1
         - /Recorded ground targets1
       Splitter Ratio: 0.5
     Tree Height: 448
@@ -56,10 +57,11 @@ Visualization Manager:
       Show Names: true
       Tree:
         map:
+          base_link:
+            {}
           camera_init:
             body:
-              base_link:
-                {}
+              {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -98,8 +100,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 1.4500000476837158
-        Min Value: -0.6499999761581421
+        Max Value: 0.44999998807907104
+        Min Value: -2.450000047683716
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -149,7 +151,7 @@ Visualization Manager:
       Name: Traversable soft cost
       Position Transformer: XYZ
       Selectable: false
-      Size (Pixels): 10
+      Size (Pixels): 2
       Size (m): 0.03500000014901161
       Style: Points
       Topic:
@@ -535,7 +537,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 15.855466842651367
+      Distance: 31.395475387573242
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -553,7 +555,7 @@ Visualization Manager:
       Pitch: 1.5697963237762451
       Target Frame: body
       Value: Orbit (rviz_default_plugins)
-      Yaw: 3.8072054386138916
+      Yaw: 3.8022053241729736
     Saved: ~
 Window Geometry:
   Displays:
@@ -565,5 +567,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1170
-  X: 30
-  Y: 79
+  X: 750
+  Y: 44
