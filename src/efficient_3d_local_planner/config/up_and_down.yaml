@@ -23,7 +23,7 @@ up_and_down_demo:
 
 target_path_generator:
   ros__parameters:
-    route_file: /home/wei/github_code/topo_graph_ws_/data/79_/topoSingle_data_slope.json
+    route_file: /home/langyi/workspace/wyf/topo_graph_ws/data/regu/topoSingle_data_slope.json
     frames.fallback: camera_init               # JSON 未写 frame_id 时使用的路线坐标系
     route.spacing: 0.10                        # 稀疏拓扑点之间的三维插值最大间距，单位 m
     route.body_height: 0.40                    # 地面路线可视化抬升到机身中心的高度，单位 m
@@ -45,7 +45,7 @@ target_route_sequencer:
     profile.normal.path_height: 0.1            # 普通点按地面路径高度规划
     profile.normal.extension_enabled: true     # 普通点启用障碍物后向补全
     profile.normal.soft_radius: 0.60           # 普通点基础障碍与后向补障共用的 Soft 半径
-    profile.slope.path_height: 0.4             # 坡点（含坡段前后 2m）抬升到机身中心
+    profile.slope.path_height: 0.4             # 坡点（含坡段前后 3m）抬升到机身中心
     profile.slope.extension_enabled: false     # 坡点关闭后向补全，避免把坡面误延伸为 hard
     profile.slope.soft_radius: 0.20            # 坡点缩小 Soft 范围，单位 m
     profile.planner_node: /corridor_astar_planner
@@ -62,7 +62,7 @@ local_voxel_mapper:
     map.resolution: 0.1                        # 三维栅格分辨率，单位 m
     map.size_x: 8.0                           # 滚动地图 X 方向长度，单位 m
     map.size_y: 8.0                           # 滚动地图 Y 方向长度，单位 m
-    map.size_z: 3.0                           # 滚动地图 Z 方向高度，单位 m
+    map.size_z: 5.0                           # 滚动地图 Z 方向高度，单位 m
     map.range_outer_min_x: -4.0               # 雷达坐标系外框后边界，框外点不参与地图更新
     map.range_outer_max_x: 4.0                # 雷达坐标系外框前边界，单位 m
     map.range_outer_min_y: -3.0               # 雷达坐标系外框右边界，单位 m
@@ -171,12 +171,12 @@ local_path_follower:
   ros__parameters:
     controller.enabled: true                   # 是否启用局部路径跟踪控制器
     controller.control_rate: 200.0              # 速度控制循环频率，单位 Hz
-    controller.nominal_speed: 0.5             # 正常路径跟踪速度，单位 m/s
-    controller.max_vx: 0.5                    # 机体 X 方向最大速度，单位 m/s
-    controller.max_vy: 0.50                    # 机体 Y 方向最大速度，单位 m/s
-    controller.max_vyaw: 1.6                  # 最大偏航角速度，单位 rad/s
+    controller.nominal_speed: 0.8             # 正常路径跟踪速度，单位 m/s
+    controller.max_vx: 0.8                    # 机体 X 方向最大速度，单位 m/s
+    controller.max_vy: 0.0                    # 机体 Y 方向最大速度，单位 m/s
+    controller.max_vyaw: 1.0                  # 最大偏航角速度，单位 rad/s
     controller.position_gain: 0.80             # 横向位置误差的速度反馈增益
-    controller.yaw_gain: 2.0                  # 增强正常行走时的偏航跟踪响应
+    controller.yaw_gain: 1.0                  # 增强正常行走时的偏航跟踪响应
     controller.lookahead_base: 0.15            # 与 SCAN 一致的基础前视距离，单位 m
     controller.lookahead_speed_gain: 0.40      # 与 SCAN 一致，按目标跟踪速度增加前视
     controller.lookahead_min: 0.15             # 与 SCAN 一致的最小前视距离，单位 m

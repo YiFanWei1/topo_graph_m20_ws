@@ -46,7 +46,7 @@ route3d_live:
     minimum_core_length: 2.0
     minimum_height_change: 0.20
     maximum_core_gap: 1.0
-    buffer_distance: 2.0
+    buffer_distance: 1.0
 
   rviz:
     enabled: true

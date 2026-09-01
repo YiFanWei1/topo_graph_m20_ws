@@ -502,7 +502,7 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
         "slope_minimum_core_length": slope.get("minimum_core_length", 2.0),
         "slope_minimum_height_change": slope.get("minimum_height_change", 0.20),
         "slope_maximum_core_gap": slope.get("maximum_core_gap", 1.0),
-        "slope_buffer_distance": slope.get("buffer_distance", 2.0),
+        "slope_buffer_distance": slope.get("buffer_distance", 3.0),
         "rviz_config": rviz.get("config_file", ""),
         "no_rviz": not bool(rviz.get("enabled", True)),
     }
@@ -569,7 +569,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--slope-maximum-core-gap", type=float, default=defaults.get(
         "slope_maximum_core_gap", 1.0))
     parser.add_argument("--slope-buffer-distance", type=float, default=defaults.get(
-        "slope_buffer_distance", 2.0))
+        "slope_buffer_distance", 3.0))
     parser.add_argument("--rviz-config", default=defaults.get("rviz_config", ""))
     parser.add_argument("--no-rviz", action="store_true", default=defaults.get(
         "no_rviz", False))

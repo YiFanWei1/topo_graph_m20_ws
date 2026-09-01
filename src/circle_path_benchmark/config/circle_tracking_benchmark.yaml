@@ -34,7 +34,7 @@ local_path_follower:
     controller.control_rate: 200.0
     controller.nominal_speed: 0.50
     controller.max_vx: 0.50
-    controller.max_vy: 0.50
+    controller.max_vy: 0.0
     controller.max_vyaw: 1.60
     controller.position_gain: 0.80
     controller.yaw_gain: 2.0

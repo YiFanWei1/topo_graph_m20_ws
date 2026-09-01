@@ -30,7 +30,7 @@ def generate_launch_description():
         DeclareLaunchArgument("minimum_core_length", default_value="2.0"),
         DeclareLaunchArgument("minimum_height_change", default_value="0.20"),
         DeclareLaunchArgument("maximum_core_gap", default_value="1.0"),
-        DeclareLaunchArgument("buffer_distance", default_value="2.0"),
+        DeclareLaunchArgument("buffer_distance", default_value="3.0"),
         Node(
             package="route_slope_annotator",
             executable="visualize_route_slopes",

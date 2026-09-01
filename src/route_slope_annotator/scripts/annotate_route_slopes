@@ -17,7 +17,7 @@ def parser():
     result.add_argument("--minimum-core-length", type=float, default=2.0)
     result.add_argument("--minimum-height-change", type=float, default=0.20)
     result.add_argument("--maximum-core-gap", type=float, default=1.0)
-    result.add_argument("--buffer-distance", type=float, default=2.0)
+    result.add_argument("--buffer-distance", type=float, default=3.0)
     return result
 
 
