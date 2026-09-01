@@ -35,6 +35,17 @@ route3d_live:
     topo_pcd: ""
     topo_acc: 0.50
 
+  # 按 2 保存时，对最终 topoSingle_data.json 离线分析 Z 变化并写入
+  # vertices.<id>.meta.isSlope。坡段前后 buffer_distance 米也标记为坡点。
+  slope:
+    enabled: true
+    fit_radius: 2.0
+    grade_threshold: 0.12
+    minimum_core_length: 2.0
+    minimum_height_change: 0.20
+    maximum_core_gap: 1.0
+    buffer_distance: 3.0
+
   rviz:
     enabled: true
     # Empty uses route3d_online_skeleton/rviz/online_route_skeleton.rviz.

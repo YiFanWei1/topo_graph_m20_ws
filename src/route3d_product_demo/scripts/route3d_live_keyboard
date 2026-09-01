@@ -20,6 +20,8 @@ from typing import Optional, Sequence, TextIO
 
 import yaml
 
+from route_slope_annotator.slope_analysis import SlopeConfig, annotate_document
+
 
 class LiveRouteSession:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -253,8 +255,48 @@ class LiveRouteSession:
             "--body-height", str(self.args.body_height),
         ], "最终可视化子图")
 
+        self.annotate_final_topology(topo)
+
+    def annotate_final_topology(self, topo: Path) -> None:
+        """Atomically add isSlope to the final controller topology."""
+        if not self.args.slope_enabled:
+            print("[坡点标注] 已通过 YAML 关闭。", flush=True)
+            return
+
+        with topo.open("r", encoding="utf-8") as handle:
+            source = json.load(handle)
+        config = SlopeConfig(
+            fit_radius=self.args.slope_fit_radius,
+            grade_threshold=self.args.slope_grade_threshold,
+            minimum_core_length=self.args.slope_minimum_core_length,
+            minimum_height_change=self.args.slope_minimum_height_change,
+            maximum_core_gap=self.args.slope_maximum_core_gap,
+            buffer_distance=self.args.slope_buffer_distance,
+        )
+        annotated = annotate_document(source, config)
+
+        temporary = topo.with_name(topo.name + ".slope.tmp")
+        try:
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump(annotated, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, topo)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+        annotation = annotated["slopeAnnotation"]
+        counts = annotation["counts"]
+        print(
+            f"[坡点标注] 完成：normal={counts['normal']} slope={counts['slope']} "
+            f"segments={len(annotation['segments'])} "
+            f"buffer={annotation['bufferDistance']:.2f}m",
+            flush=True,
+        )
+
     @staticmethod
-    def topology_summary(path: Path) -> tuple[int, int, int, int]:
+    def topology_summary(path: Path) -> tuple[int, int, int, int, int]:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         vertices = data.get("vertices", {})
@@ -263,13 +305,17 @@ class LiveRouteSession:
             bool(vertex.get("meta", {}).get("isCorner", False))
             for vertex in vertices.values()
         )
-        return int(data.get("version", 0)), len(vertices), len(edges), corners
+        slopes = sum(
+            bool(vertex.get("meta", {}).get("isSlope", False))
+            for vertex in vertices.values()
+        )
+        return int(data.get("version", 0)), len(vertices), len(edges), corners, slopes
 
     @staticmethod
     def write_processing_summary(
         session: Path,
-        live_summary: tuple[int, int, int, int],
-        final_summary: tuple[int, int, int, int],
+        live_summary: tuple[int, int, int, int, int],
+        final_summary: tuple[int, int, int, int, int],
     ) -> None:
         summary = {
             "status": "complete",
@@ -279,16 +325,19 @@ class LiveRouteSession:
                 "vertices": live_summary[1],
                 "edges": live_summary[2],
                 "corners": live_summary[3],
+                "slopes": live_summary[4],
             },
             "final_topology": {
                 "vertices": final_summary[1],
                 "edges": final_summary[2],
                 "corners": final_summary[3],
+                "slopes": final_summary[4],
             },
             "difference": {
                 "vertices": live_summary[1] - final_summary[1],
                 "edges": live_summary[2] - final_summary[2],
                 "corners": live_summary[3] - final_summary[3],
+                "slopes": live_summary[4] - final_summary[4],
             },
             "controller_json": "topoSingle_data.json",
             "live_json": "live/topoSingle_live.json",
@@ -340,7 +389,7 @@ class LiveRouteSession:
                 f"    实时骨架 version={live_summary[0]} vertices={live_summary[1]} "
                 f"edges={live_summary[2]} corners={live_summary[3]}\n"
                 f"    最终JSON vertices={final_summary[1]} edges={final_summary[2]} "
-                f"corners={final_summary[3]}\n"
+                f"corners={final_summary[3]} slopes={final_summary[4]}\n"
                 f"    控制器文件：{destination / 'topoSingle_data.json'}",
                 flush=True,
             )
@@ -372,10 +421,11 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
     topics = root.get("topics", {})
     recorder = root.get("recorder", {})
     skeleton = root.get("skeleton", {})
+    slope = root.get("slope", {})
     rviz = root.get("rviz", {})
     for name, value in (
         ("topics", topics), ("recorder", recorder),
-        ("skeleton", skeleton), ("rviz", rviz),
+        ("skeleton", skeleton), ("slope", slope), ("rviz", rviz),
     ):
         if not isinstance(value, dict):
             raise ValueError(f"route3d_live.{name} 必须是字典")
@@ -405,6 +455,13 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
         "topo_type": skeleton.get("topo_type", 0),
         "topo_pcd": skeleton.get("topo_pcd", ""),
         "topo_acc": skeleton.get("topo_acc", 0.50),
+        "slope_enabled": slope.get("enabled", True),
+        "slope_fit_radius": slope.get("fit_radius", 2.0),
+        "slope_grade_threshold": slope.get("grade_threshold", 0.12),
+        "slope_minimum_core_length": slope.get("minimum_core_length", 2.0),
+        "slope_minimum_height_change": slope.get("minimum_height_change", 0.20),
+        "slope_maximum_core_gap": slope.get("maximum_core_gap", 1.0),
+        "slope_buffer_distance": slope.get("buffer_distance", 3.0),
         "rviz_config": rviz.get("config_file", ""),
         "no_rviz": not bool(rviz.get("enabled", True)),
     }
@@ -457,10 +514,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--topo-type", type=int, default=defaults.get("topo_type", 0))
     parser.add_argument("--topo-pcd", default=defaults.get("topo_pcd", ""))
     parser.add_argument("--topo-acc", type=float, default=defaults.get("topo_acc", 0.50))
+    parser.add_argument(
+        "--slope-enabled", action=argparse.BooleanOptionalAction,
+        default=defaults.get("slope_enabled", True))
+    parser.add_argument("--slope-fit-radius", type=float, default=defaults.get(
+        "slope_fit_radius", 2.0))
+    parser.add_argument("--slope-grade-threshold", type=float, default=defaults.get(
+        "slope_grade_threshold", 0.12))
+    parser.add_argument("--slope-minimum-core-length", type=float, default=defaults.get(
+        "slope_minimum_core_length", 2.0))
+    parser.add_argument("--slope-minimum-height-change", type=float, default=defaults.get(
+        "slope_minimum_height_change", 0.20))
+    parser.add_argument("--slope-maximum-core-gap", type=float, default=defaults.get(
+        "slope_maximum_core_gap", 1.0))
+    parser.add_argument("--slope-buffer-distance", type=float, default=defaults.get(
+        "slope_buffer_distance", 3.0))
     parser.add_argument("--rviz-config", default=defaults.get("rviz_config", ""))
     parser.add_argument("--no-rviz", action="store_true", default=defaults.get(
         "no_rviz", False))
-    return parser.parse_args()
+    args = parser.parse_args()
+    SlopeConfig(
+        fit_radius=args.slope_fit_radius,
+        grade_threshold=args.slope_grade_threshold,
+        minimum_core_length=args.slope_minimum_core_length,
+        minimum_height_change=args.slope_minimum_height_change,
+        maximum_core_gap=args.slope_maximum_core_gap,
+        buffer_distance=args.slope_buffer_distance,
+    ).validate()
+    return args
 
 
 def main() -> int:
