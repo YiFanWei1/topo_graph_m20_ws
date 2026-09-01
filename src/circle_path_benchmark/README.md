@@ -28,9 +28,9 @@ ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
 ```
 
 默认 `center_from_initial_odometry:=true`。节点收到第一帧 `/lio_odom_hf` 后，将该帧
-`x/y/z` 永久锁定为圆心，并使用该帧 yaw 确定圆周起点的切向；之后机器人移动不会
-改变圆心。机器人初始位于圆心，因此还需要移动到 RViz 中的绿色圆周起点才能使能。
-动态生成的圆会重新进行 PCD 净空检查，未通过时只能显示，不能发送控制路径。
+`x/y` 永久锁定为圆心，路径 Z 使用该帧 Z 加 `path_height_offset=0.40m`，并使用该帧
+yaw 确定圆周起点切向；之后机器人移动不会改变圆心。为了只测试控制器，默认关闭
+PCD 净空和圆周起点距离检查，使能后控制器会从圆心直接接入固定圆路径。
 
 RViz 使用固定 `camera_init` 下的正交俯视视角，不跟随机器人位置或姿态改变视角。
 如果确实需要使用 YAML 中保存的旧圆心，显式设置
@@ -48,9 +48,10 @@ ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
   enable_motion:=true
 ```
 
-只有起点三维误差不超过 0.20m、偏航误差不超过 20° 时才会发布有效控制路径。完成
-一圈或超过 45s 后自动发布空路径停车。`enable_motion` 只控制路径是否送入控制器，
-真正发往机器人仍需要单独启动 `robot_control_adapter`。
+完成一圈或超过 45s 后自动发布空路径停车。`enable_motion` 只控制路径是否送入控制器，
+真正发往机器人仍需要单独启动 `robot_control_adapter`。如需恢复起点检查，可将
+`safety.require_start_pose` 设为 true；如需恢复 PCD 检查，可将
+`safety.check_pcd_clearance` 设为 true。
 
 ## 4. 生成离线对比图
 

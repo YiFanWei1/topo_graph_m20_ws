@@ -51,11 +51,14 @@ public:
     initial_enable_ = declare_parameter<bool>("benchmark.enable_motion", false);
     center_from_initial_odometry_ = declare_parameter<bool>(
       "benchmark.center_from_initial_odometry", true);
+    path_height_offset_ = declare_parameter<double>("benchmark.path_height_offset", 0.40);
     require_pcd_ = declare_parameter<bool>("benchmark.require_pcd", true);
     publish_rate_ = declare_parameter<double>("benchmark.publish_rate", 5.0);
     robot_radius_ = declare_parameter<double>("safety.robot_radius", 0.30);
     body_half_height_ = declare_parameter<double>("safety.body_half_height", 0.35);
     allow_unsafe_circle_ = declare_parameter<bool>("safety.allow_unsafe_circle", false);
+    check_pcd_clearance_ = declare_parameter<bool>("safety.check_pcd_clearance", false);
+    require_start_pose_ = declare_parameter<bool>("safety.require_start_pose", false);
     start_position_tolerance_ = declare_parameter<double>(
       "safety.start_position_tolerance", 0.20);
     start_yaw_tolerance_ = declare_parameter<double>(
@@ -70,7 +73,7 @@ public:
     if (path_file_.empty() || output_directory_.empty() || publish_rate_ <= 0.0 ||
       start_position_tolerance_ <= 0.0 || start_yaw_tolerance_ <= 0.0 ||
       max_duration_ <= 0.0 || actual_path_spacing_ <= 0.0 || robot_radius_ <= 0.0 ||
-      body_half_height_ <= 0.0)
+      body_half_height_ <= 0.0 || !std::isfinite(path_height_offset_))
     {
       throw std::invalid_argument("benchmark paths and positive safety parameters are required");
     }
@@ -79,7 +82,7 @@ public:
     openOutputs();
     path_ready_ = !center_from_initial_odometry_;
     if (path_ready_) {
-      circle_safe_ = validateCurrentCircle(initialization_error_);
+      updateCircleSafety();
       writeResolvedPath();
     }
 
@@ -235,6 +238,7 @@ private:
       pcd_override_.empty() ? source_pcd_ : pcd_override_) << "\n"
            << "center_source: " << (
       center_from_initial_odometry_ ? "initial_odometry" : "path_file") << "\n"
+           << "path_height_offset: " << path_height_offset_ << "\n"
            << "circle:\n"
            << "  center: [" << spec_.center_x << ", " << spec_.center_y << ", "
            << spec_.path_z << "]\n"
@@ -315,6 +319,16 @@ private:
     return true;
   }
 
+  void updateCircleSafety()
+  {
+    if (!check_pcd_clearance_) {
+      circle_safe_ = true;
+      initialization_error_ = "pcd_clearance_check_disabled";
+      return;
+    }
+    circle_safe_ = validateCurrentCircle(initialization_error_);
+  }
+
   void initializeCircleFromOdometry(const nav_msgs::msg::Odometry & odometry)
   {
     if (path_ready_) {return;}
@@ -333,10 +347,10 @@ private:
     }
     spec_.center_x = pose.position.x;
     spec_.center_y = pose.position.y;
-    spec_.path_z = pose.position.z;
+    spec_.path_z = pose.position.z + path_height_offset_;
     spec_.start_angle = startAngleForTangentYaw(spec_, initial_yaw);
     points_ = generateCircle(spec_);
-    circle_safe_ = validateCurrentCircle(initialization_error_);
+    updateCircleSafety();
     path_ready_ = true;
     writeResolvedPath();
     publishReference();
@@ -353,10 +367,13 @@ private:
     RCLCPP_WARN(
       get_logger(),
       "circle locked: center=[%.2f %.2f %.2f] radius=%.2f "
-      "start=[%.2f %.2f %.2f yaw=%.1fdeg] pcd_safe=%s motion=%s output=%s",
+      "start=[%.2f %.2f %.2f yaw=%.1fdeg] pcd_check=%s pcd_safe=%s "
+      "start_check=%s motion=%s output=%s",
       spec_.center_x, spec_.center_y, spec_.path_z, spec_.radius,
       points_.front().x, points_.front().y, points_.front().z,
-      points_.front().yaw * 180.0 / kPi, circle_safe_ ? "true" : "false",
+      points_.front().yaw * 180.0 / kPi,
+      check_pcd_clearance_ ? "enabled" : "disabled",
+      circle_safe_ ? "true" : "false", require_start_pose_ ? "enabled" : "disabled",
       initial_enable_ ? "waiting_for_start_check" : "DISARMED",
       output_directory_.c_str());
   }
@@ -409,18 +426,18 @@ private:
   std::pair<bool, std::string> startCheck() const
   {
     if (!path_ready_) {return {false, "waiting_for_initial_odometry_center"};}
-    if (!circle_safe_ && !allow_unsafe_circle_) {
+    if (check_pcd_clearance_ && !circle_safe_ && !allow_unsafe_circle_) {
       return {false, "unsafe_circle=" + initialization_error_};
     }
     if (!latest_odometry_) {return {false, "no_odometry"};}
     if (latest_odometry_->header.frame_id != frame_id_) {
       return {false, "odometry_frame_mismatch"};
     }
+    if (!require_start_pose_) {return {true, "ready_without_start_pose_check"};}
     const auto & pose = latest_odometry_->pose.pose;
-    const double position_error = std::sqrt(
-      std::pow(pose.position.x - points_.front().x, 2) +
-      std::pow(pose.position.y - points_.front().y, 2) +
-      std::pow(pose.position.z - points_.front().z, 2));
+    const double position_error = std::hypot(
+      pose.position.x - points_.front().x,
+      pose.position.y - points_.front().y);
     if (position_error > start_position_tolerance_) {
       return {false, "start_position_error=" + number(position_error)};
     }
@@ -519,10 +536,9 @@ private:
       maximum_absolute_error_ = std::max(maximum_absolute_error_, std::abs(radial_error));
       minimum_signed_error_ = std::min(minimum_signed_error_, radial_error);
       appendActualPose(*message);
-      const double endpoint_distance = std::sqrt(
-        std::pow(pose.position.x - points_.back().x, 2) +
-        std::pow(pose.position.y - points_.back().y, 2) +
-        std::pow(pose.position.z - points_.back().z, 2));
+      const double endpoint_distance = std::hypot(
+        pose.position.x - points_.back().x,
+        pose.position.y - points_.back().y);
       if (accumulated_progress_ >= 2.0 * kPi - completion_angle_tolerance_ &&
         endpoint_distance <= completion_position_tolerance_)
       {
@@ -589,6 +605,9 @@ private:
       keyValue("center_source", center_from_initial_odometry_ ?
         "initial_odometry" : "path_file"),
       keyValue("circle_safe", circle_safe_ ? "true" : "false"),
+      keyValue("check_pcd_clearance", check_pcd_clearance_ ? "true" : "false"),
+      keyValue("require_start_pose", require_start_pose_ ? "true" : "false"),
+      keyValue("path_height_offset", number(path_height_offset_)),
       keyValue("circle_center_x", path_ready_ ? number(spec_.center_x) : "waiting"),
       keyValue("circle_center_y", path_ready_ ? number(spec_.center_y) : "waiting"),
       keyValue("circle_center_z", path_ready_ ? number(spec_.path_z) : "waiting"),
@@ -652,6 +671,8 @@ private:
   bool center_from_initial_odometry_{true};
   bool require_pcd_{true};
   bool allow_unsafe_circle_{false};
+  bool check_pcd_clearance_{false};
+  bool require_start_pose_{false};
   bool auto_arm_pending_{false};
   bool active_{false};
   bool completed_{false};
@@ -664,6 +685,7 @@ private:
   double completion_position_tolerance_{0.20};
   double max_duration_{45.0};
   double actual_path_spacing_{0.01};
+  double path_height_offset_{0.40};
   double robot_radius_{0.30};
   double body_half_height_{0.35};
   double minimum_clearance_{std::numeric_limits<double>::infinity()};
