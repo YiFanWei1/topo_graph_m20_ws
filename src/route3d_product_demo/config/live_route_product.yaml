@@ -5,8 +5,10 @@
 # transform immediately if another node starts publishing the same parent/child relationship.
 
 route3d_live:
-  workspace: /home/langyi/workspace/wyf/topo_graph_ws
-  results_root: /home/langyi/workspace/wyf/topo_graph_ws/data
+  # auto 根据当前包安装位置查找工作空间，本机和远端可以共用此 YAML。
+  workspace: auto
+  # 相对路径以自动找到的工作空间为基准。
+  results_root: data
 
   topics:
     odom: /lio_odom

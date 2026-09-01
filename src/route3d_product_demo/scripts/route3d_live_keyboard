@@ -26,14 +26,49 @@ from route_slope_annotator.slope_analysis import SlopeConfig, annotate_document
 class LiveRouteSession:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.workspace = Path(args.workspace).expanduser().resolve()
-        self.results_root = Path(args.results_root).expanduser().resolve()
+        self.workspace = self.resolve_workspace(args.workspace, args.config)
+        results_root = Path(args.results_root).expanduser()
+        if not results_root.is_absolute():
+            results_root = self.workspace / results_root
+        self.results_root = results_root.resolve()
         self.results_root.mkdir(parents=True, exist_ok=True)
         self.session_path: Optional[Path] = None
         self.recorder: Optional[subprocess.Popen] = None
         self.skeleton: Optional[subprocess.Popen] = None
         self.rviz: Optional[subprocess.Popen] = None
         self.recording = False
+
+    @staticmethod
+    def resolve_workspace(configured: str, config_path: Optional[str]) -> Path:
+        value = str(configured).strip()
+        if value and value.lower() != "auto":
+            workspace = Path(value).expanduser().resolve()
+            if not workspace.is_dir():
+                raise ValueError(f"工作空间不存在：{workspace}")
+            return workspace
+
+        candidates = []
+        if config_path:
+            config = Path(config_path).expanduser().resolve()
+            candidates.extend(config.parents)
+        candidates.append(Path.cwd().resolve())
+        try:
+            prefix = Path(subprocess.check_output(
+                ["ros2", "pkg", "prefix", "route3d_product_demo"],
+                text=True,
+            ).strip()).resolve()
+            if prefix.parent.name == "install":
+                candidates.append(prefix.parent.parent)
+            elif prefix.name == "install":
+                candidates.append(prefix.parent)
+        except (OSError, subprocess.CalledProcessError):
+            pass
+
+        for candidate in candidates:
+            if (candidate / "src" / "route3d_product_demo" / "package.xml").is_file():
+                return candidate
+        raise ValueError(
+            "无法自动确定 Route3D 工作空间；请在 YAML 的 workspace 中填写绝对路径")
 
     @staticmethod
     def child_env() -> dict[str, str]:
@@ -430,9 +465,8 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
         if not isinstance(value, dict):
             raise ValueError(f"route3d_live.{name} 必须是字典")
     return {
-        "workspace": root.get("workspace", "/home/langyi/workspace/wyf/topo_graph_ws"),
-        "results_root": root.get(
-            "results_root", "/home/langyi/workspace/wyf/topo_graph_ws/data"),
+        "workspace": root.get("workspace", "auto"),
+        "results_root": root.get("results_root", "data"),
         "odom_topic": topics.get("odom", "/lio_odom"),
         "cloud_topic": topics.get("cloud", "/cloud_registered_body"),
         "synchronized_pose_topic": topics.get(
@@ -476,9 +510,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", help="live_route_product.yaml path")
     parser.add_argument("--workspace", default=defaults.get(
-        "workspace", "/home/langyi/workspace/wyf/topo_graph_ws"))
+        "workspace", "auto"))
     parser.add_argument("--results-root", default=defaults.get(
-        "results_root", "/home/langyi/workspace/wyf/topo_graph_ws/data"))
+        "results_root", "data"))
     parser.add_argument("--odom-topic", default=defaults.get("odom_topic", "/lio_odom"))
     parser.add_argument("--cloud-topic", default=defaults.get(
         "cloud_topic", "/cloud_registered_body"))
@@ -560,7 +594,11 @@ def main() -> int:
         except OSError as error:
             print(f"无法打开键盘终端 /dev/tty：{error}", file=sys.stderr)
             return 2
-    session = LiveRouteSession(args)
+    try:
+        session = LiveRouteSession(args)
+    except (OSError, ValueError) as error:
+        print(f"初始化错误：{error}", file=sys.stderr)
+        return 2
     old_terminal = termios.tcgetattr(keyboard_stream)
     try:
         tty.setcbreak(keyboard_stream.fileno())
