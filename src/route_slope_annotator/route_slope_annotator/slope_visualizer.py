@@ -15,10 +15,8 @@ from route_slope_annotator.slope_analysis import SlopeConfig, annotate_document
 
 
 COLORS = {
-    "flat": ColorRGBA(r=0.15, g=0.85, b=0.25, a=1.0),
-    "slope_context": ColorRGBA(r=1.0, g=0.72, b=0.05, a=1.0),
-    "uphill": ColorRGBA(r=1.0, g=0.12, b=0.08, a=1.0),
-    "downhill": ColorRGBA(r=0.10, g=0.38, b=1.0, a=1.0),
+    "normal": ColorRGBA(r=0.15, g=0.85, b=0.25, a=1.0),
+    "slope": ColorRGBA(r=1.0, g=0.20, b=0.05, a=1.0),
 }
 
 
@@ -34,8 +32,6 @@ class SlopeVisualizer(Node):
         self.declare_parameter("minimum_height_change", 0.20)
         self.declare_parameter("maximum_core_gap", 1.0)
         self.declare_parameter("buffer_distance", 3.0)
-        self.declare_parameter("flat_path_height", 0.0)
-        self.declare_parameter("slope_path_height", 0.4)
         self.declare_parameter("point_z_offset", 0.08)
         self.declare_parameter("show_vertex_ids", True)
 
@@ -54,9 +50,7 @@ class SlopeVisualizer(Node):
             minimum_height_change=float(
                 self.get_parameter("minimum_height_change").value),
             maximum_core_gap=float(self.get_parameter("maximum_core_gap").value),
-            buffer_distance=float(self.get_parameter("buffer_distance").value),
-            flat_path_height=float(self.get_parameter("flat_path_height").value),
-            slope_path_height=float(self.get_parameter("slope_path_height").value))
+            buffer_distance=float(self.get_parameter("buffer_distance").value))
         self.document = annotate_document(source, config)
         if output_file:
             output_path = Path(output_file).expanduser().resolve()
@@ -120,8 +114,7 @@ class SlopeVisualizer(Node):
         groups = {}
         for marker_id, terrain_type in enumerate(COLORS, start=1):
             marker = self.marker("terrain_points", marker_id, Marker.SPHERE_LIST)
-            diameter = 0.14 if terrain_type == "flat" else (
-                0.20 if terrain_type == "slope_context" else 0.27)
+            diameter = 0.14 if terrain_type == "normal" else 0.24
             marker.scale.x = marker.scale.y = marker.scale.z = diameter
             marker.color = COLORS[terrain_type]
             groups[terrain_type] = marker
@@ -131,7 +124,7 @@ class SlopeVisualizer(Node):
         vertices = self.document["vertices"]
         for vertex_id in range(1, len(vertices) + 1):
             vertex = vertices[str(vertex_id)]
-            terrain_type = vertex["meta"]["terrainType"]
+            terrain_type = "slope" if vertex["meta"]["isSlope"] else "normal"
             display_point = self.point(vertex["pos"], self.z_offset)
             groups[terrain_type].points.append(display_point)
             line.points.append(display_point)
@@ -148,10 +141,8 @@ class SlopeVisualizer(Node):
 
         first = vertices["1"]["pos"]
         labels = [
-            ("flat", "GREEN: flat, path_height=0.0"),
-            ("slope_context", "YELLOW: slope +/-3m, path_height=0.4"),
-            ("uphill", "RED: uphill core, path_height=0.4"),
-            ("downhill", "BLUE: downhill core, path_height=0.4"),
+            ("normal", "GREEN: normal point"),
+            ("slope", "RED: slope point (core +/-3m)"),
         ]
         for index, (terrain_type, text) in enumerate(labels):
             legend = self.marker("legend", index, Marker.TEXT_VIEW_FACING)

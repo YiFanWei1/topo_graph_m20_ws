@@ -18,8 +18,6 @@ def parser():
     result.add_argument("--minimum-height-change", type=float, default=0.20)
     result.add_argument("--maximum-core-gap", type=float, default=1.0)
     result.add_argument("--buffer-distance", type=float, default=3.0)
-    result.add_argument("--flat-path-height", type=float, default=0.0)
-    result.add_argument("--slope-path-height", type=float, default=0.4)
     return result
 
 
@@ -37,9 +35,7 @@ def main():
         minimum_core_length=args.minimum_core_length,
         minimum_height_change=args.minimum_height_change,
         maximum_core_gap=args.maximum_core_gap,
-        buffer_distance=args.buffer_distance,
-        flat_path_height=args.flat_path_height,
-        slope_path_height=args.slope_path_height)
+        buffer_distance=args.buffer_distance)
     annotated = annotate_document(document, config)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as stream:

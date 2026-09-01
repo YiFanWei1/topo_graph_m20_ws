@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <iomanip>
 #include <iterator>
 #include <limits>
@@ -22,6 +23,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp/parameter_client.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/u_int8_multi_array.hpp"
 #include "tf2/exceptions.hpp"
@@ -31,6 +33,7 @@
 #include "tf2_ros/transform_listener.hpp"
 
 #include "recorded_waypoint_route/route_sequencer_core.hpp"
+#include "recorded_waypoint_route/planning_profile.hpp"
 
 namespace recorded_waypoint_route
 {
@@ -83,6 +86,20 @@ public:
       "route.goal_arrival_tolerance", 0.15);
     max_start_distance_ = declare_parameter<double>("route.max_start_distance", 3.0);
     update_rate_ = declare_parameter<double>("route.update_rate", 50.0);
+    const PlanningProfile normal_profile{
+      "normal",
+      declare_parameter<double>("profile.normal.path_height", 0.0),
+      declare_parameter<bool>("profile.normal.extension_enabled", true)};
+    const PlanningProfile slope_profile{
+      "slope",
+      declare_parameter<double>("profile.slope.path_height", 0.40),
+      declare_parameter<bool>("profile.slope.extension_enabled", false)};
+    profile_resolver_ = std::make_unique<PlanningProfileResolver>(
+      normal_profile, slope_profile);
+    planner_node_name_ = declare_parameter<std::string>(
+      "profile.planner_node", "/corridor_astar_planner");
+    extension_node_name_ = declare_parameter<std::string>(
+      "profile.extension_node", "/obstacle_occlusion_extension");
     if (!std::isfinite(body_height_) || body_height_ < 0.0) {
       throw std::invalid_argument("route.body_height must be finite and non-negative");
     }
@@ -104,6 +121,10 @@ public:
 
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    planner_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      this, planner_node_name_);
+    extension_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      this, extension_node_name_);
 
     segment_publisher_ = create_publisher<nav_msgs::msg::Path>(
       "/recorded_waypoint_route/active_segment_ground", routeQos());
@@ -132,6 +153,12 @@ public:
         types_message_ = std::move(message);
         tryInitializeRoute();
       });
+    slope_flags_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
+      "/recorded_waypoint_route/target_slope_flags", routeQos(),
+      [this](std_msgs::msg::UInt8MultiArray::SharedPtr message) {
+        slope_flags_message_ = std::move(message);
+        tryInitializeRoute();
+      });
 
     // 高频里程计回调只保存最新消息，不做 TF、三维距离或路线状态计算。
     odom_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -153,13 +180,26 @@ public:
     RCLCPP_INFO(
       get_logger(),
       "route sequencer ready: implementation=cpp odom_cache=true update_rate=%.1fHz "
-      "goal_topic=%s odom=%s normal/corner/goal=%.3f/%.3f/%.3fm",
+      "goal_topic=%s odom=%s normal/corner/goal=%.3f/%.3f/%.3fm "
+      "profile_nodes=[%s,%s]",
       update_rate_, goal_topic_.c_str(), odom_topic_.c_str(),
-      normal_arrival_tolerance_, corner_arrival_tolerance_, goal_arrival_tolerance_);
+      normal_arrival_tolerance_, corner_arrival_tolerance_, goal_arrival_tolerance_,
+      planner_node_name_.c_str(), extension_node_name_.c_str());
   }
 
 private:
   using RouteSignature = std::tuple<int32_t, uint32_t, std::size_t, std::size_t>;
+
+  struct ProfileTransition
+  {
+    std::uint64_t revision{0U};
+    std::size_t target_index{0U};
+    PlanningProfile profile;
+    bool planner_request_sent{false};
+    bool extension_request_sent{false};
+    bool planner_confirmed{false};
+    bool extension_confirmed{false};
+  };
 
   static bool validTolerance(double value)
   {
@@ -178,7 +218,7 @@ private:
 
   void tryInitializeRoute()
   {
-    if (!targets_message_ || !path_message_ || !types_message_) {
+    if (!targets_message_ || !path_message_ || !types_message_ || !slope_flags_message_) {
       return;
     }
     if (targets_message_->header.frame_id != path_message_->header.frame_id) {
@@ -195,6 +235,13 @@ private:
         get_logger(), *get_clock(), 2000,
         "target type count %zu does not match target count %zu",
         types_message_->data.size(), targets_message_->poses.size());
+      return;
+    }
+    if (slope_flags_message_->data.size() != targets_message_->poses.size()) {
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "target slope flag count %zu does not match target count %zu",
+        slope_flags_message_->data.size(), targets_message_->poses.size());
       return;
     }
     const RouteSignature signature{
@@ -232,6 +279,17 @@ private:
       }
       target_types_.push_back(static_cast<TargetType>(value));
     }
+    target_is_slope_.clear();
+    target_is_slope_.reserve(slope_flags_message_->data.size());
+    for (const std::uint8_t value : slope_flags_message_->data) {
+      if (value > 1U) {
+        RCLCPP_ERROR(
+          get_logger(), "route rejected: slope flag must be 0 or 1, got %u",
+          static_cast<unsigned int>(value));
+        return;
+      }
+      target_is_slope_.push_back(value != 0U);
+    }
     targets_body_ = targets_ground_;
     for (Point3 & point : targets_body_) {
       point.z += body_height_;
@@ -240,6 +298,8 @@ private:
     selected_sequence_.clear();
     planner_search_floor_position_ = 0;
     planner_segment_endpoints_.reset();
+    profile_transition_.reset();
+    applied_profile_.reset();
     route_signature_ = signature;
     status_state_ = latest_body_position_ ? "waiting_goal" : "waiting_localization";
     last_event_ = "route_initialized";
@@ -321,6 +381,168 @@ private:
     segment_publisher_->publish(makePath({}));
   }
 
+  std::size_t plannerWindowStartPosition(const Point3 & body_position)
+  {
+    const std::size_t current_position = progress_->sequencePosition();
+    if (current_position == 0U) {
+      return 0U;
+    }
+    const std::size_t search_begin = std::min(
+      planner_search_floor_position_, current_position);
+    std::size_t nearest_position = search_begin;
+    double nearest_distance = distance3d(
+      body_position, targets_body_.at(selected_sequence_.at(search_begin)));
+    for (std::size_t position = search_begin + 1U;
+      position <= current_position; ++position)
+    {
+      const double candidate_distance = distance3d(
+        body_position, targets_body_.at(selected_sequence_.at(position)));
+      if (candidate_distance < nearest_distance) {
+        nearest_position = position;
+        nearest_distance = candidate_distance;
+      }
+    }
+    planner_search_floor_position_ = nearest_position;
+    return nearest_position == 0U ? 0U : nearest_position - 1U;
+  }
+
+  PlanningProfile profileForPlannerWindow(const Point3 & body_position)
+  {
+    const std::size_t current_position = progress_->sequencePosition();
+    const std::size_t start_position = plannerWindowStartPosition(body_position);
+    bool window_is_slope = false;
+    for (std::size_t position = start_position; position <= current_position; ++position) {
+      if (target_is_slope_.at(selected_sequence_.at(position))) {
+        window_is_slope = true;
+        break;
+      }
+    }
+    return profile_resolver_->resolve({progress_->requiredTargetType(), window_is_slope});
+  }
+
+  void handleProfileResponse(
+    std::uint64_t revision, bool planner, bool success, const std::string & reason)
+  {
+    if (!profile_transition_ || profile_transition_->revision != revision) {
+      return;
+    }
+    bool & sent = planner ? profile_transition_->planner_request_sent :
+      profile_transition_->extension_request_sent;
+    bool & confirmed = planner ? profile_transition_->planner_confirmed :
+      profile_transition_->extension_confirmed;
+    if (!success) {
+      sent = false;
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "planning profile revision=%lu rejected by %s: %s; retrying",
+        static_cast<unsigned long>(revision), planner ? "planner" : "extension",
+        reason.c_str());
+      return;
+    }
+    confirmed = true;
+    finishProfileTransitionIfReady();
+  }
+
+  void dispatchProfileRequests()
+  {
+    if (!profile_transition_) {
+      return;
+    }
+    const std::uint64_t revision = profile_transition_->revision;
+    if (!profile_transition_->planner_request_sent &&
+      planner_parameter_client_->service_is_ready())
+    {
+      profile_transition_->planner_request_sent = true;
+      const double path_height = profile_transition_->profile.path_height;
+      planner_parameter_client_->set_parameters(
+        {rclcpp::Parameter("planner.path_height", path_height)},
+        [this, revision](auto future) {
+          try {
+            const auto results = future.get();
+            const bool success = results.size() == 1U && results.front().successful;
+            handleProfileResponse(
+              revision, true, success,
+              results.empty() ? "empty parameter response" : results.front().reason);
+          } catch (const std::exception & error) {
+            handleProfileResponse(revision, true, false, error.what());
+          }
+        });
+    }
+    if (!profile_transition_->extension_request_sent &&
+      extension_parameter_client_->service_is_ready())
+    {
+      profile_transition_->extension_request_sent = true;
+      const bool enabled = profile_transition_->profile.extension_enabled;
+      extension_parameter_client_->set_parameters(
+        {rclcpp::Parameter("extension.enabled", enabled)},
+        [this, revision](auto future) {
+          try {
+            const auto results = future.get();
+            const bool success = results.size() == 1U && results.front().successful;
+            handleProfileResponse(
+              revision, false, success,
+              results.empty() ? "empty parameter response" : results.front().reason);
+          } catch (const std::exception & error) {
+            handleProfileResponse(revision, false, false, error.what());
+          }
+        });
+    }
+  }
+
+  void finishProfileTransitionIfReady()
+  {
+    if (!profile_transition_ || !profile_transition_->planner_confirmed ||
+      !profile_transition_->extension_confirmed || !latest_body_position_)
+    {
+      return;
+    }
+    const PlanningProfile applied = profile_transition_->profile;
+    const std::size_t target_index = profile_transition_->target_index;
+    const std::uint64_t revision = profile_transition_->revision;
+    applied_profile_ = applied;
+    profile_transition_.reset();
+    status_state_ = "tracking";
+    last_event_ = "profile_applied";
+    RCLCPP_INFO(
+      get_logger(),
+      "planning profile applied: revision=%lu target=%zu profile=%s "
+      "planner.path_height=%.2f extension.enabled=%s; rechecking planner window",
+      static_cast<unsigned long>(revision), target_index + 1U, applied.name.c_str(),
+      applied.path_height, applied.extension_enabled ? "true" : "false");
+    // Re-resolve against the latest robot projection. If the robot crossed a
+    // profile boundary while services were responding, start the newer profile
+    // transaction instead of publishing one segment with stale settings.
+    requestPlannerWindow(*latest_body_position_);
+    publishDiagnostics(
+      distance3d(*latest_body_position_, targets_body_.at(progress_->requiredTarget())),
+      last_event_, true);
+  }
+
+  void requestPlannerWindow(const Point3 & body_position)
+  {
+    const std::size_t target_index = progress_->requiredTarget();
+    const PlanningProfile desired = profileForPlannerWindow(body_position);
+    if (applied_profile_ && *applied_profile_ == desired) {
+      publishPlannerWindow(body_position);
+      return;
+    }
+    // Empty segment is the explicit stop/cancel command. No new segment is
+    // exposed until both remote parameter services confirm this same revision.
+    publishEmptySegment();
+    profile_transition_ = ProfileTransition{
+      ++profile_revision_, target_index, desired, false, false, false, false};
+    status_state_ = "applying_profile";
+    last_event_ = "profile_change_requested";
+    RCLCPP_INFO(
+      get_logger(),
+      "planning profile requested: revision=%lu target=%zu window_has_slope=%s profile=%s "
+      "planner.path_height=%.2f extension.enabled=%s",
+      static_cast<unsigned long>(profile_revision_), target_index + 1U,
+      desired.name == "slope" ? "true" : "false", desired.name.c_str(),
+      desired.path_height, desired.extension_enabled ? "true" : "false");
+    dispatchProfileRequests();
+  }
+
   void publishEmptySelectedRoute()
   {
     selected_route_publisher_->publish(makePath({}));
@@ -350,25 +572,9 @@ private:
       }
     } else {
       // The 2.8 m NORMAL radius can advance across several 1 m targets before
-      // the robot moves.  Find the nearest already-selected route target without
-      // ever moving the search backwards, then retain one target behind it.  The
-      // resulting rolling window contains the robot projection and every yellow
-      // geometry point up to the newly selected local target.
-      const std::size_t search_begin = std::min(
-        planner_search_floor_position_, current_position);
-      std::size_t nearest_position = search_begin;
-      double nearest_distance = distance3d(
-        body_position, targets_body_.at(selected_sequence_.at(search_begin)));
-      for (std::size_t position = search_begin + 1; position <= current_position; ++position) {
-        const double candidate_distance = distance3d(
-          body_position, targets_body_.at(selected_sequence_.at(position)));
-        if (candidate_distance < nearest_distance) {
-          nearest_position = position;
-          nearest_distance = candidate_distance;
-        }
-      }
-      planner_search_floor_position_ = nearest_position;
-      start_position = nearest_position == 0 ? 0 : nearest_position - 1;
+      // the robot moves. Keep one target behind the robot projection so route
+      // geometry and profile resolution use the exact same rolling window.
+      start_position = plannerWindowStartPosition(body_position);
       for (std::size_t position = start_position; position < current_position; ++position) {
         const auto leg = recordedLegPoints(
           selected_sequence_.at(position), selected_sequence_.at(position + 1));
@@ -496,7 +702,11 @@ private:
     last_event_ = "goal_accepted";
     publishActiveTarget(nearest.first);
     publishSelectedRoute(*latest_body_position_, sequence, nearest.second);
-    publishPlannerWindow(*latest_body_position_);
+    requestPlannerWindow(*latest_body_position_);
+    if (profile_transition_) {
+      publishDiagnostics(nearest.second, last_event_, true);
+      return;
+    }
     if (nearest.second > progress_->effectiveTolerance()) {
       publishDiagnostics(nearest.second, last_event_, true);
       return;
@@ -514,7 +724,7 @@ private:
         publishEmptySegment();
       } else if (update.active_leg) {
         publishActiveTarget(update.active_leg->second);
-        publishPlannerWindow(body_position);
+        requestPlannerWindow(body_position);
       }
     }
     const double target_distance = distance3d(
@@ -534,11 +744,13 @@ private:
     std::string required = "none";
     std::string required_type = "none";
     std::string required_role = "none";
+    std::string required_is_slope = "none";
     double effective_tolerance = std::numeric_limits<double>::infinity();
     if (progress_) {
       required = std::to_string(progress_->requiredTarget() + 1);
       required_type = targetTypeName(progress_->requiredTargetType());
       required_role = progress_->requiredTargetIsGoal() ? "final_goal" : required_type;
+      required_is_slope = target_is_slope_.at(progress_->requiredTarget()) ? "true" : "false";
       effective_tolerance = progress_->effectiveTolerance();
       if (progress_->activeLeg()) {
         active_leg = std::to_string(progress_->activeLeg()->first + 1) + "->" +
@@ -565,6 +777,9 @@ private:
       keyValue("required_target_id", required),
       keyValue("required_target_type", required_type),
       keyValue("required_target_role", required_role),
+      keyValue("required_target_is_slope", required_is_slope),
+      keyValue("planning_profile", applied_profile_ ? applied_profile_->name : "none"),
+      keyValue("profile_transition_pending", profile_transition_ ? "true" : "false"),
       keyValue("selected_goal_id", selected_goal_id_ ? std::to_string(*selected_goal_id_) : "none"),
       keyValue("nearest_target_id", nearest_target_id_ ? std::to_string(*nearest_target_id_) : "none"),
       keyValue("nearest_target_distance_3d", formatDouble(nearest_target_distance_)),
@@ -585,6 +800,7 @@ private:
 
   void updateTimer()
   {
+    dispatchProfileRequests();
     nav_msgs::msg::Odometry::SharedPtr odometry;
     std::uint64_t generation = 0;
     {
@@ -611,6 +827,15 @@ private:
       return;
     }
     latest_body_position_ = *position;
+    if (profile_transition_) {
+      finishProfileTransitionIfReady();
+      if (profile_transition_) {
+        publishDiagnostics(
+          distance3d(*latest_body_position_, targets_body_.at(progress_->requiredTarget())),
+          "waiting_profile_confirmation");
+        return;
+      }
+    }
     if (pending_goal_id_) {
       tryActivatePendingGoal();
       return;
@@ -634,6 +859,11 @@ private:
   double goal_arrival_tolerance_{0.15};
   double max_start_distance_{3.0};
   double update_rate_{50.0};
+  std::string planner_node_name_;
+  std::string extension_node_name_;
+  std::unique_ptr<PlanningProfileResolver> profile_resolver_;
+  std::shared_ptr<rclcpp::AsyncParametersClient> planner_parameter_client_;
+  std::shared_ptr<rclcpp::AsyncParametersClient> extension_parameter_client_;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -644,6 +874,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr targets_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_subscription_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr types_subscription_;
+  rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr slope_flags_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscription_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr goal_subscription_;
   rclcpp::TimerBase::SharedPtr update_timer_;
@@ -651,15 +882,20 @@ private:
   geometry_msgs::msg::PoseArray::SharedPtr targets_message_;
   nav_msgs::msg::Path::SharedPtr path_message_;
   std_msgs::msg::UInt8MultiArray::SharedPtr types_message_;
+  std_msgs::msg::UInt8MultiArray::SharedPtr slope_flags_message_;
   std::vector<Point3> targets_ground_;
   std::vector<Point3> targets_body_;
   std::vector<TargetType> target_types_;
+  std::vector<bool> target_is_slope_;
   std::vector<std::vector<Point3>> segments_;
   std::vector<std::size_t> selected_sequence_;
   std::size_t planner_search_floor_position_{0};
   std::optional<std::pair<std::size_t, std::size_t>> planner_segment_endpoints_;
   std::optional<RouteSignature> route_signature_;
   std::unique_ptr<RouteProgress> progress_;
+  std::optional<PlanningProfile> applied_profile_;
+  std::optional<ProfileTransition> profile_transition_;
+  std::uint64_t profile_revision_{0U};
   std::optional<Point3> latest_body_position_;
   std::optional<int> pending_goal_id_;
   std::optional<int> selected_goal_id_;

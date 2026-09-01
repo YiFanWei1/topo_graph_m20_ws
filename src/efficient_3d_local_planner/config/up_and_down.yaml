@@ -23,7 +23,7 @@ up_and_down_demo:
 
 target_path_generator:
   ros__parameters:
-    route_file: /home/langyi/workspace/wyf/topo_graph_ws/data/regu/topoSingle_data_generated.json
+    route_file: /home/wei/github_code/topo_graph_ws/data/regu/topoSingle_data_slope.json
     frames.fallback: camera_init               # JSON 未写 frame_id 时使用的路线坐标系
     route.spacing: 0.10                        # 稀疏拓扑点之间的三维插值最大间距，单位 m
     route.body_height: 0.40                    # 地面路线可视化抬升到机身中心的高度，单位 m
@@ -41,6 +41,13 @@ target_route_sequencer:
     route.goal_arrival_tolerance: 0.30         # 最终目标严格三维到点半径，单位 m
     route.max_start_distance: 3.0              # 起点距最近记录点超过该值时拒绝目标，单位 m
     route.update_rate: 50.0                    # 缓存里程计后的路线状态更新频率，单位 Hz
+    # 统一属性解析接口：当前只看 JSON 顶点 meta.isSlope；以后特殊点规则集中扩展 resolver。
+    profile.normal.path_height: 0.0            # 普通点按地面路径高度规划
+    profile.normal.extension_enabled: true     # 普通点启用障碍物后向补全
+    profile.slope.path_height: 0.4             # 坡点（含坡段前后 3m）抬升到机身中心
+    profile.slope.extension_enabled: false     # 坡点关闭后向补全，避免把坡面误延伸为 hard
+    profile.planner_node: /corridor_astar_planner
+    profile.extension_node: /obstacle_occlusion_extension
 
 local_voxel_mapper:
   ros__parameters:

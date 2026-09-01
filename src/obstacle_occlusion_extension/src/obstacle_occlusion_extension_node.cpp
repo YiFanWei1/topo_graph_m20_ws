@@ -3,6 +3,7 @@
 #include <efficient_3d_local_planner_msgs/msg/voxel_grid.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
@@ -14,6 +15,7 @@
 #include <tf2_ros/transform_listener.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -87,22 +89,65 @@ public:
       create_subscription<efficient_3d_local_planner_msgs::msg::VoxelGrid>(
       grid_topic, rclcpp::SensorDataQoS().keep_last(1),
       std::bind(&ObstacleOcclusionExtensionNode::gridCallback, this, std::placeholders::_1));
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(
+        &ObstacleOcclusionExtensionNode::parametersCallback, this,
+        std::placeholders::_1));
 
     RCLCPP_INFO(
       get_logger(),
       "occlusion extension ready: enabled=%s distance=%.2fm range=[%.2f,%.2f]m "
       "inflation=[fill=%d z_down=%.2f z_up=%.2f soft=%.2f] "
       "grid=%s odom=%s cloud=%s augmented_grid=%s hard_injection=%s",
-      enabled_ ? "true" : "false", extension_config_.distance,
+      enabled_.load() ? "true" : "false", extension_config_.distance,
       extension_config_.minimum_obstacle_range, extension_config_.maximum_obstacle_range,
       inflation_config_.horizontal_fill_cells, inflation_config_.hard_z_down,
       inflation_config_.hard_z_up, inflation_config_.soft_radius,
       grid_topic.c_str(), odometry_topic.c_str(), output_topic.c_str(),
-      augmented_grid_topic.c_str(), enabled_ ? "enabled" : "disabled");
+      augmented_grid_topic.c_str(), enabled_.load() ? "enabled" : "disabled");
   }
 
 private:
   using VoxelGrid = efficient_3d_local_planner_msgs::msg::VoxelGrid;
+
+  rcl_interfaces::msg::SetParametersResult parametersCallback(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    bool requested_enabled = enabled_.load();
+    bool changed = false;
+    for (const auto & parameter : parameters) {
+      if (parameter.get_name() != "extension.enabled") {
+        continue;
+      }
+      if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+        result.successful = false;
+        result.reason = "extension.enabled must be boolean";
+        return result;
+      }
+      requested_enabled = parameter.as_bool();
+      changed = requested_enabled != enabled_.load();
+    }
+    if (!changed) {
+      return result;
+    }
+    enabled_.store(requested_enabled);
+    VoxelGrid::SharedPtr latest_grid;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      latest_grid = latest_grid_;
+    }
+    // Rebuild/pass through the latest grid before acknowledging the parameter
+    // service, so the planner does not receive a new route with an old map mode.
+    if (latest_grid) {
+      gridCallback(latest_grid);
+    }
+    RCLCPP_INFO(
+      get_logger(), "runtime profile applied: extension.enabled=%s",
+      requested_enabled ? "true" : "false");
+    return result;
+  }
 
   sensor_msgs::msg::PointCloud2 makeCloud(
     const VoxelGrid & grid, const GridGeometry & geometry,
@@ -231,6 +276,10 @@ private:
 
   void gridCallback(const VoxelGrid::SharedPtr grid)
   {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      latest_grid_ = grid;
+    }
     const GridGeometry geometry{
       grid->origin.x, grid->origin.y, grid->origin.z,
       static_cast<double>(grid->resolution), grid->size_x, grid->size_y, grid->size_z};
@@ -240,7 +289,7 @@ private:
       return;
     }
     std::vector<std::uint32_t> added;
-    if (!enabled_ || extension_config_.distance <= 0.0) {
+    if (!enabled_.load() || extension_config_.distance <= 0.0) {
       cloud_publisher_->publish(makeCloud(*grid, geometry, added));
       publishLayerClouds(
         *grid, geometry, grid->hard_occupied_indices, grid->soft_indices,
@@ -297,12 +346,13 @@ private:
       augmented.soft_indices.size(), observer_x, observer_y);
   }
 
-  bool enabled_{true};
+  std::atomic<bool> enabled_{true};
   ExtensionConfig extension_config_;
   InflationConfig inflation_config_;
   double tf_timeout_{0.05};
   std::mutex mutex_;
   nav_msgs::msg::Odometry::SharedPtr latest_odometry_;
+  VoxelGrid::SharedPtr latest_grid_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_publisher_;
@@ -311,6 +361,8 @@ private:
   rclcpp::Publisher<VoxelGrid>::SharedPtr grid_publisher_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
   rclcpp::Subscription<VoxelGrid>::SharedPtr grid_subscription_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+    parameter_callback_handle_;
 };
 
 }  // namespace obstacle_occlusion_extension

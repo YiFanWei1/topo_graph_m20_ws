@@ -10,6 +10,7 @@
   <depend>efficient_3d_local_planner_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>rcl_interfaces</depend>
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>tf2</depend>

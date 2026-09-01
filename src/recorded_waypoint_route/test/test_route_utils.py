@@ -42,6 +42,14 @@ def test_parse_topo_single_json_uses_vertex_ids_edges_and_corner_metadata():
         (2.0, 1.0, -0.4),
     ]
     assert parsed.types == [TargetType.NORMAL, TargetType.CORNER, TargetType.NORMAL]
+    assert parsed.is_slope == [False, False, False]
+
+
+def test_parse_topo_single_json_reads_slope_attribute():
+    document = topo_document()
+    document["vertices"]["2"]["meta"]["isSlope"] = True
+    parsed = parse_topo_single_json(json.dumps(document))
+    assert parsed.is_slope == [False, True, False]
 
 
 def test_load_route_file_selects_json_parser_from_suffix(tmp_path):
@@ -59,6 +67,8 @@ def test_load_route_file_selects_json_parser_from_suffix(tmp_path):
         (lambda data: data["edges"]["9"]["meta"].__setitem__("dir", 1), "directed"),
         (lambda data: data["vertices"]["2"]["meta"].__setitem__(
             "isCorner", "true"), "boolean"),
+        (lambda data: data["vertices"]["2"]["meta"].__setitem__(
+            "isSlope", 1), "boolean"),
     ],
 )
 def test_parse_topo_single_json_rejects_unsupported_or_invalid_graphs(mutate, message):
@@ -75,6 +85,7 @@ def test_parse_target_text_reads_frame_and_ordered_ground_points():
     assert parsed.frame_id == "camera_init"
     assert parsed.points == [(1.0, 2.0, 3.0), (4.5, 5.5, -6.0)]
     assert parsed.types == [TargetType.CORNER, TargetType.CORNER]
+    assert parsed.is_slope == [False, False]
 
 
 def test_parse_target_text_reads_typed_rows_and_inline_metadata():

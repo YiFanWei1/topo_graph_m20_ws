@@ -24,6 +24,7 @@ class TargetFile:
     frame_id: str
     points: List[Point3]
     types: List[TargetType]
+    is_slope: List[bool]
 
 
 def distance_3d(first: Point3, second: Point3) -> float:
@@ -91,7 +92,9 @@ def parse_target_text(text: str, fallback_frame: str = "camera_init") -> TargetF
         types.append(target_type)
     if not frame_id:
         raise ValueError("frame_id must not be empty")
-    return TargetFile(frame_id=frame_id, points=points, types=types)
+    return TargetFile(
+        frame_id=frame_id, points=points, types=types,
+        is_slope=[False] * len(points))
 
 
 def _json_integer(value, field: str) -> int:
@@ -160,8 +163,12 @@ def parse_topo_single_json(text: str, fallback_frame: str = "camera_init") -> Ta
         is_corner = metadata.get("isCorner", False)
         if not isinstance(is_corner, bool):
             raise ValueError(f"vertex {vertex_id}.meta.isCorner must be boolean")
+        is_slope = metadata.get("isSlope", False)
+        if not isinstance(is_slope, bool):
+            raise ValueError(f"vertex {vertex_id}.meta.isSlope must be boolean")
         parsed_vertices[vertex_id] = (
-            point, TargetType.CORNER if is_corner else TargetType.NORMAL)
+            point, TargetType.CORNER if is_corner else TargetType.NORMAL,
+            is_slope)
 
     vertex_count = len(parsed_vertices)
     expected_ids = set(range(1, vertex_count + 1))
@@ -215,6 +222,7 @@ def parse_topo_single_json(text: str, fallback_frame: str = "camera_init") -> Ta
         frame_id=frame_id,
         points=[entry[0] for entry in ordered],
         types=[entry[1] for entry in ordered],
+        is_slope=[entry[2] for entry in ordered],
     )
 
 

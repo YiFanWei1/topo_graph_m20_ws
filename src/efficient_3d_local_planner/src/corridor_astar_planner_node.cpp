@@ -10,6 +10,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer.h>
@@ -228,6 +229,11 @@ public:
       path_topic_, rclcpp::QoS(1).reliable().durability_volatile(),
       std::bind(&CorridorAStarPlannerNode::pathCallback, this, std::placeholders::_1));
 
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(
+        &CorridorAStarPlannerNode::parametersCallback, this,
+        std::placeholders::_1));
+
     // 所有算法对象和 ROS 通信对象建立后再启动工作线程。
     worker_ = std::thread(&CorridorAStarPlannerNode::workerLoop, this);
     RCLCPP_DEBUG(
@@ -258,6 +264,7 @@ private:
     Eigen::Vector3d robot{Eigen::Vector3d::Zero()};
     double yaw{0.0};
     bool has_odometry{false};
+    double path_height{0.40};
     std::uint64_t generation{0U};
     std::uint64_t path_generation{0U};
   };
@@ -289,6 +296,57 @@ private:
       }
     }
     return snapshot;
+  }
+
+  rcl_interfaces::msg::SetParametersResult parametersCallback(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    double requested_height = path_height_;
+    bool changed = false;
+    for (const auto & parameter : parameters) {
+      if (parameter.get_name() != "planner.path_height") {
+        continue;
+      }
+      if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+        result.successful = false;
+        result.reason = "planner.path_height must be a double";
+        return result;
+      }
+      requested_height = parameter.as_double();
+      if (!std::isfinite(requested_height) || requested_height < 0.0) {
+        result.successful = false;
+        result.reason = "planner.path_height must be finite and non-negative";
+        return result;
+      }
+      changed = std::abs(requested_height - path_height_) > 1e-9;
+    }
+    if (!changed) {
+      return result;
+    }
+
+    builtin_interfaces::msg::Time stamp = now();
+    std::uint64_t map_revision = 0U;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      path_height_ = requested_height;
+      current_path_.clear();
+      current_guide_.clear();
+      current_path_valid_ = false;
+      ++generation_;
+      ++path_generation_;
+      map_revision = latest_map_ ? latest_map_->revision : 0U;
+      work_pending_ = global_path_ && !global_path_->poses.empty();
+    }
+    // A profile switch is a safety boundary. Cancel any old-height search and
+    // clear the controller output before acknowledging the parameter service.
+    publishEmptyPath(stamp, "path_height_changed", map_revision);
+    condition_.notify_one();
+    RCLCPP_INFO(
+      get_logger(), "runtime profile applied: planner.path_height=%.3f",
+      requested_height);
+    return result;
   }
 
   void mapCallback(
@@ -501,6 +559,7 @@ private:
     inputs.robot = robot_;
     inputs.yaw = robot_yaw_;
     inputs.has_odometry = has_odometry_;
+    inputs.path_height = path_height_;
     inputs.generation = generation_.load();
     inputs.path_generation = path_generation_.load();
     work_pending_ = false;
@@ -508,7 +567,7 @@ private:
   }
 
   std::vector<Eigen::Vector3d> transformAndLiftPath(
-    const nav_msgs::msg::Path & message) const
+    const nav_msgs::msg::Path & message, double path_height) const
   {
     // 输入是地面路径。先统一变换到 planning_frame_，再把 Z 加 path_height_ 转成机器人
     // 机身中心路径。TF 使用最新可用变换并设置 50 ms 超时，异常交由 worker 捕获。
@@ -530,7 +589,7 @@ private:
       // 抬升发生在坐标变换之后，意味着 path_height_ 沿 planning_frame_ 的竖直 Z 添加。
       const Eigen::Vector3d point(
         converted.pose.position.x, converted.pose.position.y,
-        converted.pose.position.z + path_height_);
+        converted.pose.position.z + path_height);
       if (!point.allFinite()) {continue;}
       // 删除间距小于 2 cm 的连续重复点，避免后续弧长、切线和投影出现零长度线段。
       if (path.empty() || (point - path.back()).norm() > 0.02) {path.push_back(point);}
@@ -794,7 +853,7 @@ private:
       try {
         // 第一步：全局地面路径统一坐标系并抬升到机身中心。少于两个有效点无法定义
         // 局部 guide，保持等待而不发布伪路径。
-        const auto lifted_path = transformAndLiftPath(*inputs.path);
+        const auto lifted_path = transformAndLiftPath(*inputs.path, inputs.path_height);
         if (lifted_path.size() < 2U) {continue;}
         bool start_z_projected = false;
         // 楼梯上 odom Z 与离散路线高度通常存在厘米级差异，只修改规划起点 Z 能让其
@@ -1152,6 +1211,8 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_, optimized_path_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr corridor_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+    parameter_callback_handle_;
 };
 
 }  // namespace efficient_3d_local_planner

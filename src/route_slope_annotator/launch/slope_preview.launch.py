@@ -31,8 +31,6 @@ def generate_launch_description():
         DeclareLaunchArgument("minimum_height_change", default_value="0.20"),
         DeclareLaunchArgument("maximum_core_gap", default_value="1.0"),
         DeclareLaunchArgument("buffer_distance", default_value="3.0"),
-        DeclareLaunchArgument("flat_path_height", default_value="0.0"),
-        DeclareLaunchArgument("slope_path_height", default_value="0.4"),
         Node(
             package="route_slope_annotator",
             executable="visualize_route_slopes",
@@ -49,8 +47,6 @@ def generate_launch_description():
                     "minimum_height_change"),
                 "maximum_core_gap": float_parameter("maximum_core_gap"),
                 "buffer_distance": float_parameter("buffer_distance"),
-                "flat_path_height": float_parameter("flat_path_height"),
-                "slope_path_height": float_parameter("slope_path_height"),
             }]),
         Node(
             package="rviz2",

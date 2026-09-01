@@ -15,6 +15,7 @@ find_package(Eigen3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -25,7 +26,8 @@ find_package(visualization_msgs REQUIRED)
 
 set(node_dependencies
   diagnostic_msgs efficient_3d_local_planner_msgs geometry_msgs message_filters
-  nav_msgs rclcpp sensor_msgs std_msgs tf2 tf2_geometry_msgs tf2_ros visualization_msgs)
+  nav_msgs rcl_interfaces rclcpp sensor_msgs std_msgs tf2 tf2_geometry_msgs tf2_ros
+  visualization_msgs)
 
 add_executable(local_voxel_mapper_node src/local_voxel_mapper_node.cpp)
 target_include_directories(local_voxel_mapper_node PRIVATE include)

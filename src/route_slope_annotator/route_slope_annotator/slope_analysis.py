@@ -15,15 +15,12 @@ class SlopeConfig:
     minimum_height_change: float = 0.20
     maximum_core_gap: float = 1.0
     buffer_distance: float = 3.0
-    flat_path_height: float = 0.0
-    slope_path_height: float = 0.4
 
     def validate(self):
         values = (
             self.fit_radius, self.grade_threshold,
             self.minimum_core_length, self.minimum_height_change,
-            self.maximum_core_gap, self.buffer_distance,
-            self.flat_path_height, self.slope_path_height)
+            self.maximum_core_gap, self.buffer_distance)
         if not all(math.isfinite(value) and value >= 0.0
                    for value in values):
             raise ValueError("slope annotation parameters must be finite and non-negative")
@@ -157,18 +154,15 @@ def detect_slope_segments(points, config=SlopeConfig()):
 
 
 def annotate_document(document, config=SlopeConfig()):
-    """Return a copy with per-vertex terrain and planner height metadata."""
+    """Return a copy whose only generated per-vertex attribute is isSlope."""
     ordered, points = ordered_vertices(document)
-    distances, grades, segments = detect_slope_segments(points, config)
+    distances, _grades, segments = detect_slope_segments(points, config)
     result = copy.deepcopy(document)
     result_vertices = [result["vertices"][str(index)]
                        for index in range(1, len(ordered) + 1)]
 
-    core_owner = [None] * len(points)
     affected_owner = [None] * len(points)
     for segment_index, segment in enumerate(segments):
-        for index in range(segment.start, segment.end + 1):
-            core_owner[index] = segment_index
         lower = distances[segment.start] - config.buffer_distance
         upper = distances[segment.end] + config.buffer_distance
         for index, distance in enumerate(distances):
@@ -187,37 +181,20 @@ def annotate_document(document, config=SlopeConfig()):
                     if new_distance < old_distance:
                         affected_owner[index] = segment_index
 
-    counts = {"flat": 0, "slope_context": 0, "uphill": 0, "downhill": 0}
+    slope_count = 0
     for index, vertex in enumerate(result_vertices):
         metadata = vertex.setdefault("meta", {})
         if not isinstance(metadata, dict):
             raise ValueError(f"vertex {index + 1}.meta must be an object")
-        core_segment_index = core_owner[index]
-        affected_segment_index = affected_owner[index]
-        if core_segment_index is not None:
-            terrain_type = segments[core_segment_index].direction
-            slope_direction = terrain_type
-            is_core = True
-        elif affected_segment_index is not None:
-            terrain_type = "slope_context"
-            slope_direction = segments[affected_segment_index].direction
-            is_core = False
-        else:
-            terrain_type = "flat"
-            slope_direction = "flat"
-            is_core = False
-        is_slope = affected_segment_index is not None
-        metadata.update({
-            "terrainType": terrain_type,
-            "isSlope": is_slope,
-            "isSlopeCore": is_core,
-            "slopeDirection": slope_direction,
-            "localSlope": round(grades[index], 6),
-            "plannerPathHeight": (
-                config.slope_path_height if is_slope else
-                config.flat_path_height),
-        })
-        counts[terrain_type] += 1
+        # Remove fields written by the earlier preview format. Existing product
+        # metadata such as isCorner/type/typeId remains untouched.
+        for generated_key in (
+                "terrainType", "isSlopeCore", "slopeDirection",
+                "localSlope", "plannerPathHeight"):
+            metadata.pop(generated_key, None)
+        is_slope = affected_owner[index] is not None
+        metadata["isSlope"] = is_slope
+        slope_count += int(is_slope)
 
     result["slopeAnnotation"] = {
         "method": "local_linear_z_over_xy_distance",
@@ -227,9 +204,7 @@ def annotate_document(document, config=SlopeConfig()):
         "minimumHeightChange": config.minimum_height_change,
         "maximumCoreGap": config.maximum_core_gap,
         "bufferDistance": config.buffer_distance,
-        "flatPathHeight": config.flat_path_height,
-        "slopePathHeight": config.slope_path_height,
-        "counts": counts,
+        "counts": {"normal": len(points) - slope_count, "slope": slope_count},
         "segments": [{
             "startVertex": segment.start + 1,
             "endVertex": segment.end + 1,

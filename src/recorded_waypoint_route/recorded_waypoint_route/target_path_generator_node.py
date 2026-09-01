@@ -79,6 +79,8 @@ class TargetPathGeneratorNode(Node):
             Path, "/recorded_waypoint_route/full_path_ground", route_qos())
         self.types_publisher = self.create_publisher(
             UInt8MultiArray, "/recorded_waypoint_route/target_types", route_qos())
+        self.slope_flags_publisher = self.create_publisher(
+            UInt8MultiArray, "/recorded_waypoint_route/target_slope_flags", route_qos())
         self.labels_publisher = self.create_publisher(
             MarkerArray, "/recorded_waypoint_route/target_labels", route_qos())
         self.markers_publisher = self.create_publisher(
@@ -105,6 +107,8 @@ class TargetPathGeneratorNode(Node):
             1 if target_type == TargetType.CORNER else 0
             for target_type in parsed.types
         ]
+        slope_flags_message = UInt8MultiArray()
+        slope_flags_message.data = [int(is_slope) for is_slope in parsed.is_slope]
 
         labels_message = MarkerArray()
         markers_message = MarkerArray()
@@ -169,6 +173,7 @@ class TargetPathGeneratorNode(Node):
         self.targets_publisher.publish(targets_message)
         self.path_publisher.publish(path_message)
         self.types_publisher.publish(types_message)
+        self.slope_flags_publisher.publish(slope_flags_message)
         self.labels_publisher.publish(labels_message)
         self.markers_publisher.publish(markers_message)
         # 使用 INFO 明确打印实际读取的路线文件。该节点只在启动时读取一次文件，
@@ -177,6 +182,7 @@ class TargetPathGeneratorNode(Node):
             f"route generated once: route_file={selected_route_file} frame={parsed.frame_id} "
             f"targets={len(parsed.points)} corners="
             f"{sum(target_type == TargetType.CORNER for target_type in parsed.types)} "
+            f"slopes={sum(parsed.is_slope)} "
             f"path_points={len(path_points)} spacing={spacing:.3f}m"
         )
 

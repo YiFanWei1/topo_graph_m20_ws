@@ -50,22 +50,21 @@ def test_detects_uphill_and_downhill_from_signed_z_trend():
     assert downhill[0].mean_grade < -0.10
 
 
-def test_annotation_expands_three_metres_and_sets_planner_height():
+def test_annotation_expands_three_metres_and_only_sets_slope_attribute():
     annotated = annotate_document(document_for(route_points()), config())
     vertices = annotated["vertices"]
-    core_ids = [index for index in range(1, 21)
-                if vertices[str(index)]["meta"]["isSlopeCore"]]
     affected_ids = [index for index in range(1, 21)
                     if vertices[str(index)]["meta"]["isSlope"]]
+    segment = annotated["slopeAnnotation"]["segments"][0]
+    core_ids = range(segment["startVertex"], segment["endVertex"] + 1)
 
     assert min(affected_ids) <= max(1, min(core_ids) - 3)
     assert max(affected_ids) >= min(20, max(core_ids) + 3)
-    assert all(math.isclose(
-        vertices[str(index)]["meta"]["plannerPathHeight"], 0.4)
-        for index in affected_ids)
-    assert all(math.isclose(
-        vertices[str(index)]["meta"]["plannerPathHeight"], 0.0)
-        for index in set(range(1, 21)) - set(affected_ids))
+    generated_keys = {
+        "terrainType", "isSlopeCore", "slopeDirection",
+        "localSlope", "plannerPathHeight"}
+    assert all(not generated_keys.intersection(vertex["meta"])
+               for vertex in vertices.values())
     assert vertices["8"]["meta"]["isCorner"] is True
 
 
