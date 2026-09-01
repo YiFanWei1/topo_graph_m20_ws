@@ -116,23 +116,37 @@ private:
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
     bool requested_enabled = enabled_.load();
+    InflationConfig requested_inflation = inflation_config_;
     bool changed = false;
     for (const auto & parameter : parameters) {
-      if (parameter.get_name() != "extension.enabled") {
-        continue;
+      if (parameter.get_name() == "extension.enabled") {
+        if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+          result.successful = false;
+          result.reason = "extension.enabled must be boolean";
+          return result;
+        }
+        requested_enabled = parameter.as_bool();
+      } else if (parameter.get_name() == "inflation.soft_radius") {
+        if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+          result.successful = false;
+          result.reason = "inflation.soft_radius must be a double";
+          return result;
+        }
+        requested_inflation.soft_radius = parameter.as_double();
       }
-      if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
-        result.successful = false;
-        result.reason = "extension.enabled must be boolean";
-        return result;
-      }
-      requested_enabled = parameter.as_bool();
-      changed = requested_enabled != enabled_.load();
     }
+    if (!requested_inflation.valid()) {
+      result.successful = false;
+      result.reason = "inflation.soft_radius must be finite and non-negative";
+      return result;
+    }
+    changed = requested_enabled != enabled_.load() ||
+      std::abs(requested_inflation.soft_radius - inflation_config_.soft_radius) > 1e-9;
     if (!changed) {
       return result;
     }
     enabled_.store(requested_enabled);
+    inflation_config_ = requested_inflation;
     VoxelGrid::SharedPtr latest_grid;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -144,8 +158,8 @@ private:
       gridCallback(latest_grid);
     }
     RCLCPP_INFO(
-      get_logger(), "runtime profile applied: extension.enabled=%s",
-      requested_enabled ? "true" : "false");
+      get_logger(), "runtime profile applied: extension.enabled=%s inflation.soft_radius=%.3f",
+      requested_enabled ? "true" : "false", requested_inflation.soft_radius);
     return result;
   }
 

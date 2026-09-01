@@ -2,12 +2,14 @@
 #include "efficient_3d_local_planner/sensor_range_box.hpp"
 
 #include <Eigen/Geometry>
+#include <builtin_interfaces/msg/time.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <efficient_3d_local_planner_msgs/msg/voxel_grid.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
@@ -22,6 +24,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -91,7 +94,8 @@ public:
       "map.hard_inflation_z_down", 0.40);
     config.hard_inflation_z_up = declare_parameter<double>(
       "map.hard_inflation_z_up", 0.00);
-    // 启动阶段一次性验证参数并预计算膨胀偏移模板；运行过程中不动态重建地图配置。
+    // 启动阶段验证参数并预计算膨胀偏移模板；soft 半径允许由路线 profile 在运行时
+    // 重建模板，其他地图几何和占据参数保持启动时固定。
     validate(config);
     map_ = std::make_unique<RollingVoxelMap>(config);
 
@@ -205,6 +209,8 @@ public:
       [this](nav_msgs::msg::Odometry::ConstSharedPtr message) {
         odometryCallback(std::move(message));
       });
+    parameter_callback_handle_ = add_on_set_parameters_callback(
+      std::bind(&LocalVoxelMapperNode::parametersCallback, this, std::placeholders::_1));
     // 所有订阅和发布对象建立完成后再启动工作线程，避免线程看到未初始化成员。
     worker_ = std::thread(&LocalVoxelMapperNode::workerLoop, this);
 
@@ -238,6 +244,56 @@ public:
   }
 
 private:
+  rcl_interfaces::msg::SetParametersResult parametersCallback(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    double requested_radius = 0.0;
+    {
+      std::lock_guard<std::mutex> lock(map_mutex_);
+      requested_radius = map_->config().soft_inflation_radius;
+    }
+    bool changed = false;
+    for (const auto & parameter : parameters) {
+      if (parameter.get_name() != "map.soft_inflation_radius") {
+        continue;
+      }
+      if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+        result.successful = false;
+        result.reason = "map.soft_inflation_radius must be a double";
+        return result;
+      }
+      requested_radius = parameter.as_double();
+      if (!std::isfinite(requested_radius) || requested_radius < 0.0) {
+        result.successful = false;
+        result.reason = "map.soft_inflation_radius must be finite and non-negative";
+        return result;
+      }
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(map_mutex_);
+      changed = map_->setSoftInflationRadius(requested_radius);
+      if (changed && has_published_grid_) {
+        const auto layers = map_->buildLayers();
+        publishGrid(layers, latest_grid_stamp_);
+        if (hard_pub_->get_subscription_count() > 0U) {
+          hard_pub_->publish(makeCloud(layers.hard, layers, latest_grid_stamp_));
+        }
+        if (soft_pub_->get_subscription_count() > 0U) {
+          soft_pub_->publish(makeSoftCloud(layers, latest_grid_stamp_));
+        }
+      }
+    }
+    if (changed) {
+      RCLCPP_INFO(
+        get_logger(), "runtime profile applied: map.soft_inflation_radius=%.3f",
+        requested_radius);
+    }
+    return result;
+  }
+
   // 点云除了 ROS 消息本体，还记录本机接收的单调时钟时间，用于 max_wait 超时判断。
   struct QueuedCloud
   {
@@ -828,7 +884,8 @@ private:
     const nav_msgs::msg::Odometry::ConstSharedPtr & odometry,
     const double synchronization_error_ms)
   {
-    // processFrame 只由 worker_ 调用，因此 RollingVoxelMap 不需要额外互斥锁。
+    // 点云更新只由 worker_ 执行；map_mutex_ 只在运行时 soft 半径切换时短暂竞争，确保
+    // 参数服务确认前已用新半径重建并发布最新地图层。
     const auto begin = std::chrono::steady_clock::now();
     try {
       StageTimings timing;
@@ -841,6 +898,8 @@ private:
       const auto transform_end = std::chrono::steady_clock::now();
       timing.transform_ms =
         std::chrono::duration<double, std::milli>(transform_end - begin).count();
+
+      std::lock_guard<std::mutex> map_lock(map_mutex_);
 
       // update() 内部完成滚动窗口移动、距离过滤、端点命中、raycast 空闲更新和时间衰减。
       const auto update = map_->update(
@@ -867,6 +926,8 @@ private:
         std::chrono::duration<double, std::milli>(layers_end - update_end).count();
 
       // 规划器必需的 /grid 始终发布；大点云只在 RViz/订阅者存在时构造并发布。
+      latest_grid_stamp_ = cloud->header.stamp;
+      has_published_grid_ = true;
       publishGrid(layers, cloud->header.stamp);
       if (hard_pub_->get_subscription_count() > 0U) {
         hard_pub_->publish(makeCloud(layers.hard, layers, cloud->header.stamp));
@@ -894,8 +955,11 @@ private:
     }
   }
 
-  // -------- 地图与固定几何配置（仅工作线程读写 map_） --------
+  // -------- 地图与几何配置 --------
   std::unique_ptr<RollingVoxelMap> map_;
+  std::mutex map_mutex_;
+  builtin_interfaces::msg::Time latest_grid_stamp_;
+  bool has_published_grid_{false};
   std::string planning_frame_;
   Eigen::Vector3d base_from_lidar_translation_{Eigen::Vector3d::Zero()};
   Eigen::Quaterniond base_from_lidar_rotation_{Eigen::Quaterniond::Identity()};
@@ -950,6 +1014,8 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr range_bounds_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr body_exclusion_bounds_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+    parameter_callback_handle_;
 };
 
 }  // namespace efficient_3d_local_planner

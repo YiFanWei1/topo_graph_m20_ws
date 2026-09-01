@@ -23,12 +23,14 @@ struct PlanningProfile
   std::string name{"normal"};
   double path_height{0.0};
   bool extension_enabled{true};
+  double soft_radius{0.60};
 
   bool operator==(const PlanningProfile & other) const
   {
     return name == other.name &&
            std::abs(path_height - other.path_height) <= 1e-9 &&
-           extension_enabled == other.extension_enabled;
+           extension_enabled == other.extension_enabled &&
+           std::abs(soft_radius - other.soft_radius) <= 1e-9;
   }
 };
 
@@ -54,9 +56,11 @@ private:
   static void validate(const PlanningProfile & profile)
   {
     if (profile.name.empty() || !std::isfinite(profile.path_height) ||
-      profile.path_height < 0.0)
+      profile.path_height < 0.0 || !std::isfinite(profile.soft_radius) ||
+      profile.soft_radius < 0.0)
     {
-      throw std::invalid_argument("planning profiles require a name and non-negative height");
+      throw std::invalid_argument(
+              "planning profiles require a name, non-negative height, and soft radius");
     }
   }
 

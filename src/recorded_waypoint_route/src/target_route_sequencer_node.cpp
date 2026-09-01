@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -89,15 +90,19 @@ public:
     const PlanningProfile normal_profile{
       "normal",
       declare_parameter<double>("profile.normal.path_height", 0.0),
-      declare_parameter<bool>("profile.normal.extension_enabled", true)};
+      declare_parameter<bool>("profile.normal.extension_enabled", true),
+      declare_parameter<double>("profile.normal.soft_radius", 0.60)};
     const PlanningProfile slope_profile{
       "slope",
       declare_parameter<double>("profile.slope.path_height", 0.40),
-      declare_parameter<bool>("profile.slope.extension_enabled", false)};
+      declare_parameter<bool>("profile.slope.extension_enabled", false),
+      declare_parameter<double>("profile.slope.soft_radius", 0.20)};
     profile_resolver_ = std::make_unique<PlanningProfileResolver>(
       normal_profile, slope_profile);
     planner_node_name_ = declare_parameter<std::string>(
       "profile.planner_node", "/corridor_astar_planner");
+    mapper_node_name_ = declare_parameter<std::string>(
+      "profile.mapper_node", "/local_voxel_mapper");
     extension_node_name_ = declare_parameter<std::string>(
       "profile.extension_node", "/obstacle_occlusion_extension");
     if (!std::isfinite(body_height_) || body_height_ < 0.0) {
@@ -123,6 +128,8 @@ public:
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     planner_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
       this, planner_node_name_);
+    mapper_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      this, mapper_node_name_);
     extension_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
       this, extension_node_name_);
 
@@ -181,14 +188,21 @@ public:
       get_logger(),
       "route sequencer ready: implementation=cpp odom_cache=true update_rate=%.1fHz "
       "goal_topic=%s odom=%s normal/corner/goal=%.3f/%.3f/%.3fm "
-      "profile_nodes=[%s,%s]",
+      "profile_nodes=[%s,%s,%s]",
       update_rate_, goal_topic_.c_str(), odom_topic_.c_str(),
       normal_arrival_tolerance_, corner_arrival_tolerance_, goal_arrival_tolerance_,
-      planner_node_name_.c_str(), extension_node_name_.c_str());
+      planner_node_name_.c_str(), mapper_node_name_.c_str(), extension_node_name_.c_str());
   }
 
 private:
   using RouteSignature = std::tuple<int32_t, uint32_t, std::size_t, std::size_t>;
+
+  enum class ProfileNode
+  {
+    Planner,
+    Mapper,
+    Extension
+  };
 
   struct ProfileTransition
   {
@@ -196,8 +210,10 @@ private:
     std::size_t target_index{0U};
     PlanningProfile profile;
     bool planner_request_sent{false};
+    bool mapper_request_sent{false};
     bool extension_request_sent{false};
     bool planner_confirmed{false};
+    bool mapper_confirmed{false};
     bool extension_confirmed{false};
   };
 
@@ -421,25 +437,40 @@ private:
   }
 
   void handleProfileResponse(
-    std::uint64_t revision, bool planner, bool success, const std::string & reason)
+    std::uint64_t revision, ProfileNode node, bool success, const std::string & reason)
   {
     if (!profile_transition_ || profile_transition_->revision != revision) {
       return;
     }
-    bool & sent = planner ? profile_transition_->planner_request_sent :
-      profile_transition_->extension_request_sent;
-    bool & confirmed = planner ? profile_transition_->planner_confirmed :
-      profile_transition_->extension_confirmed;
+    bool * sent = nullptr;
+    bool * confirmed = nullptr;
+    const char * node_name = "unknown";
+    switch (node) {
+      case ProfileNode::Planner:
+        sent = &profile_transition_->planner_request_sent;
+        confirmed = &profile_transition_->planner_confirmed;
+        node_name = "planner";
+        break;
+      case ProfileNode::Mapper:
+        sent = &profile_transition_->mapper_request_sent;
+        confirmed = &profile_transition_->mapper_confirmed;
+        node_name = "mapper";
+        break;
+      case ProfileNode::Extension:
+        sent = &profile_transition_->extension_request_sent;
+        confirmed = &profile_transition_->extension_confirmed;
+        node_name = "extension";
+        break;
+    }
     if (!success) {
-      sent = false;
+      *sent = false;
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 2000,
         "planning profile revision=%lu rejected by %s: %s; retrying",
-        static_cast<unsigned long>(revision), planner ? "planner" : "extension",
-        reason.c_str());
+        static_cast<unsigned long>(revision), node_name, reason.c_str());
       return;
     }
-    confirmed = true;
+    *confirmed = true;
     finishProfileTransitionIfReady();
   }
 
@@ -461,10 +492,29 @@ private:
             const auto results = future.get();
             const bool success = results.size() == 1U && results.front().successful;
             handleProfileResponse(
-              revision, true, success,
+              revision, ProfileNode::Planner, success,
               results.empty() ? "empty parameter response" : results.front().reason);
           } catch (const std::exception & error) {
-            handleProfileResponse(revision, true, false, error.what());
+            handleProfileResponse(revision, ProfileNode::Planner, false, error.what());
+          }
+        });
+    }
+    if (!profile_transition_->mapper_request_sent &&
+      mapper_parameter_client_->service_is_ready())
+    {
+      profile_transition_->mapper_request_sent = true;
+      const double soft_radius = profile_transition_->profile.soft_radius;
+      mapper_parameter_client_->set_parameters(
+        {rclcpp::Parameter("map.soft_inflation_radius", soft_radius)},
+        [this, revision](auto future) {
+          try {
+            const auto results = future.get();
+            const bool success = results.size() == 1U && results.front().successful;
+            handleProfileResponse(
+              revision, ProfileNode::Mapper, success,
+              results.empty() ? "empty parameter response" : results.front().reason);
+          } catch (const std::exception & error) {
+            handleProfileResponse(revision, ProfileNode::Mapper, false, error.what());
           }
         });
     }
@@ -473,17 +523,23 @@ private:
     {
       profile_transition_->extension_request_sent = true;
       const bool enabled = profile_transition_->profile.extension_enabled;
+      const double soft_radius = profile_transition_->profile.soft_radius;
       extension_parameter_client_->set_parameters(
-        {rclcpp::Parameter("extension.enabled", enabled)},
+        {rclcpp::Parameter("extension.enabled", enabled),
+          rclcpp::Parameter("inflation.soft_radius", soft_radius)},
         [this, revision](auto future) {
           try {
             const auto results = future.get();
-            const bool success = results.size() == 1U && results.front().successful;
+            const bool success = results.size() == 2U && std::all_of(
+              results.begin(), results.end(), [](const auto & item) {return item.successful;});
+            const auto rejected = std::find_if(
+              results.begin(), results.end(), [](const auto & item) {return !item.successful;});
             handleProfileResponse(
-              revision, false, success,
-              results.empty() ? "empty parameter response" : results.front().reason);
+              revision, ProfileNode::Extension, success,
+              results.empty() ? "empty parameter response" :
+              (rejected == results.end() ? std::string{} : rejected->reason));
           } catch (const std::exception & error) {
-            handleProfileResponse(revision, false, false, error.what());
+            handleProfileResponse(revision, ProfileNode::Extension, false, error.what());
           }
         });
     }
@@ -492,7 +548,8 @@ private:
   void finishProfileTransitionIfReady()
   {
     if (!profile_transition_ || !profile_transition_->planner_confirmed ||
-      !profile_transition_->extension_confirmed || !latest_body_position_)
+      !profile_transition_->mapper_confirmed || !profile_transition_->extension_confirmed ||
+      !latest_body_position_)
     {
       return;
     }
@@ -506,9 +563,11 @@ private:
     RCLCPP_INFO(
       get_logger(),
       "planning profile applied: revision=%lu target=%zu profile=%s "
-      "planner.path_height=%.2f extension.enabled=%s; rechecking planner window",
+      "planner.path_height=%.2f extension.enabled=%s soft_radius=%.2f; "
+      "rechecking planner window",
       static_cast<unsigned long>(revision), target_index + 1U, applied.name.c_str(),
-      applied.path_height, applied.extension_enabled ? "true" : "false");
+      applied.path_height, applied.extension_enabled ? "true" : "false",
+      applied.soft_radius);
     // Re-resolve against the latest robot projection. If the robot crossed a
     // profile boundary while services were responding, start the newer profile
     // transaction instead of publishing one segment with stale settings.
@@ -527,19 +586,21 @@ private:
       return;
     }
     // Empty segment is the explicit stop/cancel command. No new segment is
-    // exposed until both remote parameter services confirm this same revision.
+    // exposed until all remote parameter services confirm this same revision.
     publishEmptySegment();
     profile_transition_ = ProfileTransition{
-      ++profile_revision_, target_index, desired, false, false, false, false};
+      ++profile_revision_, target_index, desired,
+      false, false, false, false, false, false};
     status_state_ = "applying_profile";
     last_event_ = "profile_change_requested";
     RCLCPP_INFO(
       get_logger(),
       "planning profile requested: revision=%lu target=%zu window_has_slope=%s profile=%s "
-      "planner.path_height=%.2f extension.enabled=%s",
+      "planner.path_height=%.2f extension.enabled=%s soft_radius=%.2f",
       static_cast<unsigned long>(profile_revision_), target_index + 1U,
       desired.name == "slope" ? "true" : "false", desired.name.c_str(),
-      desired.path_height, desired.extension_enabled ? "true" : "false");
+      desired.path_height, desired.extension_enabled ? "true" : "false",
+      desired.soft_radius);
     dispatchProfileRequests();
   }
 
@@ -779,6 +840,9 @@ private:
       keyValue("required_target_role", required_role),
       keyValue("required_target_is_slope", required_is_slope),
       keyValue("planning_profile", applied_profile_ ? applied_profile_->name : "none"),
+      keyValue(
+        "profile_soft_radius",
+        applied_profile_ ? formatDouble(applied_profile_->soft_radius) : "none"),
       keyValue("profile_transition_pending", profile_transition_ ? "true" : "false"),
       keyValue("selected_goal_id", selected_goal_id_ ? std::to_string(*selected_goal_id_) : "none"),
       keyValue("nearest_target_id", nearest_target_id_ ? std::to_string(*nearest_target_id_) : "none"),
@@ -860,9 +924,11 @@ private:
   double max_start_distance_{3.0};
   double update_rate_{50.0};
   std::string planner_node_name_;
+  std::string mapper_node_name_;
   std::string extension_node_name_;
   std::unique_ptr<PlanningProfileResolver> profile_resolver_;
   std::shared_ptr<rclcpp::AsyncParametersClient> planner_parameter_client_;
+  std::shared_ptr<rclcpp::AsyncParametersClient> mapper_parameter_client_;
   std::shared_ptr<rclcpp::AsyncParametersClient> extension_parameter_client_;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

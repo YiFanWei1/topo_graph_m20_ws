@@ -10,15 +10,17 @@ namespace route = recorded_waypoint_route;
 TEST(RoutePlanningProfile, ResolvesSlopeAndNormalParametersInOnePlace)
 {
   const route::PlanningProfileResolver resolver(
-    {"normal", 0.0, true}, {"slope", 0.4, false});
+    {"normal", 0.0, true, 0.6}, {"slope", 0.4, false, 0.2});
   const auto normal = resolver.resolve({route::TargetType::Normal, false});
   const auto slope = resolver.resolve({route::TargetType::Corner, true});
   EXPECT_EQ(normal.name, "normal");
   EXPECT_DOUBLE_EQ(normal.path_height, 0.0);
   EXPECT_TRUE(normal.extension_enabled);
+  EXPECT_DOUBLE_EQ(normal.soft_radius, 0.6);
   EXPECT_EQ(slope.name, "slope");
   EXPECT_DOUBLE_EQ(slope.path_height, 0.4);
   EXPECT_FALSE(slope.extension_enabled);
+  EXPECT_DOUBLE_EQ(slope.soft_radius, 0.2);
 }
 
 TEST(RouteSequencerCore, NearestTargetUsesThreeDimensionalDistance)

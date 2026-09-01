@@ -76,6 +76,19 @@ public:
   const Eigen::Vector3i & dimensions() const noexcept {return dimensions_;}
   std::size_t storedCellCount() const noexcept {return cells_.size();}
 
+  bool setSoftInflationRadius(const double radius)
+  {
+    if (!std::isfinite(radius) || radius < 0.0) {
+      throw std::invalid_argument("soft inflation radius must be finite and non-negative");
+    }
+    if (std::abs(radius - config_.soft_inflation_radius) <= 1e-9) {
+      return false;
+    }
+    config_.soft_inflation_radius = radius;
+    buildInflationOffsets();
+    return true;
+  }
+
   std::size_t clearBodyExclusion(
     const Eigen::Vector3d & body_center, const Eigen::Quaterniond & body_orientation,
     const Eigen::Vector3d & half_extents)
@@ -387,6 +400,8 @@ private:
 
   void buildInflationOffsets()
   {
+    hard_z_offsets_.clear();
+    inflation_offsets_.clear();
     const int maximum_xy = static_cast<int>(std::ceil(
         config_.soft_inflation_radius / config_.resolution));
     const int down = static_cast<int>(std::ceil(

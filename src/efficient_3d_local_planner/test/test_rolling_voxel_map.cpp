@@ -146,6 +146,33 @@ TEST(RollingVoxelMap, SoftCostIsGradedOnlyByHorizontalDistanceFromHard)
     soft.count(linear(raw_local.x() + 2, raw_local.y(), raw_local.z() + 1)), 0U);
 }
 
+TEST(RollingVoxelMap, RuntimeSoftRadiusRebuildsOnlySoftLayer)
+{
+  RollingVoxelMap::Config config;
+  config.resolution = 0.10;
+  config.size = Eigen::Vector3d(4.0, 4.0, 2.0);
+  config.soft_inflation_radius = 0.60;
+  config.hard_inflation_z_down = 0.00;
+  config.hard_inflation_z_up = 0.00;
+  config.hit_confirmation_count = 1;
+  config.raycast_enabled = false;
+  config.decay_enabled = false;
+  RollingVoxelMap map(config);
+  map.update(
+    Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+    {Eigen::Vector3d(0.5, 0.0, 0.0)}, 1.0);
+  const auto normal = map.buildLayers();
+
+  EXPECT_TRUE(map.setSoftInflationRadius(0.20));
+  const auto slope = map.buildLayers();
+  EXPECT_EQ(slope.raw_occupied_indices, normal.raw_occupied_indices);
+  EXPECT_EQ(slope.hard, normal.hard);
+  EXPECT_LT(slope.soft_indices.size(), normal.soft_indices.size());
+  EXPECT_DOUBLE_EQ(map.config().soft_inflation_radius, 0.20);
+  EXPECT_FALSE(map.setSoftInflationRadius(0.20));
+  EXPECT_THROW(map.setSoftInflationRadius(-0.01), std::invalid_argument);
+}
+
 TEST(SensorRangeBox, AcceptsOnlyPointsBetweenInnerAndOuterBoxes)
 {
   SensorRangeBox filter;

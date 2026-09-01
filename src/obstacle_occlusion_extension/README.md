@@ -22,6 +22,8 @@
 主要参数：
 
 - `extension.enabled`：控制是否计算扩展并合入规划 hard 层；
+- `inflation.soft_radius`：新增 hard 外的 soft 半径，可与基础地图的
+  `map.soft_inflation_radius` 由路线 profile 同步在线切换；
 - `extension.distance`：障碍后方延伸距离；
 - `extension.minimum_obstacle_range`：忽略过近体素；
 - `extension.maximum_obstacle_range`：参与计算的最远水平距离，`0` 表示不限。
