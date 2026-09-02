@@ -325,7 +325,7 @@ ros2 run route3d_product_demo route3d_product_demo \
 
 
 
-
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 自动记点
 cd /home/wei/github_code/topo_graph_ws
