@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Replay timestamped poses into the shared retrace-aware Route3D topology builder."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+import sys
+
+from route3d_topology_core import (
+    IncrementalCornerDetector,
+    IncrementalTopologyBuilder,
+    LoopClosureConfig,
+    PcdLoopClosureValidator,
+    PcdValidationConfig,
+    RetraceConfig,
+    TopologyConfig,
+    annotate_graph_slopes,
+    load_pose_rows,
+)
+from route_slope_annotator.slope_analysis import SlopeConfig
+
+
+def finite_non_negative(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result) or result < 0.0:
+        raise argparse.ArgumentTypeError("value must be finite and non-negative")
+    return result
+
+
+def positive(value: str) -> float:
+    result = finite_non_negative(value)
+    if result <= 0.0:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return result
+
+
+def boolean(value: str) -> bool:
+    lowered = value.lower()
+    if lowered in ("true", "1", "yes", "on"):
+        return True
+    if lowered in ("false", "0", "no", "off"):
+        return False
+    raise argparse.ArgumentTypeError("expected true or false")
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--poses", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--frame-id", default="")
+    parser.add_argument("--target-spacing", type=positive, default=1.0)
+    parser.add_argument("--dedup-distance", type=positive, default=0.05)
+    parser.add_argument("--body-height", type=finite_non_negative, default=0.40)
+    parser.add_argument("--relocation-distance", type=positive, default=0.50)
+    parser.add_argument("--topo-type", type=int, default=0)
+    parser.add_argument("--topo-pcd", default="")
+    parser.add_argument("--topo-acc", type=finite_non_negative, default=0.50)
+    parser.add_argument("--retrace-enabled", type=boolean, default=True)
+    parser.add_argument("--corridor-xy-tolerance", type=positive, default=0.30)
+    parser.add_argument("--corridor-exit-xy-tolerance", type=positive, default=0.45)
+    parser.add_argument("--retrace-z-tolerance", type=finite_non_negative, default=0.20)
+    parser.add_argument("--heading-tolerance-degrees", type=positive, default=35.0)
+    parser.add_argument("--entry-confirmation-distance", type=finite_non_negative, default=0.30)
+    parser.add_argument("--exit-confirmation-distance", type=finite_non_negative, default=0.30)
+    parser.add_argument("--vertex-snap-distance", type=finite_non_negative, default=0.30)
+    parser.add_argument("--motion-min-distance", type=finite_non_negative, default=0.10)
+    parser.add_argument("--loop-closure-enabled", type=boolean, default=True)
+    parser.add_argument("--loop-corridor-xy-tolerance", type=positive, default=0.40)
+    parser.add_argument("--loop-corridor-exit-xy-tolerance", type=positive, default=0.55)
+    parser.add_argument("--loop-z-tolerance", type=finite_non_negative, default=0.20)
+    parser.add_argument("--loop-heading-tolerance-degrees", type=positive, default=45.0)
+    parser.add_argument("--loop-confirmation-distance", type=finite_non_negative, default=0.80)
+    parser.add_argument("--loop-exit-confirmation-distance", type=finite_non_negative, default=0.80)
+    parser.add_argument("--loop-minimum-graph-separation", type=finite_non_negative, default=3.00)
+    parser.add_argument("--loop-minimum-time-separation", type=finite_non_negative, default=5.00)
+    parser.add_argument("--loop-vertex-snap-distance", type=finite_non_negative, default=0.45)
+    parser.add_argument("--loop-rejection-cooldown-distance", type=finite_non_negative, default=1.00)
+    parser.add_argument("--key-frames-directory", type=Path)
+    parser.add_argument("--pcd-validation-enabled", type=boolean, default=True)
+    parser.add_argument("--pcd-validation-required", type=boolean, default=False)
+    parser.add_argument("--pcd-voxel-size", type=positive, default=0.30)
+    parser.add_argument("--pcd-minimum-overlap", type=finite_non_negative, default=0.45)
+    parser.add_argument("--pcd-search-radius", type=positive, default=0.60)
+    parser.add_argument("--pcd-z-search-radius", type=finite_non_negative, default=0.30)
+    parser.add_argument("--pcd-minimum-range", type=finite_non_negative, default=0.50)
+    parser.add_argument("--pcd-maximum-range", type=positive, default=12.0)
+    parser.add_argument("--pcd-minimum-voxels", type=int, default=100)
+    parser.add_argument("--corner-xy-radius", type=positive, default=0.50)
+    parser.add_argument("--corner-yaw-degrees", type=positive, default=45.0)
+    parser.add_argument("--corner-min-duration", type=finite_non_negative, default=0.50)
+    parser.add_argument("--corner-max-z-range", type=finite_non_negative, default=0.10)
+    parser.add_argument("--corner-merge-distance", type=finite_non_negative, default=0.35)
+    parser.add_argument("--slope-enabled", type=boolean, default=True)
+    parser.add_argument("--slope-fit-radius", type=positive, default=2.0)
+    parser.add_argument("--slope-grade-threshold", type=finite_non_negative, default=0.12)
+    parser.add_argument("--slope-minimum-core-length", type=finite_non_negative, default=2.0)
+    parser.add_argument("--slope-minimum-height-change", type=finite_non_negative, default=0.20)
+    parser.add_argument("--slope-maximum-core-gap", type=finite_non_negative, default=1.0)
+    parser.add_argument("--slope-buffer-distance", type=finite_non_negative, default=1.0)
+    return parser.parse_args(argv)
+
+
+def frame_from_args(args) -> str:
+    if args.frame_id.strip():
+        return args.frame_id.strip()
+    if args.manifest and args.manifest.is_file():
+        manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+        value = str(manifest.get("odom_frame", "")).strip()
+        if value:
+            return value
+    return "camera_init"
+
+
+def atomic_json(path: Path, payload: dict) -> None:
+    path = path.expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    try:
+        config = TopologyConfig(
+            target_spacing=args.target_spacing,
+            dedup_distance=args.dedup_distance,
+            body_height=args.body_height,
+            relocation_distance=args.relocation_distance,
+            topo_type=args.topo_type,
+            topo_pcd=args.topo_pcd,
+            topo_acc=args.topo_acc,
+            retrace=RetraceConfig(
+                enabled=args.retrace_enabled,
+                corridor_xy_tolerance=args.corridor_xy_tolerance,
+                corridor_exit_xy_tolerance=args.corridor_exit_xy_tolerance,
+                z_tolerance=args.retrace_z_tolerance,
+                heading_tolerance_degrees=args.heading_tolerance_degrees,
+                entry_confirmation_distance=args.entry_confirmation_distance,
+                exit_confirmation_distance=args.exit_confirmation_distance,
+                vertex_snap_distance=args.vertex_snap_distance,
+                motion_min_distance=args.motion_min_distance,
+            ),
+            loop_closure=LoopClosureConfig(
+                enabled=args.loop_closure_enabled,
+                corridor_xy_tolerance=args.loop_corridor_xy_tolerance,
+                corridor_exit_xy_tolerance=args.loop_corridor_exit_xy_tolerance,
+                z_tolerance=args.loop_z_tolerance,
+                heading_tolerance_degrees=args.loop_heading_tolerance_degrees,
+                confirmation_distance=args.loop_confirmation_distance,
+                exit_confirmation_distance=args.loop_exit_confirmation_distance,
+                minimum_graph_separation=args.loop_minimum_graph_separation,
+                minimum_time_separation=args.loop_minimum_time_separation,
+                vertex_snap_distance=args.loop_vertex_snap_distance,
+                rejection_cooldown_distance=args.loop_rejection_cooldown_distance,
+            ),
+        )
+        key_frames = (
+            args.key_frames_directory.expanduser().resolve()
+            if args.key_frames_directory is not None
+            else args.poses.expanduser().resolve().parent / "key_frames")
+        validator = PcdLoopClosureValidator(key_frames, PcdValidationConfig(
+            enabled=args.pcd_validation_enabled,
+            required=args.pcd_validation_required,
+            voxel_size=args.pcd_voxel_size,
+            minimum_overlap=args.pcd_minimum_overlap,
+            search_radius=args.pcd_search_radius,
+            z_search_radius=args.pcd_z_search_radius,
+            minimum_range=args.pcd_minimum_range,
+            maximum_range=args.pcd_maximum_range,
+            minimum_voxels=args.pcd_minimum_voxels,
+        ))
+        builder = IncrementalTopologyBuilder(
+            config, loop_closure_validator=validator)
+        corner_detector = IncrementalCornerDetector(
+            args.corner_xy_radius, args.corner_yaw_degrees,
+            args.corner_min_duration, args.corner_max_z_range)
+        samples = load_pose_rows(args.poses.expanduser().resolve())
+        for sample in samples:
+            builder.add_pose(sample)
+            candidate = corner_detector.add_pose(sample)
+            if candidate is not None:
+                builder.mark_corner(*candidate, merge_distance=args.corner_merge_distance)
+        candidate = corner_detector.finalize()
+        if candidate is not None:
+            builder.mark_corner(*candidate, merge_distance=args.corner_merge_distance)
+        builder.finalize()
+        slope_annotation = None
+        if args.slope_enabled:
+            slope_annotation = annotate_graph_slopes(builder, SlopeConfig(
+                fit_radius=args.slope_fit_radius,
+                grade_threshold=args.slope_grade_threshold,
+                minimum_core_length=args.slope_minimum_core_length,
+                minimum_height_change=args.slope_minimum_height_change,
+                maximum_core_gap=args.slope_maximum_core_gap,
+                buffer_distance=args.slope_buffer_distance,
+            ))
+        payload = builder.topology_dict(frame_from_args(args))
+        if slope_annotation is not None:
+            payload["slopeAnnotation"] = slope_annotation
+        atomic_json(args.output, payload)
+        generation = payload["generation"]
+        print(
+            f"built retrace-aware topology: poses={len(samples)} "
+            f"vertices={len(builder.vertices)} edges={len(builder.edges)} "
+            f"retraces={generation['retrace_count']} "
+            f"reentries={generation['route_reentry_count']} "
+            f"loops={generation['loop_closure_count']} "
+            f"suppressed={generation['suppressed_distance_m']:.3f}m "
+            f"splits={generation['edge_split_count']} output={args.output}",
+            flush=True)
+        return 0
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+        print(f"build_topology_graph: {error}", file=sys.stderr, flush=True)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

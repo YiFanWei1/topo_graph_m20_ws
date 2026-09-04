@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -92,9 +93,32 @@ class LiveRouteSession:
             except (ProcessLookupError, subprocess.TimeoutExpired):
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=5.0)
                 except ProcessLookupError:
                     pass
+                except subprocess.TimeoutExpired:
+                    print(f"[{label}] 强制终止后仍未能回收进程。", flush=True)
         print(f"[{label}] 已停止", flush=True)
+
+    def stop_children(self) -> None:
+        """Stop and reap every process owned by the keyboard workflow."""
+        self.terminate_process(self.recorder, "记录器", timeout=30.0)
+        self.recorder = None
+        self.terminate_process(self.skeleton, "在线骨架")
+        self.skeleton = None
+        self.terminate_process(self.rviz, "RViz")
+        self.rviz = None
+        self.recording = False
+
+    def exit_without_save(self) -> None:
+        """Stop a live session without running the final processing pipeline."""
+        print("[3] 正在停止记录器、在线骨架和 RViz……", flush=True)
+        self.stop_children()
+        if self.session_path is not None:
+            print(
+                f"[3] 已正常退出；未保存的临时数据保留在：{self.session_path}",
+                flush=True,
+            )
 
     def start_rviz(self) -> None:
         if self.args.no_rviz or (self.rviz is not None and self.rviz.poll() is None):
@@ -135,6 +159,7 @@ class LiveRouteSession:
         (session / "live").mkdir(parents=True, exist_ok=True)
         self.session_path = session
         live_topo = session / "live" / "topoSingle_live.json"
+        live_graph = session / "live" / "topoGraph_live.json"
         events = session / "events.jsonl"
 
         skeleton_command = [
@@ -142,7 +167,9 @@ class LiveRouteSession:
             "--ros-args",
             "-p", f"input_pose_topic:={self.args.synchronized_pose_topic}",
             "-p", f"output_topo:={live_topo}",
+            "-p", f"output_graph:={live_graph}",
             "-p", f"events_file:={events}",
+            "-p", f"key_frames_directory:={session / 'key_frames'}",
             "-p", f"target_spacing:={self.args.target_spacing}",
             "-p", f"dedup_distance:={self.args.dedup_distance}",
             "-p", f"body_height:={self.args.body_height}",
@@ -155,6 +182,57 @@ class LiveRouteSession:
             "-p", f"corner_min_separation:={self.args.corner_min_separation}",
             "-p", f"topo_type:={self.args.topo_type}",
             "-p", f"topo_acc:={self.args.topo_acc}",
+            "-p", f"retrace.enabled:={str(self.args.retrace_enabled).lower()}",
+            "-p", "retrace.corridor_xy_tolerance:="
+            f"{self.args.retrace_corridor_xy_tolerance}",
+            "-p", "retrace.corridor_exit_xy_tolerance:="
+            f"{self.args.retrace_corridor_exit_xy_tolerance}",
+            "-p", f"retrace.z_tolerance:={self.args.retrace_z_tolerance}",
+            "-p", "retrace.heading_tolerance_degrees:="
+            f"{self.args.retrace_heading_tolerance_degrees}",
+            "-p", "retrace.entry_confirmation_distance:="
+            f"{self.args.retrace_entry_confirmation_distance}",
+            "-p", "retrace.exit_confirmation_distance:="
+            f"{self.args.retrace_exit_confirmation_distance}",
+            "-p", f"retrace.vertex_snap_distance:={self.args.retrace_vertex_snap_distance}",
+            "-p", f"retrace.motion_min_distance:={self.args.retrace_motion_min_distance}",
+            "-p", f"loop_closure.enabled:={str(self.args.loop_closure_enabled).lower()}",
+            "-p", "loop_closure.corridor_xy_tolerance:="
+            f"{self.args.loop_corridor_xy_tolerance}",
+            "-p", "loop_closure.corridor_exit_xy_tolerance:="
+            f"{self.args.loop_corridor_exit_xy_tolerance}",
+            "-p", f"loop_closure.z_tolerance:={self.args.loop_z_tolerance}",
+            "-p", "loop_closure.heading_tolerance_degrees:="
+            f"{self.args.loop_heading_tolerance_degrees}",
+            "-p", "loop_closure.confirmation_distance:="
+            f"{self.args.loop_confirmation_distance}",
+            "-p", "loop_closure.exit_confirmation_distance:="
+            f"{self.args.loop_exit_confirmation_distance}",
+            "-p", "loop_closure.minimum_graph_separation:="
+            f"{self.args.loop_minimum_graph_separation}",
+            "-p", "loop_closure.minimum_time_separation:="
+            f"{self.args.loop_minimum_time_separation}",
+            "-p", "loop_closure.vertex_snap_distance:="
+            f"{self.args.loop_vertex_snap_distance}",
+            "-p", "loop_closure.rejection_cooldown_distance:="
+            f"{self.args.loop_rejection_cooldown_distance}",
+            "-p", "loop_closure.pcd_validation.enabled:="
+            f"{str(self.args.pcd_validation_enabled).lower()}",
+            "-p", "loop_closure.pcd_validation.required:="
+            f"{str(self.args.pcd_validation_required).lower()}",
+            "-p", f"loop_closure.pcd_validation.voxel_size:={self.args.pcd_voxel_size}",
+            "-p", "loop_closure.pcd_validation.minimum_overlap:="
+            f"{self.args.pcd_minimum_overlap}",
+            "-p", "loop_closure.pcd_validation.search_radius:="
+            f"{self.args.pcd_search_radius}",
+            "-p", "loop_closure.pcd_validation.z_search_radius:="
+            f"{self.args.pcd_z_search_radius}",
+            "-p", "loop_closure.pcd_validation.minimum_range:="
+            f"{self.args.pcd_minimum_range}",
+            "-p", "loop_closure.pcd_validation.maximum_range:="
+            f"{self.args.pcd_maximum_range}",
+            "-p", "loop_closure.pcd_validation.minimum_voxels:="
+            f"{self.args.pcd_minimum_voxels}",
             "-p", f"slope.enabled:={str(self.args.slope_enabled).lower()}",
             "-p", f"slope.fit_radius:={self.args.slope_fit_radius}",
             "-p", f"slope.grade_threshold:={self.args.slope_grade_threshold}",
@@ -209,8 +287,9 @@ class LiveRouteSession:
             return
         self.recording = True
         print(
-            "[1] 已开始：灰色为实时轨迹，蓝色为普通点，黄色为实时坡点，"
-            "红色为确认拐点，橙色为候选拐点。",
+            "[1] 已开始：灰色为完整实时轨迹，绿色为去重拓扑边，青色为当前退回边，"
+            "橙色粗边为闭环边，蓝色为普通点，黄色为坡点，红色为确认拐点，"
+            "橙色球为候选拐点。",
             flush=True,
         )
 
@@ -261,6 +340,7 @@ class LiveRouteSession:
         geojson = session / "route3d_graph.geojson"
         targets = session / "route_targets_with_corners.txt"
         topo = session / "topoSingle_data.json"
+        topo_graph = session / "topoGraph_data.json"
         reduced = session / "selected_route3d_graph.json"
 
         self.run_command([
@@ -290,9 +370,70 @@ class LiveRouteSession:
             "--topo-acc", str(self.args.topo_acc),
         ], "最终拐点与TopoSingle")
         self.run_command([
+            "ros2", "run", "route3d_topology_core", "build_topology_graph",
+            "--poses", str(session / "pose.json"),
+            "--manifest", str(session / "manifest.json"),
+            "--output", str(topo_graph),
+            "--target-spacing", str(self.args.target_spacing),
+            "--dedup-distance", str(self.args.dedup_distance),
+            "--body-height", str(self.args.body_height),
+            "--relocation-distance", str(self.args.relocation_distance),
+            "--topo-type", str(self.args.topo_type),
+            "--topo-pcd", self.args.topo_pcd,
+            "--topo-acc", str(self.args.topo_acc),
+            "--retrace-enabled", str(self.args.retrace_enabled).lower(),
+            "--corridor-xy-tolerance", str(self.args.retrace_corridor_xy_tolerance),
+            "--corridor-exit-xy-tolerance", str(self.args.retrace_corridor_exit_xy_tolerance),
+            "--retrace-z-tolerance", str(self.args.retrace_z_tolerance),
+            "--heading-tolerance-degrees", str(self.args.retrace_heading_tolerance_degrees),
+            "--entry-confirmation-distance", str(self.args.retrace_entry_confirmation_distance),
+            "--exit-confirmation-distance", str(self.args.retrace_exit_confirmation_distance),
+            "--vertex-snap-distance", str(self.args.retrace_vertex_snap_distance),
+            "--motion-min-distance", str(self.args.retrace_motion_min_distance),
+            "--loop-closure-enabled", str(self.args.loop_closure_enabled).lower(),
+            "--loop-corridor-xy-tolerance", str(self.args.loop_corridor_xy_tolerance),
+            "--loop-corridor-exit-xy-tolerance",
+            str(self.args.loop_corridor_exit_xy_tolerance),
+            "--loop-z-tolerance", str(self.args.loop_z_tolerance),
+            "--loop-heading-tolerance-degrees",
+            str(self.args.loop_heading_tolerance_degrees),
+            "--loop-confirmation-distance", str(self.args.loop_confirmation_distance),
+            "--loop-exit-confirmation-distance",
+            str(self.args.loop_exit_confirmation_distance),
+            "--loop-minimum-graph-separation",
+            str(self.args.loop_minimum_graph_separation),
+            "--loop-minimum-time-separation",
+            str(self.args.loop_minimum_time_separation),
+            "--loop-vertex-snap-distance", str(self.args.loop_vertex_snap_distance),
+            "--loop-rejection-cooldown-distance",
+            str(self.args.loop_rejection_cooldown_distance),
+            "--key-frames-directory", str(session / "key_frames"),
+            "--pcd-validation-enabled", str(self.args.pcd_validation_enabled).lower(),
+            "--pcd-validation-required", str(self.args.pcd_validation_required).lower(),
+            "--pcd-voxel-size", str(self.args.pcd_voxel_size),
+            "--pcd-minimum-overlap", str(self.args.pcd_minimum_overlap),
+            "--pcd-search-radius", str(self.args.pcd_search_radius),
+            "--pcd-z-search-radius", str(self.args.pcd_z_search_radius),
+            "--pcd-minimum-range", str(self.args.pcd_minimum_range),
+            "--pcd-maximum-range", str(self.args.pcd_maximum_range),
+            "--pcd-minimum-voxels", str(self.args.pcd_minimum_voxels),
+            "--corner-xy-radius", str(self.args.corner_xy_radius),
+            "--corner-yaw-degrees", str(self.args.corner_yaw_degrees),
+            "--corner-min-duration", str(self.args.corner_min_duration),
+            "--corner-max-z-range", str(self.args.corner_max_z_range),
+            "--corner-merge-distance", str(self.args.corner_merge_distance),
+            "--slope-enabled", str(self.args.slope_enabled).lower(),
+            "--slope-fit-radius", str(self.args.slope_fit_radius),
+            "--slope-grade-threshold", str(self.args.slope_grade_threshold),
+            "--slope-minimum-core-length", str(self.args.slope_minimum_core_length),
+            "--slope-minimum-height-change", str(self.args.slope_minimum_height_change),
+            "--slope-maximum-core-gap", str(self.args.slope_maximum_core_gap),
+            "--slope-buffer-distance", str(self.args.slope_buffer_distance),
+        ], "智能拓扑复核")
+        self.run_command([
             "ros2", "run", "topo_graph_tools", "nav2_to_topo_single",
             "--graph", str(graph),
-            "--targets", str(targets),
+            "--topology", str(topo_graph),
             "--output-nav2", str(reduced),
             "--body-height", str(self.args.body_height),
         ], "最终可视化子图")
@@ -354,10 +495,67 @@ class LiveRouteSession:
         return int(data.get("version", 0)), len(vertices), len(edges), corners, slopes
 
     @staticmethod
+    def graph_summary(path: Path) -> dict:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        vertices = data.get("vertices", {})
+        edges = data.get("edges", {})
+        generation = data.get("generation", {})
+        structure = {
+            "vertices": {
+                vertex_id: {
+                    "pos": vertex.get("pos"),
+                    "rpy": vertex.get("rpy"),
+                    "meta": {
+                        key: vertex.get("meta", {}).get(key)
+                        for key in (
+                            "isCorner", "isSlope", "isJunction",
+                            "sourceStamp", "component", "turnDeg")
+                    },
+                }
+                for vertex_id, vertex in vertices.items()
+            },
+            "edges": {
+                edge_id: {
+                    "v": edge.get("v"),
+                    "source": edge.get("meta", {}).get("source"),
+                }
+                for edge_id, edge in edges.items()
+            },
+        }
+        structure_sha256 = hashlib.sha256(json.dumps(
+            structure, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False).encode("utf-8")).hexdigest()
+        return {
+            "version": int(data.get("version", 0)),
+            "vertices": len(vertices),
+            "edges": len(edges),
+            "corners": sum(bool(item.get("meta", {}).get("isCorner", False))
+                           for item in vertices.values()),
+            "slopes": sum(bool(item.get("meta", {}).get("isSlope", False))
+                          for item in vertices.values()),
+            "junctions": sum(bool(item.get("meta", {}).get("isJunction", False))
+                             for item in vertices.values()),
+            "components": int(generation.get("component_count", 0)),
+            "retrace_count": int(generation.get("retrace_count", 0)),
+            "route_reentry_count": int(generation.get("route_reentry_count", 0)),
+            "loop_closure_count": int(generation.get("loop_closure_count", 0)),
+            "loop_validation_available_count": int(
+                generation.get("loop_validation_available_count", 0)),
+            "loop_validation_rejection_count": int(
+                generation.get("loop_validation_rejection_count", 0)),
+            "suppressed_distance_m": float(generation.get("suppressed_distance_m", 0.0)),
+            "edge_split_count": int(generation.get("edge_split_count", 0)),
+            "structure_sha256": structure_sha256,
+        }
+
+    @staticmethod
     def write_processing_summary(
         session: Path,
         live_summary: tuple[int, int, int, int, int],
         final_summary: tuple[int, int, int, int, int],
+        live_graph: dict,
+        final_graph: dict,
     ) -> None:
         summary = {
             "status": "complete",
@@ -381,8 +579,21 @@ class LiveRouteSession:
                 "corners": live_summary[3] - final_summary[3],
                 "slopes": live_summary[4] - final_summary[4],
             },
-            "controller_json": "topoSingle_data.json",
+            "controller_json": "topoGraph_data.json",
+            "legacy_controller_json": "topoSingle_data.json",
             "live_json": "live/topoSingle_live.json",
+            "topology_graph_json": "topoGraph_data.json",
+            "live_topology_graph_json": "live/topoGraph_live.json",
+            "topology_graph": {
+                "live": live_graph,
+                "final": final_graph,
+                "consistent": {
+                    "vertices": live_graph["vertices"] == final_graph["vertices"],
+                    "edges": live_graph["edges"] == final_graph["edges"],
+                    "structure": live_graph["structure_sha256"] ==
+                    final_graph["structure_sha256"],
+                },
+            },
         }
         output = session / "processing_summary.json"
         temporary = output.with_name(output.name + ".tmp")
@@ -409,10 +620,12 @@ class LiveRouteSession:
             pose = session / "pose.json"
             frames = list((session / "key_frames").glob("*.pcd"))
             live_topo = session / "live" / "topoSingle_live.json"
-            if not pose.exists() or len(frames) < 2 or not live_topo.exists():
+            live_graph_path = session / "live" / "topoGraph_live.json"
+            if not pose.exists() or len(frames) < 2 or not live_topo.exists() or \
+                    not live_graph_path.exists():
                 raise RuntimeError(
                     f"会话数据不完整：pose={pose.exists()} pcd={len(frames)} "
-                    f"live_topo={live_topo.exists()}")
+                    f"live_topo={live_topo.exists()} live_graph={live_graph_path.exists()}")
 
             # Keep the unmodified real-time trajectory even if pose.json is replaced by an
             # optimized trajectory in a future product version.
@@ -423,7 +636,10 @@ class LiveRouteSession:
 
             live_summary = self.topology_summary(live_topo)
             final_summary = self.topology_summary(session / "topoSingle_data.json")
-            self.write_processing_summary(session, live_summary, final_summary)
+            live_graph = self.graph_summary(live_graph_path)
+            final_graph = self.graph_summary(session / "topoGraph_data.json")
+            self.write_processing_summary(
+                session, live_summary, final_summary, live_graph, final_graph)
             shutil.move(str(session), str(destination))
             self.session_path = None
             print(
@@ -432,7 +648,12 @@ class LiveRouteSession:
                 f"edges={live_summary[2]} corners={live_summary[3]}\n"
                 f"    最终JSON vertices={final_summary[1]} edges={final_summary[2]} "
                 f"corners={final_summary[3]} slopes={final_summary[4]}\n"
-                f"    控制器文件：{destination / 'topoSingle_data.json'}",
+                f"    智能拓扑 vertices={final_graph['vertices']} edges={final_graph['edges']} "
+                f"retraces={final_graph['retrace_count']} "
+                f"loops={final_graph['loop_closure_count']} "
+                f"suppressed={final_graph['suppressed_distance_m']:.2f}m\n"
+                f"    新控制链文件：{destination / 'topoGraph_data.json'}\n"
+                f"    旧线性兼容文件：{destination / 'topoSingle_data.json'}",
                 flush=True,
             )
         except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
@@ -442,9 +663,7 @@ class LiveRouteSession:
             )
 
     def cleanup(self) -> None:
-        self.terminate_process(self.recorder, "记录器")
-        self.terminate_process(self.skeleton, "在线骨架")
-        self.terminate_process(self.rviz, "RViz")
+        self.stop_children()
         if self.session_path is not None:
             print(f"未命名会话保留在：{self.session_path}", flush=True)
 
@@ -463,11 +682,19 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
     topics = root.get("topics", {})
     recorder = root.get("recorder", {})
     skeleton = root.get("skeleton", {})
+    retrace = root.get("retrace", {})
+    loop_closure = root.get("loop_closure", {})
+    pcd_validation = (
+        loop_closure.get("pcd_validation", {})
+        if isinstance(loop_closure, dict) else {})
     slope = root.get("slope", {})
     rviz = root.get("rviz", {})
     for name, value in (
         ("topics", topics), ("recorder", recorder),
-        ("skeleton", skeleton), ("slope", slope), ("rviz", rviz),
+        ("skeleton", skeleton), ("retrace", retrace),
+        ("loop_closure", loop_closure),
+        ("loop_closure.pcd_validation", pcd_validation),
+        ("slope", slope), ("rviz", rviz),
     ):
         if not isinstance(value, dict):
             raise ValueError(f"route3d_live.{name} 必须是字典")
@@ -496,6 +723,48 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
         "topo_type": skeleton.get("topo_type", 0),
         "topo_pcd": skeleton.get("topo_pcd", ""),
         "topo_acc": skeleton.get("topo_acc", 0.50),
+        "retrace_enabled": retrace.get("enabled", True),
+        "retrace_corridor_xy_tolerance": retrace.get("corridor_xy_tolerance", 0.30),
+        "retrace_corridor_exit_xy_tolerance": retrace.get(
+            "corridor_exit_xy_tolerance", 0.45),
+        "retrace_z_tolerance": retrace.get("z_tolerance", 0.20),
+        "retrace_heading_tolerance_degrees": retrace.get(
+            "heading_tolerance_degrees", 35.0),
+        "retrace_entry_confirmation_distance": retrace.get(
+            "entry_confirmation_distance", 0.30),
+        "retrace_exit_confirmation_distance": retrace.get(
+            "exit_confirmation_distance", 0.30),
+        "retrace_vertex_snap_distance": retrace.get("vertex_snap_distance", 0.30),
+        "retrace_motion_min_distance": retrace.get("motion_min_distance", 0.10),
+        "loop_closure_enabled": loop_closure.get("enabled", True),
+        "loop_corridor_xy_tolerance": loop_closure.get(
+            "corridor_xy_tolerance", 0.40),
+        "loop_corridor_exit_xy_tolerance": loop_closure.get(
+            "corridor_exit_xy_tolerance", 0.55),
+        "loop_z_tolerance": loop_closure.get("z_tolerance", 0.20),
+        "loop_heading_tolerance_degrees": loop_closure.get(
+            "heading_tolerance_degrees", 45.0),
+        "loop_confirmation_distance": loop_closure.get(
+            "confirmation_distance", 0.80),
+        "loop_exit_confirmation_distance": loop_closure.get(
+            "exit_confirmation_distance", 0.80),
+        "loop_minimum_graph_separation": loop_closure.get(
+            "minimum_graph_separation", 3.00),
+        "loop_minimum_time_separation": loop_closure.get(
+            "minimum_time_separation", 5.00),
+        "loop_vertex_snap_distance": loop_closure.get(
+            "vertex_snap_distance", 0.45),
+        "loop_rejection_cooldown_distance": loop_closure.get(
+            "rejection_cooldown_distance", 1.00),
+        "pcd_validation_enabled": pcd_validation.get("enabled", True),
+        "pcd_validation_required": pcd_validation.get("required", False),
+        "pcd_voxel_size": pcd_validation.get("voxel_size", 0.30),
+        "pcd_minimum_overlap": pcd_validation.get("minimum_overlap", 0.45),
+        "pcd_search_radius": pcd_validation.get("search_radius", 0.60),
+        "pcd_z_search_radius": pcd_validation.get("z_search_radius", 0.30),
+        "pcd_minimum_range": pcd_validation.get("minimum_range", 0.50),
+        "pcd_maximum_range": pcd_validation.get("maximum_range", 12.0),
+        "pcd_minimum_voxels": pcd_validation.get("minimum_voxels", 100),
         "slope_enabled": slope.get("enabled", True),
         "slope_fit_radius": slope.get("fit_radius", 2.0),
         "slope_grade_threshold": slope.get("grade_threshold", 0.12),
@@ -555,6 +824,68 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--topo-type", type=int, default=defaults.get("topo_type", 0))
     parser.add_argument("--topo-pcd", default=defaults.get("topo_pcd", ""))
     parser.add_argument("--topo-acc", type=float, default=defaults.get("topo_acc", 0.50))
+    parser.add_argument(
+        "--retrace-enabled", action=argparse.BooleanOptionalAction,
+        default=defaults.get("retrace_enabled", True))
+    parser.add_argument("--retrace-corridor-xy-tolerance", type=float, default=defaults.get(
+        "retrace_corridor_xy_tolerance", 0.30))
+    parser.add_argument("--retrace-corridor-exit-xy-tolerance", type=float, default=defaults.get(
+        "retrace_corridor_exit_xy_tolerance", 0.45))
+    parser.add_argument("--retrace-z-tolerance", type=float, default=defaults.get(
+        "retrace_z_tolerance", 0.20))
+    parser.add_argument("--retrace-heading-tolerance-degrees", type=float, default=defaults.get(
+        "retrace_heading_tolerance_degrees", 35.0))
+    parser.add_argument("--retrace-entry-confirmation-distance", type=float, default=defaults.get(
+        "retrace_entry_confirmation_distance", 0.30))
+    parser.add_argument("--retrace-exit-confirmation-distance", type=float, default=defaults.get(
+        "retrace_exit_confirmation_distance", 0.30))
+    parser.add_argument("--retrace-vertex-snap-distance", type=float, default=defaults.get(
+        "retrace_vertex_snap_distance", 0.30))
+    parser.add_argument("--retrace-motion-min-distance", type=float, default=defaults.get(
+        "retrace_motion_min_distance", 0.10))
+    parser.add_argument(
+        "--loop-closure-enabled", action=argparse.BooleanOptionalAction,
+        default=defaults.get("loop_closure_enabled", True))
+    parser.add_argument("--loop-corridor-xy-tolerance", type=float, default=defaults.get(
+        "loop_corridor_xy_tolerance", 0.40))
+    parser.add_argument("--loop-corridor-exit-xy-tolerance", type=float,
+                        default=defaults.get("loop_corridor_exit_xy_tolerance", 0.55))
+    parser.add_argument("--loop-z-tolerance", type=float, default=defaults.get(
+        "loop_z_tolerance", 0.20))
+    parser.add_argument("--loop-heading-tolerance-degrees", type=float,
+                        default=defaults.get("loop_heading_tolerance_degrees", 45.0))
+    parser.add_argument("--loop-confirmation-distance", type=float, default=defaults.get(
+        "loop_confirmation_distance", 0.80))
+    parser.add_argument("--loop-exit-confirmation-distance", type=float,
+                        default=defaults.get("loop_exit_confirmation_distance", 0.80))
+    parser.add_argument("--loop-minimum-graph-separation", type=float,
+                        default=defaults.get("loop_minimum_graph_separation", 3.00))
+    parser.add_argument("--loop-minimum-time-separation", type=float,
+                        default=defaults.get("loop_minimum_time_separation", 5.00))
+    parser.add_argument("--loop-vertex-snap-distance", type=float, default=defaults.get(
+        "loop_vertex_snap_distance", 0.45))
+    parser.add_argument("--loop-rejection-cooldown-distance", type=float,
+                        default=defaults.get("loop_rejection_cooldown_distance", 1.00))
+    parser.add_argument(
+        "--pcd-validation-enabled", action=argparse.BooleanOptionalAction,
+        default=defaults.get("pcd_validation_enabled", True))
+    parser.add_argument(
+        "--pcd-validation-required", action=argparse.BooleanOptionalAction,
+        default=defaults.get("pcd_validation_required", False))
+    parser.add_argument("--pcd-voxel-size", type=float, default=defaults.get(
+        "pcd_voxel_size", 0.30))
+    parser.add_argument("--pcd-minimum-overlap", type=float, default=defaults.get(
+        "pcd_minimum_overlap", 0.45))
+    parser.add_argument("--pcd-search-radius", type=float, default=defaults.get(
+        "pcd_search_radius", 0.60))
+    parser.add_argument("--pcd-z-search-radius", type=float, default=defaults.get(
+        "pcd_z_search_radius", 0.30))
+    parser.add_argument("--pcd-minimum-range", type=float, default=defaults.get(
+        "pcd_minimum_range", 0.50))
+    parser.add_argument("--pcd-maximum-range", type=float, default=defaults.get(
+        "pcd_maximum_range", 12.0))
+    parser.add_argument("--pcd-minimum-voxels", type=int, default=defaults.get(
+        "pcd_minimum_voxels", 100))
     parser.add_argument(
         "--slope-enabled", action=argparse.BooleanOptionalAction,
         default=defaults.get("slope_enabled", True))
@@ -625,7 +956,8 @@ def main() -> int:
             "\nRoute3D 实时产品流程：\n"
             "  1  开始记录并实时构建骨架\n"
             "  2  停止、输入名称并保存全部原始和最终数据\n"
-            "  q  退出（记录中必须先按2）\n",
+            "  3  停止全部子节点并退出（不保存，临时数据保留）\n"
+            "  q  空闲时退出\n",
             flush=True,
         )
         session.start_rviz()
@@ -640,9 +972,14 @@ def main() -> int:
                 termios.tcsetattr(keyboard_stream, termios.TCSADRAIN, old_terminal)
                 session.stop_and_save(keyboard_stream)
                 tty.setcbreak(keyboard_stream.fileno())
+            elif key == "3":
+                session.exit_without_save()
+                # Avoid printing the retained path a second time in cleanup().
+                session.session_path = None
+                break
             elif key == "q":
                 if session.recording:
-                    print("正在记录，先按 2 停止并保存。", flush=True)
+                    print("正在记录：按 2 保存，或按 3 不保存并退出。", flush=True)
                 else:
                     break
     except KeyboardInterrupt:

@@ -14,6 +14,8 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Sequence, Tuple
 
+from route3d_topology_core import apply_topology_schema
+
 
 Point3 = Tuple[float, float, float]
 
@@ -596,13 +598,13 @@ def write_topo_single_file(
             },
         }
 
-    payload = {
+    payload = apply_topology_schema({
         "version": 0,
         "type": topo_type,
         "frame_id": frame_id,
         "vertices": vertices,
         "edges": edges,
-    }
+    })
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_name(output_path.name + ".tmp")
     with temporary.open("w", encoding="utf-8") as handle:

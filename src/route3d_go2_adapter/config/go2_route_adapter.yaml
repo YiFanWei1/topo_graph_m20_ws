@@ -1,0 +1,32 @@
+route3d_go2_adapter:
+  ros__parameters:
+    network_interface: eth0
+    enable_motion: false
+
+    # Both controllers stay alive; active_source is the only authority that
+    # selects which fresh command is allowed to reach the Go2 SDK.
+    topics.command: /cmd_vel_pid
+    topics.pid_command: /cmd_vel_pid
+    topics.efficient_command: /cmd_vel_effi
+    topics.controller_source: /route3d_controller/active_source
+    topics.selected_command: /route3d_go2_adapter/selected_command
+    topics.gait_transition: /route3d_pid_controller/gait_transition
+    topics.gait_acknowledged: /route3d_pid_controller/gait_acknowledged
+    topics.status: /route3d_go2_adapter/status
+    services.acknowledge_gait: /route3d_pid_controller/acknowledge_gait_transition
+
+    command.send_rate_hz: 30.0
+    command.timeout_s: 0.10
+    command.maximum_vx_mps: 0.80
+    command.maximum_vy_mps: 0.40
+    command.maximum_wz_radps: 1.20
+
+    gait.settle_time_s: 2.0
+    gait.transition_timeout_s: 8.0
+    gait.require_state_feedback: true
+    gait.state_topic: rt/sportmodestate
+    gait.state_timeout_s: 1.0
+    gait.minimum_stable_samples: 5
+
+    # Match the proven standalone robot_control_adapter on the deployed Go2.
+    sdk.timeout_s: 10.0

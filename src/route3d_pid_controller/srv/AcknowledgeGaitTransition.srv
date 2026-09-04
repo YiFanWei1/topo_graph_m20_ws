@@ -1,0 +1,6 @@
+uint64 route_sequence
+uint32 task_index
+string gait_command
+---
+bool success
+string message

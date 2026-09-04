@@ -1,0 +1,1782 @@
+{
+  "version": 1,
+  "schema": {
+    "name": "route3d_topology",
+    "version": 2
+  },
+  "type": 0,
+  "frame_id": "camera_init",
+  "sceneMode": "normal",
+  "status": "complete",
+  "topology_mode": "complex_test_graph",
+  "vertices": {
+    "1": {
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 1,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "2": {
+      "pos": [
+        2,
+        0,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 2,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "3": {
+      "pos": [
+        4,
+        0,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 3,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "4": {
+      "pos": [
+        6,
+        0,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 4,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "5": {
+      "pos": [
+        8,
+        0,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 5,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "6": {
+      "pos": [
+        0,
+        2,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 6,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "7": {
+      "pos": [
+        2,
+        2,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": true,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 7,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "8": {
+      "pos": [
+        4,
+        2,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": true,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 8,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "9": {
+      "pos": [
+        6,
+        2,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": true,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 9,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "10": {
+      "pos": [
+        8,
+        2,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 10,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "11": {
+      "pos": [
+        0,
+        4,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 11,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "12": {
+      "pos": [
+        2,
+        4,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": true,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 12,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "13": {
+      "pos": [
+        4,
+        4,
+        0.25
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": true,
+        "isJunction": true,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 13,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "14": {
+      "pos": [
+        6,
+        4,
+        0.25
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": true,
+        "isJunction": true,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 14,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "15": {
+      "pos": [
+        8,
+        4,
+        0.25
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": true,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 15,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "16": {
+      "pos": [
+        0,
+        6,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 16,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "17": {
+      "pos": [
+        2,
+        6,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 17,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "18": {
+      "pos": [
+        4,
+        6,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 18,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "19": {
+      "pos": [
+        6,
+        6,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 19,
+        "component": 0,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "20": {
+      "pos": [
+        8,
+        6,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": true,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 20,
+        "component": 0,
+        "turnDeg": 90,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": true,
+      "passRadiusM": 0.20
+    },
+    "21": {
+      "pos": [
+        11,
+        1,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 21,
+        "component": 1,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "22": {
+      "pos": [
+        13,
+        1,
+        0
+      ],
+      "rpy": [
+        0,
+        0,
+        0
+      ],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "complex_schema_v2_test",
+        "sourceStamp": 22,
+        "component": 1,
+        "turnDeg": 0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": true,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    }
+  },
+  "edges": {
+    "1": {
+      "v": [
+        1,
+        2
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "2": {
+      "v": [
+        2,
+        3
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "3": {
+      "v": [
+        3,
+        4
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "4": {
+      "v": [
+        4,
+        5
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "5": {
+      "v": [
+        6,
+        7
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "6": {
+      "v": [
+        7,
+        8
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "7": {
+      "v": [
+        8,
+        9
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "8": {
+      "v": [
+        9,
+        10
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "9": {
+      "v": [
+        11,
+        12
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "10": {
+      "v": [
+        12,
+        13
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "11": {
+      "v": [
+        13,
+        14
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "12": {
+      "v": [
+        14,
+        15
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "13": {
+      "v": [
+        16,
+        17
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "14": {
+      "v": [
+        17,
+        18
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "15": {
+      "v": [
+        18,
+        19
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "16": {
+      "v": [
+        19,
+        20
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    },
+    "17": {
+      "v": [
+        1,
+        6
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "18": {
+      "v": [
+        2,
+        7
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "19": {
+      "v": [
+        3,
+        8
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "20": {
+      "v": [
+        4,
+        9
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "21": {
+      "v": [
+        5,
+        10
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "22": {
+      "v": [
+        6,
+        11
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "23": {
+      "v": [
+        7,
+        12
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "24": {
+      "v": [
+        8,
+        13
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "25": {
+      "v": [
+        9,
+        14
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "26": {
+      "v": [
+        10,
+        15
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "27": {
+      "v": [
+        11,
+        16
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "28": {
+      "v": [
+        12,
+        17
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "29": {
+      "v": [
+        13,
+        18
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "30": {
+      "v": [
+        14,
+        19
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "31": {
+      "v": [
+        15,
+        20
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "32": {
+      "v": [
+        1,
+        7
+      ],
+      "weight": 2.35,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "auto"
+      }
+    },
+    "33": {
+      "v": [
+        7,
+        13
+      ],
+      "weight": 2.35,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "auto"
+      }
+    },
+    "34": {
+      "v": [
+        13,
+        19
+      ],
+      "weight": 2.35,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "auto"
+      }
+    },
+    "35": {
+      "v": [
+        5,
+        9
+      ],
+      "weight": 2.35,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "auto"
+      }
+    },
+    "36": {
+      "v": [
+        9,
+        13
+      ],
+      "weight": 2.35,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "auto"
+      }
+    },
+    "37": {
+      "v": [
+        13,
+        17
+      ],
+      "weight": 2.35,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "auto"
+      }
+    },
+    "38": {
+      "v": [
+        3,
+        13
+      ],
+      "weight": 3.2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 1,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "first_to_second",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "39": {
+      "v": [
+        8,
+        18
+      ],
+      "weight": 3.2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "local_planner"
+      }
+    },
+    "40": {
+      "v": [
+        21,
+        22
+      ],
+      "weight": 2,
+      "rotationAllowed": true,
+      "meta": {
+        "dir": 0,
+        "source": "complex_schema_v2_test",
+        "locomotionMode": 0,
+        "linearSpeedMps": 0.6,
+        "angularSpeedRadps": 0,
+        "heightOffsetM": 0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0,
+        "obstacleBoxM": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      }
+    }
+  },
+  "generation": {
+    "source": "handcrafted_complex_test",
+    "component_count": 2
+  }
+}

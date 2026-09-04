@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="graph_file"
+       default="$(find-pkg-share route3d_dijkstra_planner)/config/complex_topology_v2.json"/>
+  <arg name="pid_config"
+       default="$(find-pkg-share route3d_pid_controller)/config/go2_pid.yaml"/>
+  <arg name="rviz_config"
+       default="$(find-pkg-share route3d_pid_controller)/rviz/pid_controller.rviz"/>
+  <arg name="start_planner" default="true"/>
+  <arg name="launch_rviz" default="true"/>
+  <arg name="use_sim_time" default="false"/>
+
+  <include file="$(find-pkg-share route3d_route_slicer)/launch/route_slicer_demo.launch.xml">
+    <arg name="graph_file" value="$(var graph_file)"/>
+    <arg name="start_planner" value="$(var start_planner)"/>
+    <arg name="launch_rviz" value="$(var launch_rviz)"/>
+    <arg name="rviz_config" value="$(var rviz_config)"/>
+    <arg name="auto_demo" value="false"/>
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+  </include>
+
+  <node pkg="route3d_pid_controller" exec="pid_controller_node"
+        name="route3d_pid_controller" output="screen">
+    <param from="$(var pid_config)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>

@@ -18,6 +18,17 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from visualization_msgs.msg import Marker, MarkerArray
 
 from route_slope_annotator.slope_analysis import SlopeConfig, annotate_document
+from route3d_topology_core import (
+    IncrementalTopologyBuilder,
+    LoopClosureConfig,
+    PcdLoopClosureValidator,
+    PcdValidationConfig,
+    PoseSample as GraphPoseSample,
+    RetraceConfig,
+    TopologyConfig,
+    annotate_graph_slopes,
+    apply_topology_schema,
+)
 
 
 Point3 = Tuple[float, float, float]
@@ -108,8 +119,15 @@ class OnlineRouteSkeleton(Node):
             "input_pose_topic", "/route3d/synchronized_pose").value)
         self.output_topo = Path(str(self.declare_parameter(
             "output_topo", "topoSingle_live.json").value)).expanduser().resolve()
+        self.output_graph = Path(str(self.declare_parameter(
+            "output_graph", "topoGraph_live.json").value)).expanduser().resolve()
         self.events_file = Path(str(self.declare_parameter(
             "events_file", "events.jsonl").value)).expanduser().resolve()
+        key_frames_value = str(self.declare_parameter(
+            "key_frames_directory", "").value).strip()
+        self.key_frames_directory = (
+            Path(key_frames_value).expanduser().resolve()
+            if key_frames_value else None)
         self.target_spacing = float(self.declare_parameter("target_spacing", 1.0).value)
         self.dedup_distance = float(self.declare_parameter("dedup_distance", 0.05).value)
         self.body_height = float(self.declare_parameter("body_height", 0.40).value)
@@ -129,6 +147,68 @@ class OnlineRouteSkeleton(Node):
         self.topo_type = int(self.declare_parameter("topo_type", 0).value)
         self.topo_pcd = str(self.declare_parameter("topo_pcd", "").value)
         self.topo_acc = float(self.declare_parameter("topo_acc", 0.50).value)
+        self.retrace_config = RetraceConfig(
+            enabled=bool(self.declare_parameter("retrace.enabled", True).value),
+            corridor_xy_tolerance=float(self.declare_parameter(
+                "retrace.corridor_xy_tolerance", 0.30).value),
+            corridor_exit_xy_tolerance=float(self.declare_parameter(
+                "retrace.corridor_exit_xy_tolerance", 0.45).value),
+            z_tolerance=float(self.declare_parameter(
+                "retrace.z_tolerance", 0.20).value),
+            heading_tolerance_degrees=float(self.declare_parameter(
+                "retrace.heading_tolerance_degrees", 35.0).value),
+            entry_confirmation_distance=float(self.declare_parameter(
+                "retrace.entry_confirmation_distance", 0.30).value),
+            exit_confirmation_distance=float(self.declare_parameter(
+                "retrace.exit_confirmation_distance", 0.30).value),
+            vertex_snap_distance=float(self.declare_parameter(
+                "retrace.vertex_snap_distance", 0.30).value),
+            motion_min_distance=float(self.declare_parameter(
+                "retrace.motion_min_distance", 0.10).value),
+        )
+        self.loop_closure_config = LoopClosureConfig(
+            enabled=bool(self.declare_parameter("loop_closure.enabled", True).value),
+            corridor_xy_tolerance=float(self.declare_parameter(
+                "loop_closure.corridor_xy_tolerance", 0.40).value),
+            corridor_exit_xy_tolerance=float(self.declare_parameter(
+                "loop_closure.corridor_exit_xy_tolerance", 0.55).value),
+            z_tolerance=float(self.declare_parameter(
+                "loop_closure.z_tolerance", 0.20).value),
+            heading_tolerance_degrees=float(self.declare_parameter(
+                "loop_closure.heading_tolerance_degrees", 45.0).value),
+            confirmation_distance=float(self.declare_parameter(
+                "loop_closure.confirmation_distance", 0.80).value),
+            exit_confirmation_distance=float(self.declare_parameter(
+                "loop_closure.exit_confirmation_distance", 0.80).value),
+            minimum_graph_separation=float(self.declare_parameter(
+                "loop_closure.minimum_graph_separation", 3.00).value),
+            minimum_time_separation=float(self.declare_parameter(
+                "loop_closure.minimum_time_separation", 5.00).value),
+            vertex_snap_distance=float(self.declare_parameter(
+                "loop_closure.vertex_snap_distance", 0.45).value),
+            rejection_cooldown_distance=float(self.declare_parameter(
+                "loop_closure.rejection_cooldown_distance", 1.00).value),
+        )
+        self.pcd_validation_config = PcdValidationConfig(
+            enabled=bool(self.declare_parameter(
+                "loop_closure.pcd_validation.enabled", True).value),
+            required=bool(self.declare_parameter(
+                "loop_closure.pcd_validation.required", False).value),
+            voxel_size=float(self.declare_parameter(
+                "loop_closure.pcd_validation.voxel_size", 0.30).value),
+            minimum_overlap=float(self.declare_parameter(
+                "loop_closure.pcd_validation.minimum_overlap", 0.45).value),
+            search_radius=float(self.declare_parameter(
+                "loop_closure.pcd_validation.search_radius", 0.60).value),
+            z_search_radius=float(self.declare_parameter(
+                "loop_closure.pcd_validation.z_search_radius", 0.30).value),
+            minimum_range=float(self.declare_parameter(
+                "loop_closure.pcd_validation.minimum_range", 0.50).value),
+            maximum_range=float(self.declare_parameter(
+                "loop_closure.pcd_validation.maximum_range", 12.0).value),
+            minimum_voxels=int(self.declare_parameter(
+                "loop_closure.pcd_validation.minimum_voxels", 100).value),
+        )
         self.slope_enabled = bool(self.declare_parameter("slope.enabled", True).value)
         self.slope_config = SlopeConfig(
             fit_radius=float(self.declare_parameter("slope.fit_radius", 2.0).value),
@@ -156,6 +236,7 @@ class OnlineRouteSkeleton(Node):
                 raise ValueError(f"{name} must be positive and finite")
 
         self.output_topo.parent.mkdir(parents=True, exist_ok=True)
+        self.output_graph.parent.mkdir(parents=True, exist_ok=True)
         self.events_file.parent.mkdir(parents=True, exist_ok=True)
         self.frame_id = ""
         self.raw_poses: List[PoseStamped] = []
@@ -170,6 +251,28 @@ class OnlineRouteSkeleton(Node):
         self.version = 0
         self.finalized = False
         self.visual_dirty = True
+        self.graph_dirty = True
+        self.graph_slope_annotation = None
+        self.graph_frame_index = 0
+        loop_validator = (
+            PcdLoopClosureValidator(
+                self.key_frames_directory, self.pcd_validation_config)
+            if self.key_frames_directory is not None else None)
+        self.graph_builder = IncrementalTopologyBuilder(
+            TopologyConfig(
+                target_spacing=self.target_spacing,
+                dedup_distance=self.dedup_distance,
+                body_height=self.body_height,
+                relocation_distance=self.relocation_distance,
+                topo_type=self.topo_type,
+                topo_pcd=self.topo_pcd,
+                topo_acc=self.topo_acc,
+                retrace=self.retrace_config,
+                loop_closure=self.loop_closure_config,
+            ),
+            event_callback=self._write_graph_event,
+            loop_closure_validator=loop_validator,
+        )
 
         sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -192,8 +295,15 @@ class OnlineRouteSkeleton(Node):
         self.timer = self.create_timer(0.20, self.publish_visualization)
         self.write_event("session_started", {})
         self.write_topology()
+        self.write_graph_topology()
         self.get_logger().info(
-            f"online skeleton waiting for {self.input_topic}; output={self.output_topo}")
+            f"online skeleton waiting for {self.input_topic}; "
+            f"linear={self.output_topo} graph={self.output_graph}")
+
+    def _write_graph_event(self, event_type: str, values: dict) -> None:
+        # The legacy live path already emits pose_jump with the same source pose.
+        if event_type != "pose_jump":
+            self.write_event(event_type, values)
 
     def write_event(self, event_type: str, values: dict) -> None:
         event = {"event": event_type, **values}
@@ -241,6 +351,11 @@ class OnlineRouteSkeleton(Node):
             route_distance=self.total_distance,
             segment=self.segment,
         )
+        self.graph_builder.add_pose(GraphPoseSample(
+            stamp=stamp, point=point, quaternion=quaternion,
+            frame_index=self.graph_frame_index))
+        self.graph_frame_index += 1
+        self.graph_dirty = True
 
         if self.last_raw is not None:
             raw_step = distance_3d(self.last_raw.point, sample.point)
@@ -372,6 +487,10 @@ class OnlineRouteSkeleton(Node):
         self.corner_window = []
 
     def _commit_corner(self, pose: RoutePose, turn_degrees: float) -> None:
+        self.graph_builder.mark_corner(
+            GraphPoseSample(pose.stamp, pose.point, pose.quaternion),
+            turn_degrees, self.corner_merge_distance)
+        self.graph_dirty = True
         existing_corners = [target for target in self.targets if target.is_corner]
         nearest_existing = min(
             existing_corners,
@@ -494,14 +613,14 @@ class OnlineRouteSkeleton(Node):
                 "meta": {"dir": 0, "source": "online_synchronized_pose"},
             }
             edge_id += 1
-        return {
+        return apply_topology_schema({
             "version": self.version,
             "type": self.topo_type,
             "frame_id": self.frame_id,
             "status": "complete" if self.finalized else "recording",
             "vertices": vertices,
             "edges": edges,
-        }
+        })
 
     def write_topology(self) -> None:
         temporary = self.output_topo.with_name(self.output_topo.name + ".tmp")
@@ -511,6 +630,22 @@ class OnlineRouteSkeleton(Node):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, self.output_topo)
+
+    def write_graph_topology(self) -> None:
+        if self.slope_enabled and len(self.graph_builder.vertices) >= 2:
+            self.graph_slope_annotation = annotate_graph_slopes(
+                self.graph_builder, self.slope_config)
+        payload = self.graph_builder.topology_dict(self.frame_id)
+        if self.graph_slope_annotation is not None:
+            payload["slopeAnnotation"] = self.graph_slope_annotation
+        temporary = self.output_graph.with_name(self.output_graph.name + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, self.output_graph)
+        self.graph_dirty = False
 
     @staticmethod
     def _point_message(point: Point3, z_offset: float = 0.0) -> Point:
@@ -524,6 +659,8 @@ class OnlineRouteSkeleton(Node):
         if not self.visual_dirty or not self.frame_id:
             return
         self.visual_dirty = False
+        if self.graph_dirty:
+            self.write_graph_topology()
         now = self.get_clock().now().to_msg()
 
         path = PathMessage()
@@ -548,11 +685,60 @@ class OnlineRouteSkeleton(Node):
         edges.color.g = 0.95
         edges.color.b = 0.35
         edges.color.a = 0.95
-        for first, second in zip(self.targets, self.targets[1:]):
-            if first.segment == second.segment:
-                edges.points.append(self._point_message(first.point, -self.body_height))
-                edges.points.append(self._point_message(second.point, -self.body_height))
+        for edge in self.graph_builder.edges.values():
+            if edge.source == "loop_closure":
+                continue
+            first = self.graph_builder.vertices[edge.first]
+            second = self.graph_builder.vertices[edge.second]
+            edges.points.append(self._point_message(first.sample.point, -self.body_height))
+            edges.points.append(self._point_message(second.sample.point, -self.body_height))
         markers.markers.append(edges)
+
+        closures = Marker()
+        closures.header = path.header
+        closures.ns = "loop_closure_edges"
+        closures.id = 8
+        closures.type = Marker.LINE_LIST
+        closures.action = Marker.ADD
+        closures.scale.x = 0.11
+        closures.color.r = 1.0
+        closures.color.g = 0.55
+        closures.color.b = 0.05
+        closures.color.a = 1.0
+        for edge in self.graph_builder.edges.values():
+            if edge.source != "loop_closure":
+                continue
+            first = self.graph_builder.vertices[edge.first]
+            second = self.graph_builder.vertices[edge.second]
+            closures.points.append(self._point_message(
+                first.sample.point, -self.body_height))
+            closures.points.append(self._point_message(
+                second.sample.point, -self.body_height))
+        markers.markers.append(closures)
+
+        active_edge_id = self.graph_builder.active_retrace_edge_id
+        if active_edge_id in self.graph_builder.edges:
+            active_edge = self.graph_builder.edges[active_edge_id]
+            active = Marker()
+            active.header = path.header
+            active.ns = "active_retrace_edge"
+            active.id = 7
+            active.type = Marker.LINE_LIST
+            active.action = Marker.ADD
+            active.scale.x = 0.12
+            active.color.r = 0.0
+            active.color.g = 0.95
+            active.color.b = 1.0
+            active.color.a = 1.0
+            active.points = [
+                self._point_message(
+                    self.graph_builder.vertices[active_edge.first].sample.point,
+                    -self.body_height),
+                self._point_message(
+                    self.graph_builder.vertices[active_edge.second].sample.point,
+                    -self.body_height),
+            ]
+            markers.markers.append(active)
 
         normal = Marker()
         normal.header = path.header
@@ -566,8 +752,9 @@ class OnlineRouteSkeleton(Node):
         normal.color.b = 1.0
         normal.color.a = 1.0
         normal.points = [
-            self._point_message(target.point, -self.body_height)
-            for target in self.targets if not target.is_corner and not target.is_slope
+            self._point_message(vertex.sample.point, -self.body_height)
+            for vertex in self.graph_builder.vertices.values()
+            if not vertex.is_corner and not vertex.is_slope
         ]
         markers.markers.append(normal)
 
@@ -583,8 +770,9 @@ class OnlineRouteSkeleton(Node):
         slopes.color.b = 0.05
         slopes.color.a = 1.0
         slopes.points = [
-            self._point_message(target.point, -self.body_height)
-            for target in self.targets if target.is_slope and not target.is_corner
+            self._point_message(vertex.sample.point, -self.body_height)
+            for vertex in self.graph_builder.vertices.values()
+            if vertex.is_slope and not vertex.is_corner
         ]
         markers.markers.append(slopes)
 
@@ -600,8 +788,8 @@ class OnlineRouteSkeleton(Node):
         corners.color.b = 0.10
         corners.color.a = 1.0
         corners.points = [
-            self._point_message(target.point, -self.body_height)
-            for target in self.targets if target.is_corner
+            self._point_message(vertex.sample.point, -self.body_height)
+            for vertex in self.graph_builder.vertices.values() if vertex.is_corner
         ]
         markers.markers.append(corners)
 
@@ -609,7 +797,8 @@ class OnlineRouteSkeleton(Node):
         # same 1-based ids that will be written to topoSingle_live.json.  Corner
         # ids carry a C prefix and use the corner color, matching the final route
         # and local-planner visualizations.
-        for vertex_id, target in enumerate(self.targets, 1):
+        for vertex_id, vertex in sorted(self.graph_builder.vertices.items()):
+            target = vertex.sample
             label = Marker()
             label.header = path.header
             label.ns = "live_target_ids"
@@ -619,16 +808,16 @@ class OnlineRouteSkeleton(Node):
             label.pose.position = self._point_message(
                 target.point, -self.body_height + 0.28)
             label.pose.orientation.w = 1.0
-            label.scale.z = 0.30 if target.is_corner else 0.24
-            if target.is_corner:
+            label.scale.z = 0.30 if vertex.is_corner else 0.24
+            if vertex.is_corner:
                 label.color.r, label.color.g, label.color.b = 1.0, 0.15, 0.10
-            elif target.is_slope:
+            elif vertex.is_slope:
                 label.color.r, label.color.g, label.color.b = 1.0, 0.85, 0.05
             else:
                 label.color.r, label.color.g, label.color.b = 0.15, 0.55, 1.0
             label.color.a = 1.0
-            prefix = "SC" if target.is_corner and target.is_slope else (
-                "C" if target.is_corner else ("S" if target.is_slope else ""))
+            prefix = "SC" if vertex.is_corner and vertex.is_slope else (
+                "C" if vertex.is_corner else ("S" if vertex.is_slope else ""))
             label.text = f"{prefix}{vertex_id}"
             markers.markers.append(label)
 
@@ -687,9 +876,15 @@ class OnlineRouteSkeleton(Node):
                 ))
         self.targets.sort(key=lambda target: (target.distance, target.segment))
         self._refresh_slope_flags()
+        self.graph_builder.finalize()
+        if self.slope_enabled:
+            self.graph_slope_annotation = annotate_graph_slopes(
+                self.graph_builder, self.slope_config)
+        self.graph_dirty = True
         self.finalized = True
         self.version += 1
         self.write_topology()
+        self.write_graph_topology()
         self.write_event("session_stopped", {
             "poses": len(self.raw_poses),
             "vertices": len(self.targets),
@@ -697,6 +892,15 @@ class OnlineRouteSkeleton(Node):
             "slopes": sum(target.is_slope for target in self.targets),
             "distance_m": self.total_distance,
             "pose_jumps": len(self.jump_points),
+            "graph_vertices": len(self.graph_builder.vertices),
+            "graph_edges": len(self.graph_builder.edges),
+            "retraces": self.graph_builder.retrace_count,
+            "route_reentries": self.graph_builder.route_reentry_count,
+            "loop_closures": self.graph_builder.loop_closure_count,
+            "loop_validation_rejections":
+                self.graph_builder.loop_validation_rejection_count,
+            "suppressed_distance_m": self.graph_builder.suppressed_distance,
+            "edge_splits": self.graph_builder.edge_split_count,
         })
         if rclpy.ok():
             self.get_logger().info(

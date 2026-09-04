@@ -1,0 +1,16 @@
+int32 vertex_id
+geometry_msgs/Point position
+geometry_msgs/Vector3 rpy
+int32 semantic_type
+int32 semantic_type_id
+int32 charging_mode
+bool is_corner
+bool is_slope
+bool is_junction
+float64 turn_degrees
+bool must_pass_through
+float64 pass_radius_m
+float64 goal_tolerance_m
+bool align_final_yaw
+bool turnable
+string pcd_name

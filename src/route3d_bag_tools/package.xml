@@ -21,6 +21,7 @@
   <exec_depend>efficient_3d_local_planner</exec_depend>
   <exec_depend>nav2_route3d</exec_depend>
   <exec_depend>recorded_waypoint_route</exec_depend>
+  <exec_depend>route3d_topology_core</exec_depend>
   <exec_depend>rosbag2</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>

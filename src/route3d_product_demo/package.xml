@@ -8,6 +8,7 @@
 
   <exec_depend>route3d_data_recorder</exec_depend>
   <exec_depend>route3d_online_skeleton</exec_depend>
+  <exec_depend>route3d_topology_core</exec_depend>
   <exec_depend>route_slope_annotator</exec_depend>
   <exec_depend>route3d_bag_tools</exec_depend>
   <exec_depend>nav2_route3d</exec_depend>

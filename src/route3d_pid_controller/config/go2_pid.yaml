@@ -1,0 +1,113 @@
+route3d_pid_controller:
+  ros__parameters:
+    use_sim_time: false
+
+    # A newly sliced route starts automatically. The downstream adapter still
+    # blocks every velocity until this executor selects exactly one controller.
+    execution.auto_start: true
+    execution.control_rate_hz: 50.0
+
+    topics.tasks: /route3d_route_slicer/tasks
+    topics.odometry: /lio_odom_hf
+    # The current GLIO topic is named "body" but its XYZ values are already in
+    # the robot/base coordinate convention used by the local mapper.
+    topics.obstacle_cloud: /cloud_registered_body
+    topics.external_safety_stop: /route3d_pid_controller/external_safety_stop
+    topics.collision_level: /collision_level
+    topics.command: /cmd_vel_pid
+    topics.efficient_path: /route3d_controller/efficient_path
+    topics.active_controller: /route3d_controller/active_source
+    topics.gait_transition: /route3d_pid_controller/gait_transition
+    topics.gait_acknowledged: /route3d_pid_controller/gait_acknowledged
+
+    safety.odometry_timeout_s: 0.30
+    # Same final protection as the reference: obs=3 suppresses ordinary
+    # obstacles, but collision level >=100 always stops.
+    safety.emergency_collision_level_threshold: 100
+
+    # Reference semantics: build a 0.1 m rolling elevation map, convert local
+    # 3x3 height standard deviation into the "standard" obstacle layer, then
+    # sweep a sampled Go2 warning footprint over the remaining route.
+    obstacle.enabled: true
+    obstacle.stop_on_cloud_timeout: true
+    obstacle.cloud_timeout_s: 0.50
+    obstacle.elevation.resolution_m: 0.10
+    obstacle.elevation.width_m: 4.0
+    obstacle.elevation.default_ground_height_m: -0.40
+    obstacle.elevation.minimum_obstacle_height_m: -0.20
+    obstacle.elevation.maximum_obstacle_height_m: 0.40
+    # Reference test: stdev * 20 > 2.5, i.e. stdev > 0.125 m.
+    obstacle.elevation.roughness_threshold_m: 0.125
+    obstacle.elevation.body_exclusion.min_x: -0.50
+    obstacle.elevation.body_exclusion.max_x: 0.30
+    obstacle.elevation.body_exclusion.min_y: -0.25
+    obstacle.elevation.body_exclusion.max_y: 0.25
+    # Go2 warning range and sample resolution from the reference configuration.
+    obstacle.trajectory.footprint.min_x: 0.05
+    obstacle.trajectory.footprint.max_x: 0.60
+    obstacle.trajectory.footprint.min_y: -0.25
+    obstacle.trajectory.footprint.max_y: 0.24
+    obstacle.trajectory.footprint.samples_x: 5
+    obstacle.trajectory.footprint.samples_y: 5
+    obstacle.trajectory.footprint.lateral_inset_m: 0.13
+    # Reference obstacleMode=0 path check: check_collision(15, 0.4).
+    obstacle.trajectory.maximum_samples: 15
+    obstacle.trajectory.spacing_m: 0.40
+    # Reference obstacleMode=1 checks: near collision stops and replans; a far
+    # collision requests background replanning while the current path continues.
+    obstacle.trajectory.replan_near.maximum_samples: 25
+    obstacle.trajectory.replan_near.spacing_m: 0.25
+    obstacle.trajectory.replan_far.maximum_samples: 60
+    obstacle.trajectory.replan_far.spacing_m: 0.20
+    obstacle.elevation.base_collision_hold_cycles: 20
+
+    # The reference Go2 value is 1.0 m. This implementation uses a shorter
+    # conservative default and additionally clamps lookahead at hard corners.
+    tracking.lookahead_distance_m: 0.60
+    tracking.goal_yaw_tolerance_rad: 0.12
+    tracking.corner_slowdown_distance_m: 0.70
+    tracking.corner_speed_mps: 0.20
+    tracking.braking_deceleration_mps2: 0.50
+    tracking.full_speed_yaw_error_rad: 0.17
+    tracking.stop_translation_yaw_error_rad: 1.05
+    tracking.projection_backtrack_m: 0.10
+
+    # Reference Go2 terminal ADJUSTMENT phase: enter at 0.30 m, retain vx/vy/wz,
+    # and use low-speed limits while converging to the final pose.
+    adjustment.entry_distance_m: 0.30
+    adjustment.route_goal_position_tolerance_m: 0.10
+    adjustment.route_goal_yaw_tolerance_rad: 0.15
+    adjustment.maximum_vx_mps: 0.20
+    adjustment.maximum_vy_mps: 0.20
+    adjustment.maximum_wz_radps: 0.90
+
+    # Safe Go2 limits. Edge linearSpeedMps can lower, never raise, max vx.
+    limits.maximum_vx_mps: 0.80
+    limits.maximum_vy_mps: 0.25
+    limits.maximum_wz_radps: 0.80
+    limits.maximum_linear_acceleration_mps2: 0.50
+    limits.maximum_yaw_acceleration_radps2: 1.20
+
+    pid.longitudinal.kp: 1.20
+    pid.longitudinal.ki: 0.00
+    pid.longitudinal.kd: 0.05
+    pid.longitudinal.integral_limit: 0.20
+    pid.longitudinal.output_limit: 0.80
+    pid.longitudinal.integral_separation: 1.30
+    pid.longitudinal.derivative_filter_tau: 0.04
+
+    pid.lateral.kp: 1.50
+    pid.lateral.ki: 0.00
+    pid.lateral.kd: 0.04
+    pid.lateral.integral_limit: 0.20
+    pid.lateral.output_limit: 0.25
+    pid.lateral.integral_separation: 1.30
+    pid.lateral.derivative_filter_tau: 0.04
+
+    pid.yaw.kp: 2.00
+    pid.yaw.ki: 0.00
+    pid.yaw.kd: 0.05
+    pid.yaw.integral_limit: 0.20
+    pid.yaw.output_limit: 0.80
+    pid.yaw.integral_separation: 1.30
+    pid.yaw.derivative_filter_tau: 0.04

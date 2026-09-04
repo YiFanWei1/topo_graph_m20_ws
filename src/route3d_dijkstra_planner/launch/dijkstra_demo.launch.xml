@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="graph_file"
+       default="$(find-pkg-share route3d_dijkstra_planner)/config/complex_topology_v2.json"
+       description="Route3D Topology Schema V2 topoGraph JSON"/>
+  <arg name="launch_rviz" default="true"/>
+  <arg name="auto_demo" default="false"/>
+  <arg name="demo_interval" default="4.0"/>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="rviz_config"
+       default="$(find-pkg-share route3d_dijkstra_planner)/rviz/dijkstra_demo.rviz"/>
+
+  <node pkg="route3d_dijkstra_planner"
+        exec="dijkstra_planner_node"
+        name="route3d_dijkstra_planner"
+        output="screen">
+    <param name="graph_file" value="$(var graph_file)"/>
+    <param name="strict_schema_v2" value="true"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node pkg="route3d_dijkstra_planner"
+        exec="dijkstra_demo_requests"
+        name="route3d_dijkstra_demo_requests"
+        output="screen"
+        if="$(var auto_demo)">
+    <param name="interval_seconds" value="$(var demo_interval)"/>
+    <param name="repeat" value="true"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <node pkg="rviz2"
+        exec="rviz2"
+        name="route3d_dijkstra_rviz"
+        args="-d $(var rviz_config)"
+        output="screen"
+        if="$(var launch_rviz)">
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+</launch>

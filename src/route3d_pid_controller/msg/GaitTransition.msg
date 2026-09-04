@@ -1,0 +1,4 @@
+uint64 route_sequence
+uint32 task_index
+string gait_command
+int32 locomotion_mode

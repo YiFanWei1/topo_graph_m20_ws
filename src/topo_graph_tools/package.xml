@@ -10,7 +10,10 @@
   <exec_depend>python3</exec_depend>
   <exec_depend>nav2_route3d</exec_depend>
   <exec_depend>route3d_bag_tools</exec_depend>
+  <exec_depend>route3d_topology_core</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
