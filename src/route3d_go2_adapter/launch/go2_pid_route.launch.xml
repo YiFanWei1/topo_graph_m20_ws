@@ -74,6 +74,12 @@
     <env name="RMW_IMPLEMENTATION" value="rmw_fastrtps_cpp"/>
     <env name="CYCLONEDDS_URI" value=""/>
     <env name="CYCLONEDDS_CONFIG_FILE" value=""/>
+    <!-- The rest of this host's ROS graph is CycloneDDS restricted to lo.
+         Fast DDS must use the same interface for cross-vendor discovery. -->
+    <env name="FASTDDS_DEFAULT_PROFILES_FILE"
+         value="$(find-pkg-share route3d_go2_adapter)/config/fastdds_loopback.xml"/>
+    <env name="FASTRTPS_DEFAULT_PROFILES_FILE"
+         value="$(find-pkg-share route3d_go2_adapter)/config/fastdds_loopback.xml"/>
     <param from="$(var adapter_config)"/>
     <param name="network_interface" value="$(var network_interface)"/>
     <param name="enable_motion" value="$(var enable_motion)"/>

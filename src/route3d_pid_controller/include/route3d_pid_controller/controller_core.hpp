@@ -116,6 +116,7 @@ public:
   void setTask(TrackingTask task);
   TrackingOutput update(const Pose2d & robot, double dt);
   std::vector<Pose2d> sampleRemainingPath(double spacing_m, std::size_t maximum_samples) const;
+  bool requiresInPlaceRotation(const Pose2d & robot) const;
   void stopAndResetControllers();
   bool hasTask() const noexcept {return !task_.waypoints.empty();}
 

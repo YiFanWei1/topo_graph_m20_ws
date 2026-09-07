@@ -1,0 +1,16 @@
+{
+  "name": "route3d-web-console-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build --outDir ../web --emptyOutDir"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2",
+    "vite": "5.4.14"
+  }
+}

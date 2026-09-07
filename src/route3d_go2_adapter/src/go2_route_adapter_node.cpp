@@ -278,6 +278,10 @@ private:
       selected_controller_ = "none";
       clearCommands();
       (void)stopRobot("invalid controller source");
+      // StopMove exits the selected gait on the deployed Go2.  A later
+      // controller recovery must therefore be allowed to replay the same
+      // route/task gait request instead of treating it as a duplicate.
+      last_completed_transition_.reset();
       publishStatus();
       return;
     }
@@ -295,6 +299,12 @@ private:
     // between two active command sources.
     if (selected_controller_ == "none" || previous != "none") {
       (void)stopRobot("controller source switch");
+      if (selected_controller_ == "none") {
+        // Releasing control for an obstacle stop or operator pause invalidates
+        // StaticWalk/SwitchGait.  Permit the PID controller to establish the
+        // requested gait again before it resumes autonomous velocity output.
+        last_completed_transition_.reset();
+      }
     }
     state_detail_ = "controller source switched from '" + previous + "' to '" +
       selected_controller_ + "'";
@@ -570,6 +580,7 @@ private:
       return false;
     }
   }
+
 
   void enforceStopped()
   {

@@ -203,6 +203,52 @@ std::vector<Pose2d> RouteTracker::sampleRemainingPath(
   return result;
 }
 
+bool RouteTracker::requiresInPlaceRotation(const Pose2d & robot) const
+{
+  if (!hasTask()) {
+    return false;
+  }
+  validateFinite(robot.x, "robot x");
+  validateFinite(robot.y, "robot y");
+  validateFinite(robot.yaw, "robot yaw");
+
+  const auto & goal = task_.waypoints.back();
+  if (adjusting_) {
+    if (!task_.align_goal_yaw) {
+      return false;
+    }
+    const double cosine = std::cos(robot.yaw);
+    const double sine = std::sin(robot.yaw);
+    const double goal_dx = goal.x - robot.x;
+    const double goal_dy = goal.y - robot.y;
+    const double local_x = cosine * goal_dx + sine * goal_dy;
+    const double local_y = -sine * goal_dx + cosine * goal_dy;
+    const double position_tolerance = task_.is_route_goal ?
+      config_.adjustment_route_goal_position_tolerance_m :
+      std::clamp(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.01, 0.31);
+    const double yaw_tolerance = task_.is_route_goal ?
+      config_.adjustment_route_goal_yaw_tolerance_rad :
+      std::min(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.21);
+    return std::abs(local_x) <= position_tolerance &&
+           std::abs(local_y) <= position_tolerance &&
+           std::abs(normalizeAngle(goal.yaw - robot.yaw)) > yaw_tolerance;
+  }
+
+  const double desired_arc = std::min(
+    progress_m_ + config_.lookahead_distance_m, cumulative_lengths_[gate_index_]);
+  const Pose2d lookahead = sampleAt(desired_arc);
+  const double target_dx = lookahead.x - robot.x;
+  const double target_dy = lookahead.y - robot.y;
+  const double target_distance = std::hypot(target_dx, target_dy);
+  double target_heading = target_distance > 0.03 ?
+    std::atan2(target_dy, target_dx) : tangentYawAt(desired_arc);
+  if (task_.reverse_motion) {
+    target_heading = normalizeAngle(target_heading + kPi);
+  }
+  return std::abs(normalizeAngle(target_heading - robot.yaw)) >=
+         config_.stop_translation_yaw_error_rad;
+}
+
 double RouteTracker::tangentYawAt(const double arc_length) const
 {
   if (task_.waypoints.size() < 2U) {
@@ -379,10 +425,13 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
   const double cosine = std::cos(robot.yaw);
   const double sine = std::sin(robot.yaw);
   const double local_x = cosine * target_dx + sine * target_dy;
-  const double local_y = -sine * target_dx + cosine * target_dy;
   VelocityCommand desired;
   desired.vx = longitudinal_pid_.update(local_x, dt);
-  desired.vy = lateral_pid_.update(local_y, dt);
+  // During ordinary route tracking the Go2 should steer into the path with
+  // yaw instead of translating sideways.  Lateral motion is intentionally
+  // reserved for the low-speed final adjustment branch above, where it is
+  // needed to converge precisely to the route goal without another approach.
+  desired.vy = 0.0;
   desired.wz = yaw_pid_.update(output.yaw_error_rad, dt);
 
   const double yaw_abs = std::abs(output.yaw_error_rad);

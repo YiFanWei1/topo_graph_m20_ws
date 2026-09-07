@@ -78,6 +78,23 @@ TEST(RouteTracker, OrdinaryIntermediatePointDoesNotBecomeGoal)
   EXPECT_GT(output.lookahead.x, 1.0);
 }
 
+TEST(RouteTracker, OrdinaryTrackingDoesNotCommandLateralMotion)
+{
+  RouteTracker tracker(fastTestConfig());
+  TrackingTask task;
+  task.endpoint_tolerance_m = 0.1;
+  task.maximum_speed_mps = 0.8;
+  task.waypoints = {
+    Waypoint{1, 0.0, 1.0, 0.0, false, 0.45},
+    Waypoint{2, 4.0, 1.0, 0.0, false, 0.45}};
+  tracker.setTask(task);
+
+  const auto tracking = tracker.update(Pose2d{0.0, 0.0, 0.0}, 0.02);
+  EXPECT_FALSE(tracking.adjusting);
+  EXPECT_DOUBLE_EQ(tracking.command.vy, 0.0);
+  EXPECT_GT(tracking.command.wz, 0.0);
+}
+
 TEST(RouteTracker, GoalCanRequireFinalYawAlignment)
 {
   RouteTracker tracker(fastTestConfig());
@@ -204,6 +221,20 @@ TEST(RouteTracker, SamplesRemainingPathAtCollisionResolution)
   EXPECT_NEAR(samples.front().x, 0.45, 1.0e-9);
   EXPECT_NEAR(samples[1].x, 0.85, 1.0e-9);
   EXPECT_NEAR(samples.back().x, 2.0, 1.0e-9);
+}
+
+TEST(RouteTracker, DetectsOnlyYawStoppedTrackingAsInPlaceRotation)
+{
+  RouteTracker tracker(fastTestConfig());
+  TrackingTask task;
+  task.waypoints = {
+    Waypoint{1, 0.0, 0.0, 0.0, false, 0.45},
+    Waypoint{2, 2.0, 0.0, 0.0, false, 0.45}};
+  tracker.setTask(task);
+
+  EXPECT_FALSE(tracker.requiresInPlaceRotation(Pose2d{0.0, 0.0, 0.0}));
+  EXPECT_TRUE(tracker.requiresInPlaceRotation(
+    Pose2d{0.0, 0.0, 3.14159265358979323846 / 2.0}));
 }
 
 TEST(ElevationCollisionChecker, FlatOrEmptyMapIsSafe)

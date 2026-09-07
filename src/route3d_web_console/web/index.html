@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Route3D 机器人控制台</title>
+  <style>.step-help{margin:0 0 8px;color:#78929e;font-size:11px;line-height:1.55}</style>
+  <script type="module" crossorigin src="/assets/index-hqJyE32f.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Bg9QiEcz.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="brand-mark">R3</span><div><b>Route3D</b><small>定位 · 拓扑 · 规划控制</small></div></div>
+    <div class="header-status"><span id="wsLamp" class="lamp"></span><span id="wsText">正在连接</span><button id="claimControl">取得控制权</button></div>
+  </header>
+  <main>
+    <aside class="workflow">
+      <h2>运行流程</h2>
+      <section class="step" data-step="1"><div class="step-title"><b>01</b> 雷达服务</div><div class="row"><button data-start="radar">启动</button><button class="secondary" data-stop="radar">停止</button><span id="radarState" class="badge">未运行</span></div></section>
+      <section class="step" data-step="2"><div class="step-title"><b>02</b> 地图与定位</div><label>定位 PCD<select id="mapSelect"><option value="">请选择定位地图</option></select></label><div class="row"><button id="selectMap">加载 PCD</button><button id="refreshMaps" class="secondary">刷新</button></div><div class="row"><button data-start="localization">启动定位</button><button class="secondary" data-stop="localization">停止</button><span id="localizationState" class="badge">未运行</span></div><button id="initialPoseMode" class="wide secondary">在地图上拖动设置初始位姿</button></section>
+      <section class="step" data-step="3"><div class="step-title"><b>03</b> 自动打点</div><p class="step-help">启动后用遥控器完整走过路线；网页实时显示去重拓扑、闭环、拐点和坡点。</p><div class="row"><button id="startRecording">开始记录（1）</button><button id="abortRecording" class="danger">放弃</button><span id="recordingState" class="badge">未运行</span></div><label>保存名称<input id="recordingName" maxlength="80" placeholder="例如 building_a_v1" /></label><button id="stopRecording" class="wide">停止、处理并保存（2）</button></section>
+      <section class="step" data-step="4"><div class="step-title"><b>04</b> 拓扑选择与编辑</div><label>当前 PCD 绑定的拓扑图<select id="topologySelect"><option value="">请选择拓扑图</option></select></label><button id="selectTopology" class="wide">加载拓扑</button><div class="tool-grid"><button data-tool="select" class="active">选择</button><button data-tool="vertex">地图加点</button><button data-tool="robotVertex">当前位置加点</button><button data-tool="edge">连接边</button></div><div class="row"><button id="undo" class="secondary">撤销</button><button id="redo" class="secondary">重做</button><button id="saveTopology">保存拓扑</button></div><small id="dirtyState">未修改</small></section>
+      <section class="step" data-step="5"><div class="step-title"><b>05</b> 规划控制</div><label class="toggle"><input id="enableMotion" type="checkbox" />实机运动（默认关闭）</label><div class="row"><button data-start="planner">启动控制链</button><button class="secondary" data-stop="planner">停止</button><span id="plannerState" class="badge">未运行</span></div><div class="route-ids"><label>起点<input id="startId" type="number" min="1" /></label><span>→</span><label>终点<input id="goalId" type="number" min="1" /></label></div><button id="planRoute" class="wide">规划并执行</button><div class="row"><button id="pause" class="secondary">暂停</button><button id="resume" class="secondary">恢复</button><button id="cancel" class="danger">取消</button></div></section>
+    </aside>
+
+    <section class="viewport-wrap">
+      <div id="viewport"></div>
+      <div class="scene-tools"><label><input id="showMap" type="checkbox" checked />地图</label><label><input id="showLive" type="checkbox" checked />实时点云</label><label><input id="showTopo" type="checkbox" checked />拓扑</label><label><input id="showPreview" type="checkbox" checked />打点预览</label><label><input id="showTrack" type="checkbox" checked />轨迹</label><button id="followRobot" class="icon" title="跟随机器人中心（快捷键 F）" aria-pressed="false">跟随机器人</button><button id="fitView" class="icon">适配视图</button></div>
+      <div id="hint" class="hint">左键选择，右键旋转，滚轮缩放</div>
+      <div class="telemetry"><div><span>位置 X</span><b id="poseX">--</b></div><div><span>位置 Y</span><b id="poseY">--</b></div><div><span>航向</span><b id="poseYaw">--</b></div><div><span>控制器</span><b id="controller">none</b></div><div><span>速度</span><b id="velocity">0.00</b></div></div>
+    </section>
+
+    <aside class="inspector">
+      <h2>属性</h2>
+      <div id="emptyInspector" class="empty">选择一个拓扑点或边进行编辑</div>
+      <form id="vertexForm" hidden>
+        <h3>顶点 <span id="vertexId"></span></h3>
+        <div class="three"><label>X<input name="x" type="number" step="0.01" /></label><label>Y<input name="y" type="number" step="0.01" /></label><label>Z<input name="z" type="number" step="0.01" /></label></div>
+        <div class="three"><label>Roll<input name="roll" type="number" step="0.01" /></label><label>Pitch<input name="pitch" type="number" step="0.01" /></label><label>Yaw<input name="yaw" type="number" step="0.01" /></label></div>
+        <div class="two"><label>到点精度<input name="acc" type="number" min="0.01" step="0.01" /></label><label>通过半径<input name="passRadiusM" type="number" min="0.01" step="0.01" /></label></div>
+        <label class="toggle"><input name="isCorner" type="checkbox" />拐点</label><label class="toggle"><input name="isSlope" type="checkbox" />坡点</label><label class="toggle"><input name="isJunction" type="checkbox" />交汇点</label><label class="toggle"><input name="mustPassThrough" type="checkbox" />必须经过</label><label class="toggle"><input name="alignFinalYaw" type="checkbox" />终点对齐航向</label><label class="toggle"><input name="turnable" type="checkbox" />允许转向</label>
+        <button type="submit">应用修改</button><button id="deleteVertex" type="button" class="danger wide">删除点及关联边</button>
+      </form>
+      <form id="edgeForm" hidden>
+        <h3>边 <span id="edgeId"></span></h3>
+        <div class="two"><label>端点 A<input name="v0" type="number" readonly /></label><label>端点 B<input name="v1" type="number" readonly /></label></div>
+        <label>方向<select name="dir"><option value="0">双向</option><option value="1">A → B</option><option value="2">B → A</option></select></label>
+        <label>控制器<select name="controllerMode"><option value="auto">自动</option><option value="pid">PID</option><option value="efficient_3d_local_planner">Efficient 3D</option></select></label>
+        <div class="two"><label>线速度 m/s<input name="linearSpeedMps" type="number" step="0.05" min="0" /></label><label>角速度 rad/s<input name="angularSpeedRadps" type="number" step="0.05" min="0" /></label></div>
+        <div class="two"><label>步态编号<input name="locomotionMode" type="number" /></label><label>障碍模式<input name="obstacleMode" type="number" /></label></div>
+        <label>车身高度补偿 m<input name="heightOffsetM" type="number" step="0.01" /></label><label class="toggle"><input name="rotationAllowed" type="checkbox" />允许转向</label>
+        <button type="submit">应用修改</button><button id="deleteEdge" type="button" class="danger wide">删除边</button>
+      </form>
+      <div class="status-panel"><h3>系统状态</h3><pre id="statusJson">等待数据…</pre></div>
+    </aside>
+  </main>
+  <footer><b>运行日志</b><button id="clearLog" class="secondary">清空</button><div id="logs"></div></footer>
+  <div id="toast"></div>
+</body>
+</html>

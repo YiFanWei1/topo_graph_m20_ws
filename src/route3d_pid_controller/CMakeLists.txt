@@ -32,7 +32,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 add_library(route3d_pid_controller_core STATIC
   src/controller_core.cpp
-  src/elevation_collision_checker.cpp)
+  src/elevation_collision_checker.cpp
+  src/safety_clear_gate.cpp
+  src/timestamped_pose_buffer.cpp)
 set_target_properties(route3d_pid_controller_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(route3d_pid_controller_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -66,6 +68,10 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_controller_core test/test_controller_core.cpp)
   target_link_libraries(test_controller_core route3d_pid_controller_core)
+  ament_add_gtest(test_safety_clear_gate test/test_safety_clear_gate.cpp)
+  target_link_libraries(test_safety_clear_gate route3d_pid_controller_core)
+  ament_add_gtest(test_timestamped_pose_buffer test/test_timestamped_pose_buffer.cpp)
+  target_link_libraries(test_timestamped_pose_buffer route3d_pid_controller_core)
 endif()
 
 ament_export_include_directories(include)

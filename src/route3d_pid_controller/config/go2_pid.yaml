@@ -21,6 +21,10 @@ route3d_pid_controller:
     topics.gait_acknowledged: /route3d_pid_controller/gait_acknowledged
 
     safety.odometry_timeout_s: 0.30
+    # Keep the robot stopped until every safety condition has remained clear
+    # continuously for this long. This prevents obstacle-cloud flicker from
+    # repeatedly issuing StopMove and gait-switch SDK requests.
+    safety.clear_hold_s: 3.0
     # Same final protection as the reference: obs=3 suppresses ordinary
     # obstacles, but collision level >=100 always stops.
     safety.emergency_collision_level_threshold: 100
@@ -31,6 +35,10 @@ route3d_pid_controller:
     obstacle.enabled: true
     obstacle.stop_on_cloud_timeout: true
     obstacle.cloud_timeout_s: 0.50
+    # Match each body-frame cloud to interpolated odometry at its own stamp.
+    # A cloud without a sufficiently close pose is rejected instead of being
+    # checked against the robot's newer pose during rotation.
+    obstacle.cloud_pose_sync_tolerance_s: 0.15
     obstacle.elevation.resolution_m: 0.10
     obstacle.elevation.width_m: 4.0
     obstacle.elevation.default_ground_height_m: -0.40
@@ -44,12 +52,16 @@ route3d_pid_controller:
     obstacle.elevation.body_exclusion.max_y: 0.25
     # Go2 warning range and sample resolution from the reference configuration.
     obstacle.trajectory.footprint.min_x: 0.05
-    obstacle.trajectory.footprint.max_x: 0.60
+    obstacle.trajectory.footprint.max_x: 0.30
     obstacle.trajectory.footprint.min_y: -0.25
     obstacle.trajectory.footprint.max_y: 0.24
     obstacle.trajectory.footprint.samples_x: 5
     obstacle.trajectory.footprint.samples_y: 5
     obstacle.trajectory.footprint.lateral_inset_m: 0.13
+    # When PID intentionally stops translation to rotate in place, shorten only
+    # the footprint at the current robot pose (0.30 m -> 0.10 m). Route-ahead
+    # collision footprints keep the full normal range.
+    obstacle.rotation.footprint_forward_scale: 0.3333333333333333
     # Reference obstacleMode=0 path check: check_collision(15, 0.4).
     obstacle.trajectory.maximum_samples: 15
     obstacle.trajectory.spacing_m: 0.40
@@ -71,7 +83,6 @@ route3d_pid_controller:
     tracking.full_speed_yaw_error_rad: 0.17
     tracking.stop_translation_yaw_error_rad: 1.05
     tracking.projection_backtrack_m: 0.10
-
     # Reference Go2 terminal ADJUSTMENT phase: enter at 0.30 m, retain vx/vy/wz,
     # and use low-speed limits while converging to the final pose.
     adjustment.entry_distance_m: 0.30

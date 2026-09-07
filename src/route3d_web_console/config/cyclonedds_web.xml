@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  DDS profile private to the web-managed process tree.
+
+  Loopback keeps the high-bandwidth mapping traffic local. enp2s0 is also present so
+  CycloneDDS control nodes can discover the Fast DDS Go2 adapter, while the Unitree SDK
+  continues to own its separate domain-0 participant on the robot interface.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="lo" priority="20" multicast="true"/>
+        <NetworkInterface name="enp2s0" priority="10" multicast="true"/>
+      </Interfaces>
+      <AllowMulticast>spdp</AllowMulticast>
+      <MaxMessageSize>60000B</MaxMessageSize>
+      <FragmentSize>60000B</FragmentSize>
+    </General>
+    <Internal>
+      <SocketReceiveBufferSize min="16MiB" max="100MiB"/>
+      <SocketSendBufferSize min="8MiB" max="32MiB"/>
+      <Watermarks>
+        <WhcLow>1MiB</WhcLow>
+        <WhcHighInit>16MiB</WhcHighInit>
+        <WhcHigh>64MiB</WhcHigh>
+        <WhcAdaptive>true</WhcAdaptive>
+      </Watermarks>
+    </Internal>
+    <SharedMemory>
+      <Enable>false</Enable>
+    </SharedMemory>
+  </Domain>
+</CycloneDDS>

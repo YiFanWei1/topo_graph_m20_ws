@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "maps": [
+    {
+      "id": "510",
+      "label": "510",
+      "pcd_path": "/home/langyi/workspace/map/510/map/510.pcd",
+      "localization_config_template": "/opt/mapping_ws/glio_mapping/510.yaml",
+      "frame_id": "camera_init",
+      "topologies": [
+        {
+          "id": "building_a_v1",
+          "label": "building_a_v1",
+          "path": "/home/langyi/workspace/wyf/topo_graph_ws/data/building_a_v1/topoGraph_data.json",
+          "enabled": true
+        }
+      ],
+      "default_topology_id": "building_a_v1",
+      "enabled": true
+    },
+    {
+      "id": "silou180",
+      "label": "四楼 180",
+      "pcd_path": "/home/langyi/workspace/map/silou180/map/silou180.pcd",
+      "localization_config_template": "/opt/mapping_ws/glio_mapping/mid360_loc.yaml",
+      "frame_id": "camera_init",
+      "topologies": [
+        {
+          "id": "regu",
+          "label": "regu",
+          "path": "/home/langyi/workspace/wyf/topo_graph_ws/data/regu/topoGraph_data.json",
+          "enabled": true
+        }
+      ],
+      "default_topology_id": "regu",
+      "enabled": true
+    }
+  ]
+}

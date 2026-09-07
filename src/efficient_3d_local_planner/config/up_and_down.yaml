@@ -50,7 +50,7 @@ target_route_sequencer:
     profile.slope.soft_radius: 0.20            # 坡点缩小 Soft 范围，单位 m
     profile.planner_node: /corridor_astar_planner
     profile.mapper_node: /local_voxel_mapper
-    profile.extension_node: /obstacle_occlusion_extension
+    profile.extension_node: /obstacle_occlusion_extension   
 
 local_voxel_mapper:
   ros__parameters:

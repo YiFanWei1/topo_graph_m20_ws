@@ -1,0 +1,72 @@
+route3d_web_console:
+  ros__parameters:
+    server.bind_address: "0.0.0.0"
+    server.port: 8080
+    server.control_lease_timeout_s: 3.0
+    server.static_root: ""
+
+    runtime.catalog_file: "~/.ros/route3d_web_console/map_catalog.json"
+    runtime.cache_directory: "~/.ros/route3d_web_console/cache"
+    runtime.log_lines: 300
+    maps.allowed_roots:
+      - "/home/langyi/workspace/map"
+      - "/home/langyi/workspace/wyf/topo_graph_ws/data"
+    maps.allowed_localization_roots:
+      - "/opt/mapping_ws/glio_mapping"
+
+    topics.raw_cloud: "/livox/lidar"
+    topics.registered_cloud: "/cloud_registered"
+    # GLIO localization waits for a global-map subscriber.  RViz normally supplies it;
+    # the headless web workflow supplies it from route3d_web_console instead.
+    topics.global_map: "/global_map"
+    topics.odometry: "/lio_odom_hf"
+    topics.initial_pose: "/initialpose"
+    topics.plan_request: "/route3d_dijkstra/plan_request"
+    topics.dijkstra_status: "/route3d_dijkstra/status"
+    topics.slicer_status: "/route3d_route_slicer/status"
+    topics.pid_status: "/route3d_pid_controller/status"
+    topics.active_controller: "/route3d_controller/active_source"
+    topics.adapter_status: "/route3d_go2_adapter/status"
+    topics.selected_command: "/route3d_go2_adapter/selected_command"
+
+    services.pause: "/route3d_pid_controller/pause"
+    services.resume: "/route3d_pid_controller/resume"
+    services.cancel: "/route3d_pid_controller/cancel"
+
+    cloud.voxel_size_m: 0.12
+    cloud.maximum_range_m: 20.0
+    cloud.maximum_points: 20000
+    cloud.maximum_rate_hz: 5.0
+    # Prefer the globally registered cloud. Raw lidar is shown only before localization
+    # starts or when registered output has been absent for this long.
+    cloud.registered_fallback_timeout_s: 1.0
+    # The first level is streamed immediately after map selection.  Keep 0.20 m as the
+    # default for large multi-million-point maps; 0.10 m remains an optional fine layer.
+    cloud.map_lod_voxels_m: [0.20, 0.40, 0.10]
+    cloud.map_chunk_points: 32768
+
+    localization.odometry_freshness_s: 0.75
+    # RViz's successful 2D-pose workflow publishes initial poses in the map frame.
+    localization.initial_pose_frame_id: "map"
+    localization.initial_pose_z: 0.0
+    localization.xy_variance: 0.25
+    localization.yaw_variance: 0.0685
+
+    process.ros_setup: "/opt/ros/jazzy/setup.bash"
+    process.workspace_setup: "/home/langyi/workspace/wyf/topo_graph_ws/install/setup.bash"
+    process.radar_command: "/opt/mapping_ws/run_driver_nodes.sh lidar:=mid360 mode:=qianxun"
+    # Load the mapping overlay and the directory containing the localization binary's
+    # private libglio_mapping_localization.so before starting localization.
+    process.localization_command: "source /opt/mapping_ws/install/setup.bash; export LD_LIBRARY_PATH=/opt/mapping_ws/glio_mapping:$LD_LIBRARY_PATH; tf_pid=''; cleanup_tf() { if [ -n \"$tf_pid\" ]; then kill \"$tf_pid\" 2>/dev/null || true; wait \"$tf_pid\" 2>/dev/null || true; fi; }; trap 'cleanup_tf; exit 130' INT TERM; trap cleanup_tf EXIT; ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 map camera_init & tf_pid=$!; /opt/mapping_ws/glio_mapping/localization_node {localization_config}"
+    process.planner_command: "ros2 launch route3d_go2_adapter go2_pid_route.launch.xml graph_file:={graph_file} network_interface:={network_interface} enable_motion:={enable_motion} use_sim_time:=false launch_rviz:=false"
+    # Keep the established two-key product workflow. `script` allocates the terminal that
+    # route3d_live_keyboard requires; the web backend writes the same 1/2/name/q inputs.
+    process.topology_record_command: "script -q -e -c 'ros2 launch route3d_product_demo live_route_product.launch.py config_file:={record_config}' /dev/null"
+    topology.record_config_template: "/home/langyi/workspace/wyf/topo_graph_ws/src/route3d_product_demo/config/live_route_product.yaml"
+    # Current GLIO publishes /lio_odom about 0.10 s before /cloud_registered_body.
+    # The original 0.05 s approximate-sync window retained only one frame in the failed run.
+    topology.record_sync_slop_s: 0.15
+    topology.record_results_root: "/home/langyi/workspace/wyf/topo_graph_ws/data"
+    process.network_interface: "enp2s0"
+    process.ros_domain_id: 42
+    process.stop_timeout_s: 5.0
