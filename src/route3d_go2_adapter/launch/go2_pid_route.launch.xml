@@ -12,7 +12,10 @@
   <arg name="enable_motion" default="false"/>
   <arg name="start_efficient_planner" default="true"/>
   <arg name="publish_static_tf" default="true"/>
+  <arg name="gait_pre_switch_stop_delay_s" default="1.0"/>
   <arg name="gait_settle_time_s" default="2.0"/>
+  <arg name="start_snap_radius_m" default="1.0"/>
+  <arg name="odometry_body_height_m" default="0.40"/>
   <arg name="launch_rviz" default="true"/>
   <arg name="use_sim_time" default="false"/>
 
@@ -21,6 +24,8 @@
     <arg name="pid_config" value="$(var pid_config)"/>
     <arg name="launch_rviz" value="$(var launch_rviz)"/>
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="start_snap_radius_m" value="$(var start_snap_radius_m)"/>
+    <arg name="odometry_body_height_m" value="$(var odometry_body_height_m)"/>
   </include>
 
   <group if="$(var publish_static_tf)">
@@ -83,6 +88,7 @@
     <param from="$(var adapter_config)"/>
     <param name="network_interface" value="$(var network_interface)"/>
     <param name="enable_motion" value="$(var enable_motion)"/>
+    <param name="gait.pre_switch_stop_delay_s" value="$(var gait_pre_switch_stop_delay_s)"/>
     <param name="gait.settle_time_s" value="$(var gait_settle_time_s)"/>
   </node>
 </launch>

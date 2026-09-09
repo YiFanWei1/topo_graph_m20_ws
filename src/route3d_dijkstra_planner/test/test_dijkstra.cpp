@@ -1,6 +1,8 @@
 #include "route3d_dijkstra_planner/topology_graph.hpp"
 
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -77,6 +79,23 @@ TEST(Dijkstra, ReportsDisconnectedAndUnknownVertices)
     EXPECT_EQ(error.expandedVertices(), 20U);
   }
   EXPECT_THROW(dijkstraShortestPath(graph, 999, 1), std::invalid_argument);
+}
+
+TEST(NearestVertex, UsesThreeDimensionalDistance)
+{
+  const auto graph = loadTestGraph();
+  const auto nearest = nearestVertex(graph, Point3{0.20, 0.10, 0.05});
+  ASSERT_TRUE(nearest.has_value());
+  EXPECT_EQ(nearest->vertex_id, 1);
+  EXPECT_NEAR(nearest->distance_m, std::sqrt(0.0525), 1.0e-9);
+}
+
+TEST(NearestVertex, RejectsNonFinitePosition)
+{
+  const auto graph = loadTestGraph();
+  EXPECT_THROW(
+    nearestVertex(graph, Point3{std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0}),
+    std::invalid_argument);
 }
 
 }  // namespace

@@ -156,7 +156,8 @@ jq '{schema, frame_id, vertex_count:(.vertices|length), edge_count:(.edges|lengt
 
 - RViz 中闭环、分支和节点编号是否符合实际路线；
 - `processing_summary.json` 中离线结果以及在线/离线一致性；
-- 起点和终点编号；当前规划接口接收明确的 `[起点ID, 终点ID]`，尚未自动选择机器人最近点；
+- 起点和终点编号；可使用 `[起点ID, 终点ID]` 原接口，或仅发送终点并从当前定位匹配
+  1 m 内最近拓扑点作为起点；
 - 坡点、拐点和交汇点标记是否合理。
 
 ### 4. 用 regu bag 检查完整双控制器流程（不连接底盘）

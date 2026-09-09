@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <mutex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -22,6 +21,7 @@
 #include <nlohmann/json.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -88,12 +88,19 @@ public:
   {
     request_topic_ = declare_parameter<std::string>(
       "topics.request", "/route3d_dijkstra/plan_request");
+    goal_request_topic_ = declare_parameter<std::string>(
+      "topics.goal_request", "/route3d_dijkstra/goal_request");
     const auto odometry_topic = declare_parameter<std::string>(
       "topics.odometry", "/lio_odom_hf");
     start_snap_radius_m_ = declare_parameter<double>(
       "request.start_snap_radius_m", 1.0);
     if (!std::isfinite(start_snap_radius_m_) || start_snap_radius_m_ < 0.0) {
       throw std::runtime_error("request.start_snap_radius_m must be finite and non-negative");
+    }
+    odometry_body_height_m_ = declare_parameter<double>("request.odometry_body_height_m", 0.40);
+    if (!std::isfinite(odometry_body_height_m_) || odometry_body_height_m_ < 0.0) {
+      throw std::runtime_error(
+              "request.odometry_body_height_m must be finite and non-negative");
     }
     const auto path_topic = declare_parameter<std::string>(
       "topics.path", "/route3d_dijkstra/path");
@@ -131,6 +138,9 @@ public:
     request_subscription_ = create_subscription<std_msgs::msg::Int32MultiArray>(
       request_topic_, rclcpp::QoS(10).reliable(),
       std::bind(&DijkstraPlannerNode::requestCallback, this, std::placeholders::_1));
+    goal_request_subscription_ = create_subscription<std_msgs::msg::Int32>(
+      goal_request_topic_, rclcpp::QoS(10).reliable(),
+      std::bind(&DijkstraPlannerNode::goalRequestCallback, this, std::placeholders::_1));
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
       odometry_topic, rclcpp::SensorDataQoS().keep_last(10),
       std::bind(&DijkstraPlannerNode::odometryCallback, this, std::placeholders::_1));
@@ -139,9 +149,10 @@ public:
     RCLCPP_INFO(
       get_logger(),
       "loaded Route3D Topology Schema V2: file=%s frame=%s sceneMode=%s "
-      "vertices=%zu edges=%zu request_topic=%s implementation=C++",
+      "vertices=%zu edges=%zu request_topic=%s goal_request_topic=%s implementation=C++",
       graph_file_.c_str(), graph_.frameId().c_str(), graph_.sceneMode().c_str(),
-      graph_.vertices().size(), graph_.edges().size(), request_topic_.c_str());
+      graph_.vertices().size(), graph_.edges().size(), request_topic_.c_str(),
+      goal_request_topic_.c_str());
     if (display_vertex_ids_.size() < graph_.vertices().size() ||
       display_edge_ids_.size() < graph_.edges().size() ||
       display_label_ids_.size() < display_vertex_ids_.size())
@@ -177,33 +188,67 @@ private:
 
   void requestCallback(const std_msgs::msg::Int32MultiArray::SharedPtr message)
   {
-    if (message->data.empty()) {
+    request_mode_ = "start_goal";
+    start_snap_distance_m_.reset();
+    if (message->data.size() != 2U) {
       publishFailure(
         std::nullopt, std::nullopt,
-        "request data must contain one or two vertex ids", 0, 0U);
+        "plan_request data must contain exactly [start_id, goal_id]", 0, 0U);
       return;
     }
-    if (message->data.size() > 2U) {
+    plan(message->data[0], message->data[1]);
+  }
+
+  void goalRequestCallback(const std_msgs::msg::Int32::SharedPtr message)
+  {
+    request_mode_ = "goal_only";
+    start_snap_distance_m_.reset();
+    if (!has_odometry_) {
       publishFailure(
-        std::nullopt, std::nullopt,
-        "request data must contain one or two vertex ids", 0, 0U);
+        std::nullopt, message->data,
+        "goal-only request rejected: no odometry has been received", 0, 0U);
       return;
     }
-
-    VertexId start_id{};
-    VertexId goal_id{};
-    if (message->data.size() == 1U) {
-      goal_id = message->data[0];
-      if (!resolveStartFromCurrentPose(goal_id, start_id)) {
-        publishFailure(std::nullopt, goal_id,
-          "no nearby start node found within request.start_snap_radius_m", 0, 0U);
-        return;
-      }
-    } else {
-      start_id = message->data[0];
-      goal_id = message->data[1];
+    const auto nearest = nearestVertex(graph_, current_ground_position_);
+    if (!nearest) {
+      publishFailure(
+        std::nullopt, message->data,
+        "goal-only request rejected: topology has no vertices", 0, 0U);
+      return;
     }
+    start_snap_distance_m_ = nearest->distance_m;
+    if (nearest->distance_m > start_snap_radius_m_) {
+      std::ostringstream error;
+      error << "goal-only request rejected: nearest vertex " << nearest->vertex_id <<
+        " is " << nearest->distance_m << " m away, exceeding " <<
+        start_snap_radius_m_ << " m";
+      publishFailure(std::nullopt, message->data, error.str(), 0, 0U);
+      return;
+    }
+    RCLCPP_INFO(
+      get_logger(),
+      "Goal-only request resolved start=%d at distance=%.3f m (limit=%.3f m), goal=%d",
+      nearest->vertex_id, nearest->distance_m, start_snap_radius_m_, message->data);
+    plan(nearest->vertex_id, message->data);
+  }
 
+  void odometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr message)
+  {
+    const auto & position = message->pose.pose.position;
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+      !std::isfinite(position.z))
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000, "Ignoring non-finite odometry position");
+      return;
+    }
+    current_ground_position_ = {
+      position.x, position.y, position.z - odometry_body_height_m_};
+    has_odometry_ = true;
+  }
+
+  void plan(const VertexId start_id, const VertexId goal_id)
+  {
     const auto begin = Clock::now();
     try {
       const auto result = dijkstraShortestPath(graph_, start_id, goal_id);
@@ -230,6 +275,7 @@ private:
     }
     nlohmann::json status = {
       {"success", true}, {"algorithm", "dijkstra"}, {"implementation", "cpp"},
+      {"request_mode", request_mode_},
       {"schema", {{"name", "route3d_topology"}, {"version", 2}}},
       {"start_id", start_id}, {"goal_id", goal_id},
       {"vertex_ids", result.vertex_ids}, {"edge_ids", result.edge_ids},
@@ -238,6 +284,10 @@ private:
       {"relaxed_edges", result.relaxed_edges},
       {"planning_time_ns", elapsed_ns},
       {"planning_time_ms", static_cast<double>(elapsed_ns) / 1.0e6}};
+    if (start_snap_distance_m_) {
+      status["start_snap_distance_m"] = *start_snap_distance_m_;
+      status["start_snap_radius_m"] = start_snap_radius_m_;
+    }
     publishStatus(status);
     RCLCPP_INFO(
       get_logger(),
@@ -257,12 +307,17 @@ private:
     publishOutputs(std::nullopt);
     nlohmann::json status = {
       {"success", false}, {"algorithm", "dijkstra"}, {"implementation", "cpp"},
+      {"request_mode", request_mode_},
       {"schema", {{"name", "route3d_topology"}, {"version", 2}}},
       {"start_id", start_id ? nlohmann::json(*start_id) : nlohmann::json(nullptr)},
       {"goal_id", goal_id ? nlohmann::json(*goal_id) : nlohmann::json(nullptr)},
       {"error", error}, {"expanded_vertices", expanded_vertices},
       {"planning_time_ns", elapsed_ns},
       {"planning_time_ms", static_cast<double>(elapsed_ns) / 1.0e6}};
+    if (start_snap_distance_m_) {
+      status["start_snap_distance_m"] = *start_snap_distance_m_;
+      status["start_snap_radius_m"] = start_snap_radius_m_;
+    }
     publishStatus(status);
     RCLCPP_WARN(
       get_logger(),
@@ -459,7 +514,14 @@ private:
 
   std::string graph_file_;
   std::string request_topic_;
+  std::string goal_request_topic_;
   TopologyGraph graph_;
+  double start_snap_radius_m_{1.0};
+  double odometry_body_height_m_{0.40};
+  bool has_odometry_{false};
+  Point3 current_ground_position_{};
+  std::string request_mode_{"start_goal"};
+  std::optional<double> start_snap_distance_m_;
   double marker_z_offset_{0.12};
   bool show_labels_{true};
   std::vector<VertexId> display_vertex_ids_;
@@ -472,6 +534,8 @@ private:
   rclcpp::Publisher<MarkerArray>::SharedPtr marker_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_publisher_;
   rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr request_subscription_;
+  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr goal_request_subscription_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
 };
 
 }  // namespace route3d_dijkstra_planner

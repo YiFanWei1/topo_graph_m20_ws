@@ -32,6 +32,25 @@ def test_unrelated_plan_status_is_ignored():
     assert logic.phase is Phase.WAITING_PLAN
 
 
+def test_goal_only_plan_accepts_and_records_resolved_start():
+    logic = PatrolCoordinator(1, 9)
+    logic.start()
+    logic.request_pair(3)
+    assert logic.observe_plan(
+        True, 4, 9, allow_resolved_start=True) is Event.PLAN_ACCEPTED
+    assert logic.current_pair() == (4, 9)
+
+
+def test_goal_only_failure_does_not_require_resolved_start():
+    logic = PatrolCoordinator(1, 9)
+    logic.start()
+    logic.request_pair(3)
+    assert logic.observe_plan(
+        False, None, 9, 'nearest vertex is too far',
+        allow_resolved_start=True) is Event.ERROR
+    assert logic.error == 'nearest vertex is too far'
+
+
 def test_unrelated_sliced_route_cannot_supply_arrival_sequence():
     logic = PatrolCoordinator(1, 9)
     logic.start()

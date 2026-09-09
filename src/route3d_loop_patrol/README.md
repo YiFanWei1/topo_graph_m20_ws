@@ -10,6 +10,8 @@
 编辑 `config/loop_patrol.yaml`：
 
 - `patrol.start_vertex_id`、`patrol.goal_vertex_id`：往返端点。
+- `patrol.request_mode`：`start_goal` 使用原有双 ID 请求；`goal_only` 每程只发送终点，
+  由规划器根据当前位置重新匹配起点。
 - `patrol.dwell_time_s`：明确到达后，在端点停留的秒数。
 - `patrol.max_round_trips`：`0` 表示无限循环。
 - `patrol.auto_start`：启动节点后是否自动开始。

@@ -21,6 +21,8 @@ route3d_go2_adapter:
     command.maximum_vy_mps: 0.40
     command.maximum_wz_radps: 1.20
 
+    # StopMove 返回成功后先留出机械停稳时间，再调用步态切换接口。
+    gait.pre_switch_stop_delay_s: 1.0
     gait.settle_time_s: 2.0
     gait.transition_timeout_s: 8.0
     # A non-zero StaticWalk/SwitchGait SDK return may be transient while

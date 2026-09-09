@@ -1,25 +1,20 @@
 route3d_loop_patrol:
   ros__parameters:
     patrol:
-      # 在这里修改循环测试的两个拓扑点编号。
+      # 循环发送终点；每次起点由机器人当前位置在 1 m 内自动匹配。
       start_vertex_id: 4
       goal_vertex_id: 11
       initial_direction: start_to_goal
-      # start_goal 保持原有 [起点, 终点] 接口。
-      request_mode: start_goal
+      request_mode: goal_only
       auto_start: true
-      # 启动时若已有路线在执行，等待它明确结束，不覆盖当前任务。
       wait_for_idle_before_first_request: true
       startup_delay_s: 3.0
-      # 收到同一条路线明确 FINISHED 后，在端点停留的时间。
       dwell_time_s: 2.0
-      # 0 表示无限循环；N 表示完成 N 个往返后停止。
       max_round_trips: 0
 
     timeouts:
       plan_response_s: 10.0
       route_activation_s: 10.0
-      # 0 表示不设到达超时；没有 FINISHED 时绝不发送反向任务。
       arrival_s: 0.0
 
     topics:

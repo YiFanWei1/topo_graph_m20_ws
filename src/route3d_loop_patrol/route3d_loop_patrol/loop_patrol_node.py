@@ -8,7 +8,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from route3d_route_slicer.msg import RouteTaskArray
-from std_msgs.msg import Int32MultiArray, String
+from std_msgs.msg import Int32, Int32MultiArray, String
 from std_srvs.srv import Trigger
 
 from route3d_loop_patrol.patrol_logic import Event, PatrolCoordinator, Phase
@@ -32,6 +32,10 @@ class LoopPatrolNode(Node):
             'patrol.initial_direction', 'start_to_goal').value
         max_round_trips = self.declare_parameter('patrol.max_round_trips', 0).value
         self.auto_start = self.declare_parameter('patrol.auto_start', True).value
+        self.request_mode = str(self.declare_parameter(
+            'patrol.request_mode', 'start_goal').value)
+        if self.request_mode not in ('start_goal', 'goal_only'):
+            raise ValueError("patrol.request_mode must be 'start_goal' or 'goal_only'")
         self.wait_for_idle_before_first_request = self.declare_parameter(
             'patrol.wait_for_idle_before_first_request', True).value
         self.startup_delay_s = self.declare_parameter('patrol.startup_delay_s', 3.0).value
@@ -41,6 +45,8 @@ class LoopPatrolNode(Node):
         self.arrival_timeout_s = self.declare_parameter('timeouts.arrival_s', 0.0).value
         request_topic = self.declare_parameter(
             'topics.plan_request', '/route3d_dijkstra/plan_request').value
+        goal_request_topic = self.declare_parameter(
+            'topics.goal_request', '/route3d_dijkstra/goal_request').value
         dijkstra_status_topic = self.declare_parameter(
             'topics.dijkstra_status', '/route3d_dijkstra/status').value
         controller_status_topic = self.declare_parameter(
@@ -70,6 +76,8 @@ class LoopPatrolNode(Node):
 
         self.request_publisher = self.create_publisher(
             Int32MultiArray, request_topic, QoSProfile(depth=10))
+        self.goal_request_publisher = self.create_publisher(
+            Int32, goal_request_topic, QoSProfile(depth=10))
         self.status_publisher = self.create_publisher(String, status_topic, latched_qos())
         self.dijkstra_subscription = self.create_subscription(
             String, dijkstra_status_topic, self.dijkstra_status_callback, latched_qos())
@@ -119,13 +127,17 @@ class LoopPatrolNode(Node):
     def dijkstra_status_callback(self, message: String) -> None:
         try:
             status = json.loads(message.data)
-            start_id = status.get('start_id')
-            goal_id = status.get('goal_id')
-            if start_id is None or goal_id is None:
+            if str(status.get('request_mode', 'start_goal')) != self.request_mode:
                 return
+            goal_id = status.get('goal_id')
+            if goal_id is None:
+                return
+            start_value = status.get('start_id')
+            start_id = int(start_value) if start_value is not None else None
             event = self.logic.observe_plan(
-                bool(status.get('success', False)), int(start_id), int(goal_id),
-                str(status.get('error', '')))
+                bool(status.get('success', False)), start_id, int(goal_id),
+                str(status.get('error', '')),
+                allow_resolved_start=self.request_mode == 'goal_only')
             if event is Event.PLAN_ACCEPTED:
                 self.phase_deadline = time.monotonic() + float(self.route_timeout_s)
                 self.last_status_detail = (
@@ -208,15 +220,27 @@ class LoopPatrolNode(Node):
                     self.last_status_detail = detail
                     self.publish_status()
                 return
-            if self.request_publisher.get_subscription_count() == 0:
+            publisher = (
+                self.goal_request_publisher
+                if self.request_mode == 'goal_only'
+                else self.request_publisher)
+            if publisher.get_subscription_count() == 0:
                 self.last_status_detail = 'waiting for Dijkstra request subscriber'
                 return
             pair = self.logic.request_pair(self.last_controller_route_sequence)
-            message = Int32MultiArray()
-            message.data = [pair.start_id, pair.goal_id]
-            self.request_publisher.publish(message)
+            if self.request_mode == 'goal_only':
+                message = Int32()
+                message.data = pair.goal_id
+                self.goal_request_publisher.publish(message)
+            else:
+                message = Int32MultiArray()
+                message.data = [pair.start_id, pair.goal_id]
+                self.request_publisher.publish(message)
             self.phase_deadline = now + float(self.plan_timeout_s)
-            self.last_status_detail = f'published patrol request {pair.start_id}->{pair.goal_id}'
+            self.last_status_detail = (
+                f'published goal-only patrol request ->{pair.goal_id}'
+                if self.request_mode == 'goal_only'
+                else f'published patrol request {pair.start_id}->{pair.goal_id}')
             self.get_logger().info(self.last_status_detail)
             self.publish_status()
             return
@@ -271,6 +295,7 @@ class LoopPatrolNode(Node):
             'completed_round_trips': self.logic.completed_round_trips,
             'max_round_trips': self.logic.max_round_trips,
             'arrival_requires_finished': True,
+            'request_mode': self.request_mode,
             'wait_for_idle_before_first_request': self.wait_for_idle_before_first_request,
         }
         message = String()

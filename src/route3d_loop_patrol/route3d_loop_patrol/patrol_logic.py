@@ -85,13 +85,26 @@ class PatrolCoordinator:
         self.phase = Phase.WAITING_PLAN
         return pair
 
-    def observe_plan(self, success: bool, start_id: int, goal_id: int, error: str = '') -> Event:
+    def observe_plan(
+        self,
+        success: bool,
+        start_id: Optional[int],
+        goal_id: int,
+        error: str = '',
+        allow_resolved_start: bool = False,
+    ) -> Event:
         if self.phase is not Phase.WAITING_PLAN or self.pending_pair is None:
             return Event.IGNORED
-        if (start_id, goal_id) != (self.pending_pair.start_id, self.pending_pair.goal_id):
+        if goal_id != self.pending_pair.goal_id:
             return Event.IGNORED
         if not success:
             return self.fail(error or 'Dijkstra planning failed')
+        if start_id is None:
+            return self.fail('Dijkstra success status did not contain a start_id')
+        if not allow_resolved_start and start_id != self.pending_pair.start_id:
+            return Event.IGNORED
+        if allow_resolved_start:
+            self.pending_pair = PatrolPair(start_id, goal_id)
         self.phase = Phase.WAITING_ROUTE
         return Event.PLAN_ACCEPTED
 

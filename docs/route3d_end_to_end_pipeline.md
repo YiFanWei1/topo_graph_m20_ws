@@ -714,6 +714,8 @@ pid_controller: active_source=none, 发布零速, WAITING_TRANSITION
 go2_adapter: STOPPING
    │ StopMove()；失败时回退 Move(0,0,0)
    ▼
+PRE_SWITCH_DELAY：默认等待 1 s，让机器人机械停稳
+   ▼
 调用 StaticWalk() 或 SwitchGait(3)
    ▼
 SETTLING：等待至少 2 s + 新鲜稳定 SportModeState 样本
@@ -723,7 +725,8 @@ SETTLING：等待至少 2 s + 新鲜稳定 SportModeState 样本
 pid_controller 激活任务并选择 pid 或 efficient_3d_local_planner
 ```
 
-当前实机固件上 `SportModeState.gait_type` 在 `SwitchGait(3)` 后仍可能保持 0，因此适配器不再把
+切换前等待时间由 `gait.pre_switch_stop_delay_s` 配置。当前实机固件上
+`SportModeState.gait_type` 在 `SwitchGait(3)` 后仍可能保持 0，因此适配器不再把
 “反馈 gait_type 必须等于 3”作为成功条件。当前判定是：SDK 调用返回成功、等待稳定时间、收到
 至少配置数量的新鲜稳定 SportModeState 样本。
 
@@ -849,6 +852,7 @@ REAL GO2 OUTPUT ENABLED on enp2s0
 | 名称 | 类型 | 用途 |
 | --- | --- | --- |
 | `/route3d_dijkstra/plan_request` | `std_msgs/Int32MultiArray` | `[start, goal]` |
+| `/route3d_dijkstra/goal_request` | `std_msgs/Int32` | 仅终点；从定位匹配 1 m 内最近点作为起点 |
 | `/route3d_dijkstra/path` | `nav_msgs/Path` | 最短路径 |
 | `/route3d_dijkstra/status` | `std_msgs/String` | 搜索状态 JSON |
 | `/route3d_route_slicer/tasks` | `RouteTaskArray` | 控制任务主接口 |

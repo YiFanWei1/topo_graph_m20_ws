@@ -64,6 +64,16 @@ TEST(RouteSlicer, SlopeVerticesCreateClimbAndRestoreGaitTasks)
     {edge(1, 1, 2), edge(2, 2, 3), edge(3, 3, 4), edge(4, 4, 5),
       edge(5, 5, 6), edge(6, 6, 7)});
 
+  EXPECT_FALSE(graph.edge(1).is_slope);
+  EXPECT_TRUE(graph.edge(2).is_slope);
+  EXPECT_TRUE(graph.edge(3).is_slope);
+  EXPECT_TRUE(graph.edge(4).is_slope);
+  EXPECT_FALSE(graph.edge(5).is_slope);
+  EXPECT_TRUE(graph.vertex(2).is_slope);
+  EXPECT_TRUE(graph.vertex(5).is_slope);
+  EXPECT_FALSE(graph.vertex(1).is_slope);
+  EXPECT_FALSE(graph.vertex(6).is_slope);
+
   const auto result = RouteSlicer().slice(graph, {1, 2, 3, 4, 5, 6, 7}, {1, 2, 3, 4, 5, 6});
 
   ASSERT_EQ(result.tasks.size(), 3U);
@@ -84,6 +94,32 @@ TEST(RouteSlicer, SlopeVerticesCreateClimbAndRestoreGaitTasks)
   EXPECT_TRUE(result.tasks[2].requires_gait_switch_at_start);
   EXPECT_TRUE(result.tasks[2].is_route_goal);
   EXPECT_EQ(result.tasks[2].obstacle_mode, 0);
+}
+
+TEST(RouteSlicer, ExplicitSlopeEdgePromotesEndpointsWithoutRecursiveSpread)
+{
+  auto slope_edge = edge(2, 2, 3);
+  slope_edge.locomotion_mode = 2;
+  auto graph = lineGraph(
+    {vertex(1), vertex(2), vertex(3), vertex(4)},
+    {edge(1, 1, 2), slope_edge, edge(3, 3, 4)});
+
+  EXPECT_FALSE(graph.edge(1).is_slope);
+  EXPECT_TRUE(graph.edge(2).is_slope);
+  EXPECT_FALSE(graph.edge(3).is_slope);
+  EXPECT_FALSE(graph.vertex(1).is_slope);
+  EXPECT_TRUE(graph.vertex(2).is_slope);
+  EXPECT_TRUE(graph.vertex(3).is_slope);
+  EXPECT_FALSE(graph.vertex(4).is_slope);
+
+  const auto result = RouteSlicer().slice(graph, {1, 2, 3, 4}, {1, 2, 3});
+
+  ASSERT_EQ(result.tasks.size(), 3U);
+  EXPECT_EQ(result.tasks[0].gait_command, "static_walk");
+  EXPECT_EQ(result.tasks[1].gait_command, "switch_gait_3");
+  EXPECT_EQ(result.tasks[1].resolved_controller_mode, "efficient_3d_local_planner");
+  EXPECT_EQ(result.tasks[1].obstacle_mode, 3);
+  EXPECT_EQ(result.tasks[2].gait_command, "static_walk");
 }
 
 TEST(RouteSlicer, ExplicitSlopeObstaclePolicyIsNotOverwritten)

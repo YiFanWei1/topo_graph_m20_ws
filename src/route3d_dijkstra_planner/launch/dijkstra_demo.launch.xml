@@ -7,6 +7,8 @@
   <arg name="auto_demo" default="false"/>
   <arg name="demo_interval" default="4.0"/>
   <arg name="use_sim_time" default="false"/>
+  <arg name="start_snap_radius_m" default="1.0"/>
+  <arg name="odometry_body_height_m" default="0.40"/>
   <arg name="rviz_config"
        default="$(find-pkg-share route3d_dijkstra_planner)/rviz/dijkstra_demo.rviz"/>
 
@@ -17,6 +19,8 @@
     <param name="graph_file" value="$(var graph_file)"/>
     <param name="strict_schema_v2" value="true"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
+    <param name="request.start_snap_radius_m" value="$(var start_snap_radius_m)"/>
+    <param name="request.odometry_body_height_m" value="$(var odometry_body_height_m)"/>
   </node>
 
   <node pkg="route3d_dijkstra_planner"

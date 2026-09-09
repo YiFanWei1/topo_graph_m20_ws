@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -55,6 +56,10 @@ struct TopologyEdge
   std::array<double, 4> obstacle_box_m{};
   std::string grid_map_name;
   std::string controller_mode{"auto"};
+  // Runtime-only result of the one-pass point/edge slope synchronization.
+  // The JSON representation continues to use vertex meta.isSlope and edge
+  // locomotionMode=2 as its two explicit slope inputs.
+  bool is_slope{false};
 };
 
 struct Arc
@@ -72,6 +77,12 @@ struct DijkstraResult
   double total_cost{0.0};
   std::size_t expanded_vertices{0};
   std::size_t relaxed_edges{0};
+};
+
+struct NearestVertexResult
+{
+  VertexId vertex_id{0};
+  double distance_m{0.0};
 };
 
 class NoPathError : public std::runtime_error
@@ -123,6 +134,9 @@ private:
 
 DijkstraResult dijkstraShortestPath(
   const TopologyGraph & graph, VertexId start_id, VertexId goal_id);
+
+std::optional<NearestVertexResult> nearestVertex(
+  const TopologyGraph & graph, const Point3 & position);
 
 }  // namespace route3d_dijkstra_planner
 

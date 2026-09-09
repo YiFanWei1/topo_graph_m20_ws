@@ -132,6 +132,46 @@ std::uint64_t endpointPairKey(VertexId first, VertexId second)
   return (static_cast<std::uint64_t>(low) << 32U) | high;
 }
 
+void synchronizeSlopeAnnotationsOnePass(
+  std::unordered_map<VertexId, TopologyVertex> & vertices,
+  std::unordered_map<EdgeId, TopologyEdge> & edges)
+{
+  constexpr int kSlopeLocomotionMode = 2;
+
+  // Snapshot the author-provided point annotations first.  Newly promoted
+  // endpoint vertices must not promote their other incident edges, otherwise
+  // one slope seed would recursively spread through the whole component.
+  std::unordered_set<VertexId> configured_slope_vertices;
+  configured_slope_vertices.reserve(vertices.size());
+  for (const auto & [vertex_id, vertex] : vertices) {
+    if (vertex.is_slope) {
+      configured_slope_vertices.insert(vertex_id);
+    }
+  }
+
+  std::unordered_set<EdgeId> synchronized_slope_edges;
+  synchronized_slope_edges.reserve(edges.size());
+  for (const auto & [edge_id, edge] : edges) {
+    const bool edge_requests_slope_gait =
+      edge.is_slope || edge.locomotion_mode == kSlopeLocomotionMode;
+    const bool touches_configured_slope_vertex =
+      configured_slope_vertices.count(edge.first) != 0U ||
+      configured_slope_vertices.count(edge.second) != 0U;
+    if (edge_requests_slope_gait || touches_configured_slope_vertex) {
+      synchronized_slope_edges.insert(edge_id);
+    }
+  }
+
+  // Apply the snapshot result once.  Do not rescan the newly marked endpoint
+  // vertices: they are transition boundaries, not new propagation seeds.
+  for (const auto edge_id : synchronized_slope_edges) {
+    auto & edge = edges.at(edge_id);
+    edge.is_slope = true;
+    vertices.at(edge.first).is_slope = true;
+    vertices.at(edge.second).is_slope = true;
+  }
+}
+
 struct QueueEntry
 {
   double cost{0.0};
@@ -177,6 +217,7 @@ TopologyGraph::TopologyGraph(
   vertices_(std::move(vertices)),
   edges_(std::move(edges))
 {
+  synchronizeSlopeAnnotationsOnePass(vertices_, edges_);
   vertex_ids_by_index_.reserve(vertices_.size());
   for (const auto & entry : vertices_) {
     vertex_ids_by_index_.push_back(entry.first);
@@ -547,6 +588,29 @@ DijkstraResult dijkstraShortestPath(
   std::reverse(result.vertex_ids.begin(), result.vertex_ids.end());
   std::reverse(result.edge_ids.begin(), result.edge_ids.end());
   return result;
+}
+
+std::optional<NearestVertexResult> nearestVertex(
+  const TopologyGraph & graph, const Point3 & position)
+{
+  if (!std::isfinite(position[0]) || !std::isfinite(position[1]) ||
+    !std::isfinite(position[2]))
+  {
+    throw std::invalid_argument("nearest-vertex query position must be finite");
+  }
+
+  std::optional<NearestVertexResult> nearest;
+  for (const auto vertex_id : graph.sortedVertexIds()) {
+    const auto & vertex_position = graph.vertex(vertex_id).position;
+    const double dx = vertex_position[0] - position[0];
+    const double dy = vertex_position[1] - position[1];
+    const double dz = vertex_position[2] - position[2];
+    const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (!nearest || distance < nearest->distance_m) {
+      nearest = NearestVertexResult{vertex_id, distance};
+    }
+  }
+  return nearest;
 }
 
 }  // namespace route3d_dijkstra_planner

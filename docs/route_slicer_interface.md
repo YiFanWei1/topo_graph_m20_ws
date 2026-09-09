@@ -112,8 +112,15 @@ route3d_route_slicer                 属性切片、业务切片、途经约束�
 
 ### 4.1 当前规则
 
-一条边任一端点 `meta.isSlope=true`，该边就被视为坡段。这样在进入坡点前一条边提前切换，
-离开最后一个坡点后一条边再恢复，给步态建立一个安全缓冲。
+拓扑图读取完成后会基于原始 JSON 快照做一次点边坡度同步：
+
+- 原始 `meta.isSlope=true` 点的相邻边被标为坡边；
+- 原始 `locomotionMode=2` 坡边的两个端点被标为坡点；
+- 本轮新标出的点边不再次参与传播。
+
+因此一条边任一原始端点 `meta.isSlope=true` 时会被视为坡段，显式设置
+`locomotionMode=2` 的边也会成为坡段。同步只执行一轮，避免一个坡点沿连通图递归扩散到
+所有点边。切片器使用这次冻结的边级结果，不会从同步产生的边界点继续向外推导。
 
 当边本身仍是默认 `locomotionMode=0` 时，切片器把坡段的有效模式提升为 `2`：
 
@@ -122,8 +129,10 @@ route3d_route_slicer                 属性切片、业务切片、途经约束�
 | 普通路面 | `0` | `static_walk` |
 | 坡段 | `2` | `switch_gait_3` |
 
-若地图作者已经在边上显式填写其他 `locomotionMode`，切片器尊重边属性，不用坡点默认值
-覆盖它。可通过 `slope.enable_gait_switch=false` 完全关闭坡点推导。
+若地图作者在边上显式填写 `locomotionMode=2`，即使 JSON 中两个端点原本是普通点，该边也
+会使用楼梯步态，并在内存中把两个端点补为坡点。其他非零 `locomotionMode` 仍保持显式
+配置，不会被坡点的默认值覆盖。可通过 `slope.enable_gait_switch=false` 关闭从坡边到步态 2
+的自动提升；显式填写的 `locomotionMode=2` 不受该开关影响。
 
 默认还启用 `slope.ignore_ordinary_obstacles=true`：坡段上原本为 0 的障碍模式会解析为
 `obstacleMode=3`，与参考工程楼梯任务一致；平地仍为 0。显式配置的模式 1/3/4 不会被

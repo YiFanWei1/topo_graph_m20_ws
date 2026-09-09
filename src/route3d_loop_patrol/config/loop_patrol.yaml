@@ -5,6 +5,7 @@ route3d_loop_patrol:
       start_vertex_id: 1
       goal_vertex_id: 11
       initial_direction: start_to_goal
+      request_mode: start_goal
       auto_start: true
       # Do not replace a route that is already moving when this node starts.
       wait_for_idle_before_first_request: true
@@ -21,6 +22,7 @@ route3d_loop_patrol:
 
     topics:
       plan_request: /route3d_dijkstra/plan_request
+      goal_request: /route3d_dijkstra/goal_request
       dijkstra_status: /route3d_dijkstra/status
       sliced_route: /route3d_route_slicer/tasks
       controller_status: /route3d_pid_controller/status

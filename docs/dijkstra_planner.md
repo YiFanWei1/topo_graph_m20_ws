@@ -36,6 +36,12 @@
 | 话题 | 消息类型 | 数据 |
 | --- | --- | --- |
 | `/route3d_dijkstra/plan_request` | `std_msgs/msg/Int32MultiArray` | 必须恰好为 `[起点ID, 终点ID]` |
+| `/route3d_dijkstra/goal_request` | `std_msgs/msg/Int32` | 只给终点 ID；从当前定位自动匹配 1 m 内最近拓扑点作为起点 |
+
+仅终点模式订阅 `/lio_odom_hf`。由于拓扑点保存地面高度，匹配前默认从里程计 Z 减去
+`request.odometry_body_height_m=0.40`，再计算三维距离；匹配半径由
+`request.start_snap_radius_m=1.0` 控制。没有定位或最近点超过半径时会发布失败状态，且不会
+产生新路径。两个接口彼此独立，原有双 ID 请求格式不变。
 
 ### 发布
 
@@ -113,6 +119,12 @@ ros2 topic pub --once \
   /route3d_dijkstra/plan_request \
   std_msgs/msg/Int32MultiArray \
   "{data: [1, 20]}"
+
+# 仅发送终点，起点取当前位置 1 m 内的最近拓扑点
+ros2 topic pub --once \
+  /route3d_dijkstra/goal_request \
+  std_msgs/msg/Int32 \
+  "{data: 20}"
 ```
 
 应得到路径：

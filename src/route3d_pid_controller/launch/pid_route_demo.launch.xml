@@ -9,6 +9,8 @@
   <arg name="start_planner" default="true"/>
   <arg name="launch_rviz" default="true"/>
   <arg name="use_sim_time" default="false"/>
+  <arg name="start_snap_radius_m" default="1.0"/>
+  <arg name="odometry_body_height_m" default="0.40"/>
 
   <include file="$(find-pkg-share route3d_route_slicer)/launch/route_slicer_demo.launch.xml">
     <arg name="graph_file" value="$(var graph_file)"/>
@@ -17,6 +19,8 @@
     <arg name="rviz_config" value="$(var rviz_config)"/>
     <arg name="auto_demo" value="false"/>
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="start_snap_radius_m" value="$(var start_snap_radius_m)"/>
+    <arg name="odometry_body_height_m" value="$(var odometry_body_height_m)"/>
   </include>
 
   <node pkg="route3d_pid_controller" exec="pid_controller_node"

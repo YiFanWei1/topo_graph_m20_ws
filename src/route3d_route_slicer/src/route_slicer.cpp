@@ -84,12 +84,14 @@ std::string resolveController(
 }
 
 EffectiveAttributes effectiveAttributes(
-  const TopologyEdge & edge, const TopologyVertex & from, const TopologyVertex & to,
-  const SliceOptions & options)
+  const TopologyEdge & edge, const SliceOptions & options)
 {
   EffectiveAttributes result;
   result.configured_controller_mode = edge.controller_mode;
-  result.contains_slope = from.is_slope || to.is_slope;
+  // TopologyGraph performs one-pass point/edge synchronization when it is
+  // constructed.  Use that frozen edge result here instead of re-deriving it
+  // from promoted boundary vertices, which would spread a slope recursively.
+  result.contains_slope = edge.is_slope;
   result.resolved_controller_mode = resolveController(edge, result.contains_slope, options);
   result.locomotion_mode = edge.locomotion_mode;
   if (options.enable_slope_gait && result.contains_slope &&
@@ -316,7 +318,7 @@ SliceResult RouteSlicer::slice(
               " uses obstacleMode=4 but gridMapName is empty");
     }
 
-    const auto attributes = effectiveAttributes(edge, from, to, options_);
+    const auto attributes = effectiveAttributes(edge, options_);
     const auto business_mode = businessMode(from.semantic_type, to.semantic_type);
     const bool special_business = business_mode != "normal";
     const bool singleton_obstacle = isObstacleSingleton(attributes);

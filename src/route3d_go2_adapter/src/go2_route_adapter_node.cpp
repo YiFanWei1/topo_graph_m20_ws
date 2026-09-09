@@ -52,6 +52,7 @@ enum class AdapterState
 {
   kIdle,
   kStopping,
+  kPreSwitchDelay,
   kRetryWaiting,
   kSettling,
   kPublishingAcknowledgement,
@@ -64,6 +65,7 @@ const char * stateName(const AdapterState state)
   switch (state) {
     case AdapterState::kIdle: return "IDLE";
     case AdapterState::kStopping: return "STOPPING";
+    case AdapterState::kPreSwitchDelay: return "PRE_SWITCH_DELAY";
     case AdapterState::kRetryWaiting: return "RETRY_WAITING";
     case AdapterState::kSettling: return "SETTLING";
     case AdapterState::kPublishingAcknowledgement: return "PUBLISHING_ACKNOWLEDGEMENT";
@@ -120,6 +122,8 @@ public:
     maximum_vx_mps_ = declare_parameter<double>("command.maximum_vx_mps", 0.80);
     maximum_vy_mps_ = declare_parameter<double>("command.maximum_vy_mps", 0.40);
     maximum_wz_radps_ = declare_parameter<double>("command.maximum_wz_radps", 1.20);
+    gait_pre_switch_stop_delay_s_ = declare_parameter<double>(
+      "gait.pre_switch_stop_delay_s", 1.0);
     gait_settle_time_s_ = declare_parameter<double>("gait.settle_time_s", 2.0);
     transition_timeout_s_ = declare_parameter<double>("gait.transition_timeout_s", 8.0);
     gait_command_max_retries_ = declare_parameter<std::int64_t>(
@@ -232,13 +236,15 @@ private:
     if (!finite_positive(send_rate_hz_) || send_rate_hz_ > 100.0 ||
       !finite_positive(command_timeout_s_) || !finite_positive(maximum_vx_mps_) ||
       !finite_positive(maximum_vy_mps_) || !finite_positive(maximum_wz_radps_) ||
+      !std::isfinite(gait_pre_switch_stop_delay_s_) || gait_pre_switch_stop_delay_s_ < 0.0 ||
       !finite_positive(gait_settle_time_s_) || !finite_positive(transition_timeout_s_) ||
       gait_command_max_retries_ < 0 ||
       !finite_positive(gait_command_retry_initial_delay_s_) ||
       !std::isfinite(gait_command_retry_backoff_multiplier_) ||
       gait_command_retry_backoff_multiplier_ < 1.0 ||
       !finite_positive(state_timeout_s_) || !finite_positive(sdk_timeout_s_) ||
-      gait_settle_time_s_ >= transition_timeout_s_ || minimum_stable_samples_ == 0U)
+      gait_pre_switch_stop_delay_s_ + gait_settle_time_s_ >= transition_timeout_s_ ||
+      minimum_stable_samples_ == 0U)
     {
       throw std::invalid_argument("invalid Go2 adapter timing, rate, limit, or sample parameter");
     }
@@ -388,6 +394,9 @@ private:
       case AdapterState::kStopping:
         beginGaitTransition();
         break;
+      case AdapterState::kPreSwitchDelay:
+        waitBeforeGaitSwitch();
+        break;
       case AdapterState::kRetryWaiting:
         waitForGaitRetry();
         break;
@@ -449,12 +458,39 @@ private:
       return;
     }
 
+    transition_started_ = std::chrono::steady_clock::now();
+    pre_switch_deadline_ = transition_started_ +
+      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      std::chrono::duration<double>(gait_pre_switch_stop_delay_s_));
+    setState(
+      AdapterState::kPreSwitchDelay,
+      "StopMove accepted; waiting " + std::to_string(gait_pre_switch_stop_delay_s_) +
+      " s before gait command");
+  }
+
+  void waitBeforeGaitSwitch()
+  {
+    if (checkTransitionTimeout("timed out while waiting to switch gait after StopMove")) {
+      return;
+    }
+    if (std::chrono::steady_clock::now() < pre_switch_deadline_) {
+      return;
+    }
+    executeGaitCommand();
+  }
+
+  void executeGaitCommand()
+  {
+    if (!pending_transition_.has_value()) {
+      failTransition("internal error: gait request is missing after StopMove delay");
+      return;
+    }
+
     {
       std::lock_guard<std::mutex> lock(feedback_mutex_);
       feedback_sequence_at_switch_ = feedback_sequence_;
       stable_feedback_samples_ = 0U;
     }
-    transition_started_ = std::chrono::steady_clock::now();
     const int result = callGaitCommand(pending_transition_->gait_command);
     if (result != 0) {
       handleGaitCommandFailure(result);
@@ -764,6 +800,7 @@ private:
   double maximum_vx_mps_{0.80};
   double maximum_vy_mps_{0.40};
   double maximum_wz_radps_{1.20};
+  double gait_pre_switch_stop_delay_s_{1.0};
   double gait_settle_time_s_{2.0};
   double transition_timeout_s_{8.0};
   std::int64_t gait_command_max_retries_{3};
@@ -783,6 +820,7 @@ private:
   CommandState pid_command_;
   CommandState efficient_command_;
   std::chrono::steady_clock::time_point transition_started_{};
+  std::chrono::steady_clock::time_point pre_switch_deadline_{};
   std::chrono::steady_clock::time_point settle_deadline_{};
   std::chrono::steady_clock::time_point retry_deadline_{};
   std::chrono::steady_clock::time_point last_redundant_stop_time_{};
