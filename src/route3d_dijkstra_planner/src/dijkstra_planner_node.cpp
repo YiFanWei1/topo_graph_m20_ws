@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -15,6 +17,7 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <nlohmann/json.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -85,6 +88,13 @@ public:
   {
     request_topic_ = declare_parameter<std::string>(
       "topics.request", "/route3d_dijkstra/plan_request");
+    const auto odometry_topic = declare_parameter<std::string>(
+      "topics.odometry", "/lio_odom_hf");
+    start_snap_radius_m_ = declare_parameter<double>(
+      "request.start_snap_radius_m", 1.0);
+    if (!std::isfinite(start_snap_radius_m_) || start_snap_radius_m_ < 0.0) {
+      throw std::runtime_error("request.start_snap_radius_m must be finite and non-negative");
+    }
     const auto path_topic = declare_parameter<std::string>(
       "topics.path", "/route3d_dijkstra/path");
     const auto vertex_ids_topic = declare_parameter<std::string>(
@@ -121,6 +131,9 @@ public:
     request_subscription_ = create_subscription<std_msgs::msg::Int32MultiArray>(
       request_topic_, rclcpp::QoS(10).reliable(),
       std::bind(&DijkstraPlannerNode::requestCallback, this, std::placeholders::_1));
+    odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
+      odometry_topic, rclcpp::SensorDataQoS().keep_last(10),
+      std::bind(&DijkstraPlannerNode::odometryCallback, this, std::placeholders::_1));
 
     publishOutputs(std::nullopt);
     RCLCPP_INFO(
@@ -164,14 +177,33 @@ private:
 
   void requestCallback(const std_msgs::msg::Int32MultiArray::SharedPtr message)
   {
-    if (message->data.size() != 2U) {
+    if (message->data.empty()) {
       publishFailure(
         std::nullopt, std::nullopt,
-        "request data must contain exactly [start_vertex_id, goal_vertex_id]", 0, 0U);
+        "request data must contain one or two vertex ids", 0, 0U);
       return;
     }
-    const auto start_id = message->data[0];
-    const auto goal_id = message->data[1];
+    if (message->data.size() > 2U) {
+      publishFailure(
+        std::nullopt, std::nullopt,
+        "request data must contain one or two vertex ids", 0, 0U);
+      return;
+    }
+
+    VertexId start_id{};
+    VertexId goal_id{};
+    if (message->data.size() == 1U) {
+      goal_id = message->data[0];
+      if (!resolveStartFromCurrentPose(goal_id, start_id)) {
+        publishFailure(std::nullopt, goal_id,
+          "no nearby start node found within request.start_snap_radius_m", 0, 0U);
+        return;
+      }
+    } else {
+      start_id = message->data[0];
+      goal_id = message->data[1];
+    }
+
     const auto begin = Clock::now();
     try {
       const auto result = dijkstraShortestPath(graph_, start_id, goal_id);

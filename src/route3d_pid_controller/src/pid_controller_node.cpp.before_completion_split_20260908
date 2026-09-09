@@ -6,7 +6,6 @@
 #include <functional>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -229,29 +228,16 @@ public:
       "tracking.projection_backtrack_m", tracker_config.projection_backtrack_m);
     tracker_config.adjustment_entry_distance_m = declare_parameter<double>(
       "adjustment.entry_distance_m", tracker_config.adjustment_entry_distance_m);
-    pid_route_goal_position_tolerance_m_ = declare_parameter<double>(
-      "completion.pid.position_tolerance_m",
+    adjustment_route_goal_position_tolerance_m_ = declare_parameter<double>(
+      "adjustment.route_goal_position_tolerance_m",
       tracker_config.adjustment_route_goal_position_tolerance_m);
     tracker_config.adjustment_route_goal_position_tolerance_m =
-      pid_route_goal_position_tolerance_m_;
-    pid_route_goal_yaw_tolerance_rad_ = declare_parameter<double>(
-      "completion.pid.yaw_tolerance_rad",
+      adjustment_route_goal_position_tolerance_m_;
+    adjustment_route_goal_yaw_tolerance_rad_ = declare_parameter<double>(
+      "adjustment.route_goal_yaw_tolerance_rad",
       tracker_config.adjustment_route_goal_yaw_tolerance_rad);
     tracker_config.adjustment_route_goal_yaw_tolerance_rad =
-      pid_route_goal_yaw_tolerance_rad_;
-    efficient_route_goal_position_tolerance_m_ = declare_parameter<double>(
-      "completion.efficient.position_tolerance_m", 0.20);
-    efficient_route_goal_yaw_tolerance_rad_ = declare_parameter<double>(
-      "completion.efficient.yaw_tolerance_rad", 0.25);
-    efficient_use_planar_distance_ = declare_parameter<bool>(
-      "completion.efficient.use_planar_distance", true);
-    if (!std::isfinite(efficient_route_goal_position_tolerance_m_) ||
-      efficient_route_goal_position_tolerance_m_ <= 0.0 ||
-      !std::isfinite(efficient_route_goal_yaw_tolerance_rad_) ||
-      efficient_route_goal_yaw_tolerance_rad_ < 0.0)
-    {
-      throw std::invalid_argument("efficient completion tolerances are invalid");
-    }
+      adjustment_route_goal_yaw_tolerance_rad_;
     tracker_config.adjustment_maximum_vx_mps = declare_parameter<double>(
       "adjustment.maximum_vx_mps", tracker_config.adjustment_maximum_vx_mps);
     tracker_config.adjustment_maximum_vy_mps = declare_parameter<double>(
@@ -286,10 +272,6 @@ public:
       "topics.gait_transition", "/route3d_pid_controller/gait_transition");
     const auto gait_acknowledged_topic = declare_parameter<std::string>(
       "topics.gait_acknowledged", "/route3d_pid_controller/gait_acknowledged");
-    gait_transition_ack_delay_s_ = declare_parameter<double>("gait.transition_ack_delay_s", 1.0);
-    if (gait_transition_ack_delay_s_ < 0.0) {
-      throw std::invalid_argument("gait.transition_ack_delay_s must be non-negative");
-    }
 
     tasks_subscription_ = create_subscription<RouteTaskArray>(
       tasks_topic, latchedQos(),
@@ -336,10 +318,6 @@ public:
       gait_transition_topic, rclcpp::QoS(10).reliable());
     elevation_debug_publisher_ = create_publisher<visualization_msgs::msg::MarkerArray>(
       "/route3d_pid_controller/elevation_debug", rclcpp::QoS(1).reliable());
-    elevation_range_publisher_ = create_publisher<visualization_msgs::msg::MarkerArray>(
-      "/route3d_pid_controller/elevation_detection_range", rclcpp::QoS(1).reliable());
-    used_cloud_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-      "/route3d_pid_controller/elevation_used_cloud", rclcpp::QoS(1).reliable());
 
     start_service_ = create_service<std_srvs::srv::Trigger>(
       "~/start", std::bind(
@@ -380,13 +358,6 @@ public:
       "Generic PID controller ready: tasks=%s odom=%s cloud=%s cmd=%s auto_start=%s",
       tasks_topic.c_str(), odometry_topic.c_str(), cloud_topic.c_str(), command_topic.c_str(),
       auto_start_ ? "true" : "false");
-    RCLCPP_INFO(
-      get_logger(),
-      "Completion gates: pid=[position=%.3f m yaw=%.3f rad] "
-      "efficient=[position=%.3f m yaw=%.3f rad distance=%s]",
-      pid_route_goal_position_tolerance_m_, pid_route_goal_yaw_tolerance_rad_,
-      efficient_route_goal_position_tolerance_m_, efficient_route_goal_yaw_tolerance_rad_,
-      efficient_use_planar_distance_ ? "planar" : "3d");
   }
 
   ~PidControllerNode() override
@@ -421,7 +392,6 @@ private:
       publishZero();
       return;
     }
-    clearPendingGaitResume();
     publishZero();
     publishControllerSelection("none");
     publishEfficientStop();
@@ -493,7 +463,7 @@ private:
     has_elevation_map_pose_ = true;
 
     try {
-            std::vector<ElevationPoint> points;
+      std::vector<ElevationPoint> points;
       points.reserve(static_cast<std::size_t>(message->width) * message->height);
       sensor_msgs::PointCloud2ConstIterator<float> x(*message, "x");
       sensor_msgs::PointCloud2ConstIterator<float> y(*message, "y");
@@ -503,15 +473,10 @@ private:
           points.push_back({*x, *y, *z});
         }
       }
-      const auto used_points = filterElevationPoints(points);
-      if (!used_points.empty()) {
-        elevation_checker_->update(used_points);
-        publishUsedCloud(used_points, elevation_map_stamp_);
+      if (!points.empty()) {
+        elevation_checker_->update(points);
         ++elevation_map_generation_;
-      } else if (used_cloud_publisher_) {
-        publishUsedCloud({}, elevation_map_stamp_);
       }
-      publishDetectionRange();
       cloud_parse_error_ = false;
       if (!active_ || paused_) {
         debug_local_trajectory_ = {Pose2d{}};
@@ -646,17 +611,6 @@ private:
     return std::sqrt(dx * dx + dy * dy + dz * dz);
   }
 
-  double activeTaskEndpointDistancePlanar() const
-  {
-    if (!has_odometry_ || !has_route_ || active_task_index_ >= route_.tasks.size() ||
-      route_.tasks[active_task_index_].waypoints.empty())
-    {
-      return std::numeric_limits<double>::infinity();
-    }
-    const auto & endpoint = route_.tasks[active_task_index_].waypoints.back().position;
-    return std::hypot(endpoint.x - robot_pose_.x, endpoint.y - robot_pose_.y);
-  }
-
   bool efficientTaskEndpointReached() const
   {
     if (!active_ || task_controller_ != "efficient_3d_local_planner" ||
@@ -666,11 +620,9 @@ private:
     }
     const auto & task = route_.tasks[active_task_index_];
     const double position_tolerance = task.is_route_goal ?
-      efficient_route_goal_position_tolerance_m_ : task.endpoint_tolerance_m;
-    const double endpoint_distance = efficient_use_planar_distance_ ?
-      activeTaskEndpointDistancePlanar() : activeTaskEndpointDistance3d();
+      adjustment_route_goal_position_tolerance_m_ : task.endpoint_tolerance_m;
     if (task.waypoints.empty() ||
-      endpoint_distance > position_tolerance)
+      activeTaskEndpointDistance3d() > position_tolerance)
     {
       return false;
     }
@@ -679,7 +631,7 @@ private:
     }
     const double yaw_error = normalizeAngle(
       task.waypoints.back().rpy.z - robot_pose_.yaw);
-    return std::abs(yaw_error) <= efficient_route_goal_yaw_tolerance_rad_;
+    return std::abs(yaw_error) <= adjustment_route_goal_yaw_tolerance_rad_;
   }
 
   FootprintGrid activeFootprint() const
@@ -880,14 +832,13 @@ private:
       last_tracking_output_ = output;
       publishLookahead(output.lookahead);
       const bool efficient_endpoint_reached = efficientTaskEndpointReached();
-      const bool pid_endpoint_reached = task_controller_ == "pid" && output.reached;
-      if (pid_endpoint_reached || efficient_endpoint_reached) {
-        if (efficient_endpoint_reached) {
+      if (output.reached || efficient_endpoint_reached) {
+        if (efficient_endpoint_reached && !output.reached) {
           RCLCPP_INFO(
             get_logger(),
-            "Efficient-planner task endpoint reached: planar=%.3f m 3d=%.3f m; "
-            "advancing with the independent efficient completion gate",
-            activeTaskEndpointDistancePlanar(), activeTaskEndpointDistance3d());
+            "Efficient-planner task endpoint reached at 3D distance %.3f m; "
+            "advancing without waiting for the independent PID route gates",
+            activeTaskEndpointDistance3d());
         }
         advanceTask();
         return;
@@ -1097,147 +1048,6 @@ private:
     }
   }
 
-  std::vector<ElevationPoint> filterElevationPoints(const std::vector<ElevationPoint> & points) const
-  {
-    std::vector<ElevationPoint> result;
-    const auto & config = elevation_checker_ ? elevation_checker_->config() : ElevationCollisionConfig{};
-    result.reserve(points.size());
-    const double input_half_width = config.width_m / (2.01 * std::sqrt(2.0));
-    for (const auto & point : points) {
-      if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
-        continue;
-      }
-      if (std::abs(point.x) > input_half_width || std::abs(point.y) > input_half_width ||
-        point.z < config.minimum_obstacle_height_m || point.z > config.maximum_obstacle_height_m)
-      {
-        continue;
-      }
-      if (point.x > config.body_min_x && point.x < config.body_max_x &&
-        point.y > config.body_min_y && point.y < config.body_max_y)
-      {
-        continue;
-      }
-      result.push_back(point);
-    }
-    return result;
-  }
-
-  void publishDetectionRange()
-  {
-    if (!elevation_range_publisher_ || !elevation_checker_) {
-      return;
-    }
-    using visualization_msgs::msg::Marker;
-    visualization_msgs::msg::MarkerArray output;
-    const auto stamp = elevation_map_stamp_.nanoseconds() > 0 ? elevation_map_stamp_ : now();
-    const std::string frame = cloud_frame_id_.empty() ? "base_link" : cloud_frame_id_;
-
-    Marker clear;
-    clear.header.stamp = stamp;
-    clear.header.frame_id = frame;
-    clear.action = Marker::DELETEALL;
-    output.markers.push_back(clear);
-
-    const auto marker = [&](const std::string & name, const int id, const int type) {
-      Marker result;
-      result.header.stamp = stamp;
-      result.header.frame_id = frame;
-      result.ns = name;
-      result.id = id;
-      result.type = type;
-      result.action = Marker::ADD;
-      result.pose.orientation.w = 1.0;
-      result.frame_locked = false;
-      return result;
-    };
-
-    const auto point = [](const double x, const double y, const double z) {
-      geometry_msgs::msg::Point result;
-      result.x = x;
-      result.y = y;
-      result.z = z;
-      return result;
-    };
-
-    const auto addRectangle = [&](Marker & target, const double min_x, const double max_x,
-      const double min_y, const double max_y, const double z) {
-      target.points = {
-        point(min_x, min_y, z), point(max_x, min_y, z), point(max_x, max_y, z),
-        point(min_x, max_y, z), point(min_x, min_y, z)};
-    };
-
-    Marker accepted_cloud_range = marker("accepted_cloud_range", 0, Marker::LINE_STRIP);
-    accepted_cloud_range.scale.x = 0.025;
-    accepted_cloud_range.color.g = 0.95F;
-    accepted_cloud_range.color.b = 0.95F;
-    accepted_cloud_range.color.a = 1.0F;
-    const auto & config = elevation_checker_->config();
-    const double input_half = config.width_m / (2.01 * std::sqrt(2.0));
-    addRectangle(accepted_cloud_range, -input_half, input_half, -input_half, input_half, 0.10);
-    output.markers.push_back(std::move(accepted_cloud_range));
-
-    elevation_range_publisher_->publish(output);
-  }
-
-  void publishUsedCloud(
-    const std::vector<ElevationPoint> & points, const rclcpp::Time & stamp)
-  {
-    if (!used_cloud_publisher_) {
-      return;
-    }
-    sensor_msgs::msg::PointCloud2 message;
-    message.header.stamp = stamp;
-    message.header.frame_id = cloud_frame_id_.empty() ? "base_link" : cloud_frame_id_;
-    message.height = 1;
-    message.width = static_cast<std::uint32_t>(points.size());
-    message.point_step = static_cast<std::uint32_t>(sizeof(float) * 3U);
-    message.row_step = message.point_step * message.width;
-    message.is_bigendian = false;
-    message.is_dense = true;
-    message.fields.clear();
-    message.fields.reserve(3U);
-    {
-      sensor_msgs::msg::PointField field;
-      field.name = "x";
-      field.offset = 0;
-      field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-      field.count = 1;
-      message.fields.push_back(field);
-    }
-    {
-      sensor_msgs::msg::PointField field;
-      field.name = "y";
-      field.offset = 4;
-      field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-      field.count = 1;
-      message.fields.push_back(field);
-    }
-    {
-      sensor_msgs::msg::PointField field;
-      field.name = "z";
-      field.offset = 8;
-      field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-      field.count = 1;
-      message.fields.push_back(field);
-    }
-    message.data.resize(message.row_step * message.height);
-
-    sensor_msgs::PointCloud2Iterator<float> x(message, "x");
-    sensor_msgs::PointCloud2Iterator<float> y(message, "y");
-    sensor_msgs::PointCloud2Iterator<float> z(message, "z");
-    for (const auto & point : points) {
-      x[0] = static_cast<float>(point.x);
-      y[0] = static_cast<float>(point.y);
-      z[0] = static_cast<float>(point.z);
-      ++x;
-      ++y;
-      ++z;
-    }
-
-    used_cloud_publisher_->publish(message);
-  }
-
-
   void publishLookahead(const Pose2d & lookahead)
   {
     geometry_msgs::msg::PointStamped message;
@@ -1391,11 +1201,8 @@ private:
       {"remaining_m", last_tracking_output_.remaining_m},
       {"goal_distance_m", last_tracking_output_.goal_distance_m}};
     const double endpoint_distance_3d = activeTaskEndpointDistance3d();
-    const double endpoint_distance_planar = activeTaskEndpointDistancePlanar();
     status["task_endpoint_distance_3d_m"] = std::isfinite(endpoint_distance_3d) ?
       nlohmann::json(endpoint_distance_3d) : nlohmann::json(nullptr);
-    status["task_endpoint_distance_planar_m"] = std::isfinite(endpoint_distance_planar) ?
-      nlohmann::json(endpoint_distance_planar) : nlohmann::json(nullptr);
     status["efficient_endpoint_reached"] = efficientTaskEndpointReached();
     status["control_phase"] = last_tracking_output_.adjusting ? "ADJUSTMENT" : "FOLLOWING";
     status["collision_level"] = collision_level_;
@@ -1404,15 +1211,6 @@ private:
       status["controller_mode"] = task.resolved_controller_mode;
       status["gait_command"] = task.gait_command;
       status["obstacle_mode"] = task.obstacle_mode;
-      const bool efficient_controller =
-        task.resolved_controller_mode == "efficient_3d_local_planner";
-      status["completion_position_tolerance_m"] = task.is_route_goal ?
-        (efficient_controller ? efficient_route_goal_position_tolerance_m_ :
-        pid_route_goal_position_tolerance_m_) : task.endpoint_tolerance_m;
-      status["completion_yaw_tolerance_rad"] = efficient_controller ?
-        efficient_route_goal_yaw_tolerance_rad_ : pid_route_goal_yaw_tolerance_rad_;
-      status["completion_distance_mode"] = efficient_controller ?
-        (efficient_use_planar_distance_ ? "planar" : "3d") : "planar_axis";
     }
     std_msgs::msg::String message;
     message.data = status.dump();
@@ -1464,9 +1262,7 @@ private:
     }
     waiting_for_gait_transition_ = false;
     resume_existing_task_after_gait_ = false;
-    pending_gait_resume_task_after_confirmation_ = 2;
-    scheduleGaitResume();
-    response->success = true;
+    response->success = activateTask(true);
     response->message = state_detail_;
   }
 
@@ -1509,62 +1305,8 @@ private:
     waiting_for_gait_transition_ = false;
     const bool resume_existing_task = resume_existing_task_after_gait_;
     resume_existing_task_after_gait_ = false;
+    bool activated = false;
     if (resume_existing_task) {
-      pending_gait_resume_task_after_confirmation_ = 1;
-    } else {
-      pending_gait_resume_task_after_confirmation_ = 2;
-    }
-    scheduleGaitResume();
-    detail = state_detail_;
-    return true;
-  }
-
-  void scheduleGaitResume()
-  {
-    if (gait_transition_delay_timer_) {
-      gait_transition_delay_timer_->cancel();
-      gait_transition_delay_timer_.reset();
-    }
-    if (gait_transition_ack_delay_s_ <= 0.0) {
-      executePendingGaitResume();
-      return;
-    }
-    RCLCPP_INFO(
-      get_logger(), "gait transition confirmed; waiting %.2f s before resume",
-      gait_transition_ack_delay_s_);
-    gait_transition_delay_timer_ = create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::duration<double>(gait_transition_ack_delay_s_)),
-      [this]() {
-        executePendingGaitResume();
-      });
-  }
-
-  void clearPendingGaitResume()
-  {
-    if (gait_transition_delay_timer_) {
-      gait_transition_delay_timer_->cancel();
-      gait_transition_delay_timer_.reset();
-    }
-    pending_gait_resume_task_after_confirmation_.reset();
-  }
-
-  void executePendingGaitResume()
-  {
-    if (gait_transition_delay_timer_) {
-      gait_transition_delay_timer_->cancel();
-      gait_transition_delay_timer_.reset();
-    }
-    if (!pending_gait_resume_task_after_confirmation_.has_value()) {
-      return;
-    }
-    const int mode = *pending_gait_resume_task_after_confirmation_;
-    pending_gait_resume_task_after_confirmation_.reset();
-    if (mode == 1) {
-      if (!has_route_ || active_task_index_ >= route_.tasks.size()) {
-        setState(ControllerState::kError, "route disappeared while resuming gait");
-        return;
-      }
       active_ = true;
       paused_ = false;
       safety_stopped_ = false;
@@ -1575,9 +1317,12 @@ private:
       setState(
         ControllerState::kTracking,
         task_controller_ + " task resumed after gait restore");
-      return;
+      activated = true;
+    } else {
+      activated = activateTask(true);
     }
-    (void)activateTask(true);
+    detail = state_detail_;
+    return activated;
   }
 
   void pauseCallback(
@@ -1620,7 +1365,6 @@ private:
     const std_srvs::srv::Trigger::Request::SharedPtr,
     std_srvs::srv::Trigger::Response::SharedPtr response)
   {
-    clearPendingGaitResume();
     active_ = false;
     paused_ = false;
     waiting_for_gait_transition_ = false;
@@ -1665,8 +1409,6 @@ private:
   bool paused_{false};
   bool waiting_for_gait_transition_{false};
   bool resume_existing_task_after_gait_{false};
-  double gait_transition_ack_delay_s_{1.0};
-  std::optional<int> pending_gait_resume_task_after_confirmation_;
   std::string task_controller_{"none"};
   std::string selected_controller_{"none"};
   bool has_odometry_{false};
@@ -1691,11 +1433,8 @@ private:
   Pose2d elevation_map_pose_;
   bool has_elevation_map_pose_{false};
   TrackingOutput last_tracking_output_;
-  double pid_route_goal_position_tolerance_m_{0.10};
-  double pid_route_goal_yaw_tolerance_rad_{0.15};
-  double efficient_route_goal_position_tolerance_m_{0.20};
-  double efficient_route_goal_yaw_tolerance_rad_{0.25};
-  bool efficient_use_planar_distance_{true};
+  double adjustment_route_goal_position_tolerance_m_{0.08};
+  double adjustment_route_goal_yaw_tolerance_rad_{0.15};
   rclcpp::Time last_odometry_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_cloud_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time elevation_map_stamp_{0, 0, RCL_ROS_TIME};
@@ -1720,10 +1459,6 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_publisher_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr obstacle_publisher_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr replan_publisher_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
-    elevation_range_publisher_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
-    used_cloud_publisher_;
   rclcpp::Publisher<GaitTransition>::SharedPtr gait_transition_publisher_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     elevation_debug_publisher_;
@@ -1734,7 +1469,6 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr resume_service_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_service_;
   rclcpp::TimerBase::SharedPtr control_timer_;
-  rclcpp::TimerBase::SharedPtr gait_transition_delay_timer_;
 };
 
 }  // namespace route3d_pid_controller

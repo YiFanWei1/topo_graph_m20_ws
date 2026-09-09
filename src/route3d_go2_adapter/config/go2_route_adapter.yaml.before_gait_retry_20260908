@@ -23,11 +23,6 @@ route3d_go2_adapter:
 
     gait.settle_time_s: 2.0
     gait.transition_timeout_s: 8.0
-    # A non-zero StaticWalk/SwitchGait SDK return may be transient while
-    # the firmware is settling after StopMove. Retry 3 times before latching ERROR.
-    gait.command_max_retries: 3
-    gait.command_retry_initial_delay_s: 1.0
-    gait.command_retry_backoff_multiplier: 2.0
     gait.require_state_feedback: true
     gait.state_topic: rt/sportmodestate
     gait.state_timeout_s: 1.0

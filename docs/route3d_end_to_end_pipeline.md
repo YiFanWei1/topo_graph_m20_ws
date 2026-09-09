@@ -412,9 +412,9 @@ RETRACE_PENDING ──连续确认──> RETRACING
 | `alignFinalYaw` | 最终点是否对齐 yaw | 只在路线终点/业务停车点启用 |
 | `mustPassThrough` | 是否为硬途经门 | 防止前视控制切过中间点 |
 | `passRadiusM` | 中间途经门半径 | 拐点默认 0.20 m，普通点默认 0.45 m |
-| `meta.isCorner` | 拐点 | 默认令其必须穿过；还触发接近拐点减速 |
-| `meta.isSlope` | 坡点 | 令与该点相邻的路径边成为坡段 |
-| `meta.isJunction` | 分支/拆边点 | 拓扑语义和可视化，不直接切控制器 |
+| `meta.isCorner` | 转角或平地交汇点；与坡点互斥 | 默认令其必须穿过；还触发接近拐点减速 |
+| `meta.isSlope` | 坡点，优先于拐点语义 | 令与该点相邻的路径边成为坡段，并强制 `isCorner=false` |
+| `meta.isJunction` | 分支/拆边点；平地时同时标成拐点 | 拓扑语义和可视化，不直接切控制器 |
 | `meta.type/typeId` | 业务类型 | 点对组合可形成门、充电、换图等业务任务 |
 
 ### 10.2 边控制字段

@@ -126,8 +126,10 @@
 | `meta.component` | integer | 无 | 连通分量编号；智能图提供 |
 | `meta.state` | string | `confirmed` | 在线确认状态 |
 
-同一个物理位置既可能是 `isCorner=true`，也可能是 `isSlope=true` 或
-`isJunction=true`，这些布尔属性不是互斥枚举。
+生成器对三种几何语义采用明确的优先级：平地交汇点
+`isJunction=true` 会同时标成 `isCorner=true`；坡点优先级更高，任何
+`isSlope=true` 的点都会强制 `isCorner=false`。因此交汇点可以同时是坡点，
+但拐点和坡点互斥。
 
 `acc` 与 `passRadiusM` 不应混用：Dijkstra 请求中的终点无论是不是普通点，都使用该点
 的 `acc`；路径中间的拐点或人工指定的必经普通点使用 `mustPassThrough + passRadiusM`。

@@ -24,7 +24,7 @@ route3d_pid_controller:
     # Keep the robot stopped until every safety condition has remained clear
     # continuously for this long. This prevents obstacle-cloud flicker from
     # repeatedly issuing StopMove and gait-switch SDK requests.
-    safety.clear_hold_s: 1.0
+    safety.clear_hold_s: 3.0
     # Same final protection as the reference: obs=3 suppresses ordinary
     # obstacles, but collision level >=100 always stops.
     safety.emergency_collision_level_threshold: 100
@@ -42,8 +42,8 @@ route3d_pid_controller:
     obstacle.elevation.resolution_m: 0.10
     obstacle.elevation.width_m: 4.0
     obstacle.elevation.default_ground_height_m: -0.40
-    obstacle.elevation.minimum_obstacle_height_m: -0.6
-    obstacle.elevation.maximum_obstacle_height_m: 0.8
+    obstacle.elevation.minimum_obstacle_height_m: -0.20
+    obstacle.elevation.maximum_obstacle_height_m: 0.40
     # Reference test: stdev * 20 > 2.5, i.e. stdev > 0.125 m.
     obstacle.elevation.roughness_threshold_m: 0.125
     obstacle.elevation.body_exclusion.min_x: -0.50
@@ -86,18 +86,11 @@ route3d_pid_controller:
     # Reference Go2 terminal ADJUSTMENT phase: enter at 0.30 m, retain vx/vy/wz,
     # and use low-speed limits while converging to the final pose.
     adjustment.entry_distance_m: 0.30
+    adjustment.route_goal_position_tolerance_m: 0.10
+    adjustment.route_goal_yaw_tolerance_rad: 0.15
     adjustment.maximum_vx_mps: 0.20
     adjustment.maximum_vy_mps: 0.20
     adjustment.maximum_wz_radps: 0.90
-
-    # PID and efficient local planning use independent final-arrival gates.
-    # Efficient uses planar distance because topology Z is a ground height while
-    # the slope planner follows a path lifted to the robot body centre.
-    completion.pid.position_tolerance_m: 0.10
-    completion.pid.yaw_tolerance_rad: 0.15
-    completion.efficient.position_tolerance_m: 0.20
-    completion.efficient.yaw_tolerance_rad: 0.25
-    completion.efficient.use_planar_distance: true
 
     # Safe Go2 limits. Edge linearSpeedMps can lower, never raise, max vx.
     limits.maximum_vx_mps: 0.80

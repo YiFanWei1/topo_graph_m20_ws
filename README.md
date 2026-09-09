@@ -675,3 +675,9 @@ ros2 bag play /home/wei/bag/full_nav_replay_with_plan \
   --clock \
   --exclude-topics /tf_static
 ```
+
+
+
+langyi@langyi:~/workspace/wyf/topo_graph_ws$ ros2 launch route3d_go2_adapter go2_pid_route.launch.xml   graph_file:=/home/langyi/workspace/wyf/topo_graph_ws/data/ceshi_1/topoGraph_data.json   network_interface:=enp2s0 enable_motion:=true
+
+langyi@langyi:~/workspace/wyf/topo_graph_ws$ ros2 launch route3d_loop_patrol loop_patrol.launch.py

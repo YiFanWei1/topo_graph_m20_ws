@@ -1,0 +1,27 @@
+route3d_loop_patrol:
+  ros__parameters:
+    patrol:
+      # Topology vertex IDs. Each completed leg reverses this pair.
+      start_vertex_id: 1
+      goal_vertex_id: 11
+      initial_direction: start_to_goal
+      auto_start: true
+      # Do not replace a route that is already moving when this node starts.
+      wait_for_idle_before_first_request: true
+      startup_delay_s: 3.0
+      dwell_time_s: 2.0
+      # 0 means patrol forever; N means stop after N complete round trips.
+      max_round_trips: 0
+
+    timeouts:
+      plan_response_s: 10.0
+      route_activation_s: 10.0
+      # 0 disables arrival timeout. A timeout never sends the reverse route.
+      arrival_s: 0.0
+
+    topics:
+      plan_request: /route3d_dijkstra/plan_request
+      dijkstra_status: /route3d_dijkstra/status
+      sliced_route: /route3d_route_slicer/tasks
+      controller_status: /route3d_pid_controller/status
+      status: /route3d_loop_patrol/status

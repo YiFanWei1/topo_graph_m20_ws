@@ -11,7 +11,7 @@ route3d_pid_controller:
     topics.odometry: /lio_odom_hf
     # The current GLIO topic is named "body" but its XYZ values are already in
     # the robot/base coordinate convention used by the local mapper.
-    topics.obstacle_cloud: /cloud_registered_body
+    topics.obstacle_cloud: /cloud_registered_body #cloud_registered_body
     topics.external_safety_stop: /route3d_pid_controller/external_safety_stop
     topics.collision_level: /collision_level
     topics.command: /cmd_vel_pid
@@ -24,7 +24,7 @@ route3d_pid_controller:
     # Keep the robot stopped until every safety condition has remained clear
     # continuously for this long. This prevents obstacle-cloud flicker from
     # repeatedly issuing StopMove and gait-switch SDK requests.
-    safety.clear_hold_s: 1.0
+    safety.clear_hold_s: 3.0
     # Same final protection as the reference: obs=3 suppresses ordinary
     # obstacles, but collision level >=100 always stops.
     safety.emergency_collision_level_threshold: 100
@@ -42,8 +42,8 @@ route3d_pid_controller:
     obstacle.elevation.resolution_m: 0.10
     obstacle.elevation.width_m: 4.0
     obstacle.elevation.default_ground_height_m: -0.40
-    obstacle.elevation.minimum_obstacle_height_m: -0.6
-    obstacle.elevation.maximum_obstacle_height_m: 0.8
+    obstacle.elevation.minimum_obstacle_height_m: -0.20
+    obstacle.elevation.maximum_obstacle_height_m: 0.40
     # Reference test: stdev * 20 > 2.5, i.e. stdev > 0.125 m.
     obstacle.elevation.roughness_threshold_m: 0.125
     obstacle.elevation.body_exclusion.min_x: -0.50

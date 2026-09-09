@@ -23,7 +23,7 @@ up_and_down_demo:
 
 target_path_generator:
   ros__parameters:
-    route_file: /home/wei/github_code/topo_graph_ws_/data/regu/topoSingle_data_slope.json
+    route_file: /home/langyi/workspace/wyf/topo_graph_ws/data/ceshi_2/topoSingle_data.json
     frames.fallback: camera_init               # JSON 未写 frame_id 时使用的路线坐标系
     route.spacing: 0.10                        # 稀疏拓扑点之间的三维插值最大间距，单位 m
     route.body_height: 0.40                    # 地面路线可视化抬升到机身中心的高度，单位 m
@@ -50,7 +50,7 @@ target_route_sequencer:
     profile.slope.soft_radius: 0.20            # 坡点缩小 Soft 范围，单位 m
     profile.planner_node: /corridor_astar_planner
     profile.mapper_node: /local_voxel_mapper
-    profile.extension_node: /obstacle_occlusion_extension   
+    profile.extension_node: /obstacle_occlusion_extension
 
 local_voxel_mapper:
   ros__parameters:
@@ -84,7 +84,7 @@ local_voxel_mapper:
     map.decay_start: 0.40                      # 最后命中后先保持 0.40 s，允许静态障碍短暂漏检而不闪烁
     map.decay_rate: 6.5                        # 饱和 log-odds 约在最后命中后 0.50 s 降到硬障碍阈值以下
     map.decay_front_only: true                 # 仅对机体前方旧障碍做时间衰减，后方地图保留
-    map.decay_front_fov_deg: 120.0    # FOV        # 前向衰减扇区总角度，120 表示左右各 60 度
+    map.decay_front_fov_deg: 180.0    # FOV        # 前向衰减扇区总角度，120 表示左右各 60 度
     map.ray_step_factor: 0.90                  # 射线采样步长相对栅格分辨率的比例
     map.soft_inflation_radius: 0.60            # hard 外单一软膨胀半径；等于旧 0.20m footprint + 0.40m soft
     map.hard_inflation_z_down: 0.40           # hard 先补水平八邻域，再沿 Z 向下膨胀，单位 m

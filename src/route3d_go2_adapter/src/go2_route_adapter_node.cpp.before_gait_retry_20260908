@@ -52,7 +52,6 @@ enum class AdapterState
 {
   kIdle,
   kStopping,
-  kRetryWaiting,
   kSettling,
   kPublishingAcknowledgement,
   kError,
@@ -64,7 +63,6 @@ const char * stateName(const AdapterState state)
   switch (state) {
     case AdapterState::kIdle: return "IDLE";
     case AdapterState::kStopping: return "STOPPING";
-    case AdapterState::kRetryWaiting: return "RETRY_WAITING";
     case AdapterState::kSettling: return "SETTLING";
     case AdapterState::kPublishingAcknowledgement: return "PUBLISHING_ACKNOWLEDGEMENT";
     case AdapterState::kError: return "ERROR";
@@ -122,12 +120,6 @@ public:
     maximum_wz_radps_ = declare_parameter<double>("command.maximum_wz_radps", 1.20);
     gait_settle_time_s_ = declare_parameter<double>("gait.settle_time_s", 2.0);
     transition_timeout_s_ = declare_parameter<double>("gait.transition_timeout_s", 8.0);
-    gait_command_max_retries_ = declare_parameter<std::int64_t>(
-      "gait.command_max_retries", 3);
-    gait_command_retry_initial_delay_s_ = declare_parameter<double>(
-      "gait.command_retry_initial_delay_s", 1.0);
-    gait_command_retry_backoff_multiplier_ = declare_parameter<double>(
-      "gait.command_retry_backoff_multiplier", 2.0);
     require_state_feedback_ = declare_parameter<bool>("gait.require_state_feedback", true);
     sport_state_topic_ = declare_parameter<std::string>(
       "gait.state_topic", "rt/sportmodestate");
@@ -233,10 +225,6 @@ private:
       !finite_positive(command_timeout_s_) || !finite_positive(maximum_vx_mps_) ||
       !finite_positive(maximum_vy_mps_) || !finite_positive(maximum_wz_radps_) ||
       !finite_positive(gait_settle_time_s_) || !finite_positive(transition_timeout_s_) ||
-      gait_command_max_retries_ < 0 ||
-      !finite_positive(gait_command_retry_initial_delay_s_) ||
-      !std::isfinite(gait_command_retry_backoff_multiplier_) ||
-      gait_command_retry_backoff_multiplier_ < 1.0 ||
       !finite_positive(state_timeout_s_) || !finite_positive(sdk_timeout_s_) ||
       gait_settle_time_s_ >= transition_timeout_s_ || minimum_stable_samples_ == 0U)
     {
@@ -350,8 +338,6 @@ private:
     }
 
     pending_transition_ = *message;
-    gait_command_retry_count_ = 0;
-    last_gait_sdk_code_ = 0;
     selected_controller_ = "none";
     clearCommands();
     transition_started_ = std::chrono::steady_clock::now();
@@ -387,9 +373,6 @@ private:
         break;
       case AdapterState::kStopping:
         beginGaitTransition();
-        break;
-      case AdapterState::kRetryWaiting:
-        waitForGaitRetry();
         break;
       case AdapterState::kSettling:
         monitorGaitTransition();
@@ -454,10 +437,11 @@ private:
       feedback_sequence_at_switch_ = feedback_sequence_;
       stable_feedback_samples_ = 0U;
     }
-    transition_started_ = std::chrono::steady_clock::now();
     const int result = callGaitCommand(pending_transition_->gait_command);
     if (result != 0) {
-      handleGaitCommandFailure(result);
+      failTransition(
+        "gait command '" + pending_transition_->gait_command +
+        "' failed with SDK code " + std::to_string(result));
       return;
     }
     settle_deadline_ = std::chrono::steady_clock::now() +
@@ -491,57 +475,6 @@ private:
       return -1;
     }
     return -1;
-  }
-
-  void handleGaitCommandFailure(const int sdk_code)
-  {
-    last_gait_sdk_code_ = sdk_code;
-    if (!pending_transition_.has_value()) {
-      failTransition(
-        "gait command failed with SDK code " + std::to_string(sdk_code) +
-        " but no pending transition is available");
-      return;
-    }
-    if (gait_command_retry_count_ >= gait_command_max_retries_) {
-      failTransition(
-        "gait command '" + pending_transition_->gait_command +
-        "' failed with SDK code " + std::to_string(sdk_code) + " after " +
-        std::to_string(gait_command_retry_count_) + " automatic retries");
-      return;
-    }
-
-    ++gait_command_retry_count_;
-    const double delay_s = gait_command_retry_initial_delay_s_ * std::pow(
-      gait_command_retry_backoff_multiplier_,
-      static_cast<double>(gait_command_retry_count_ - 1));
-    retry_deadline_ = std::chrono::steady_clock::now() +
-      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-      std::chrono::duration<double>(delay_s));
-    selected_controller_ = "none";
-    clearCommands();
-    setState(
-      AdapterState::kRetryWaiting,
-      "gait command '" + pending_transition_->gait_command +
-      "' failed with SDK code " + std::to_string(sdk_code) + "; retry " +
-      std::to_string(gait_command_retry_count_) + "/" +
-      std::to_string(gait_command_max_retries_) + " in " +
-      std::to_string(delay_s) + " s");
-  }
-
-  void waitForGaitRetry()
-  {
-    if (std::chrono::steady_clock::now() < retry_deadline_) {
-      return;
-    }
-    if (!pending_transition_.has_value()) {
-      failTransition("internal error: gait retry request is missing");
-      return;
-    }
-    setState(
-      AdapterState::kStopping,
-      "executing automatic gait retry " + std::to_string(gait_command_retry_count_) + "/" +
-      std::to_string(gait_command_max_retries_) + " for '" +
-      pending_transition_->gait_command + "'");
   }
 
   void monitorGaitTransition()
@@ -605,8 +538,6 @@ private:
     gait_acknowledged_publisher_->publish(expected);
     last_completed_transition_ = expected;
     pending_transition_.reset();
-    gait_command_retry_count_ = 0;
-    last_gait_sdk_code_ = 0;
     setState(AdapterState::kIdle, "gait transition complete; PID acknowledgement published");
   }
 
@@ -690,10 +621,7 @@ private:
       {"active_controller", selected_controller_},
       {"has_pid_command", pid_command_.available},
       {"has_efficient_command", efficient_command_.available},
-      {"has_sport_state", has_sport_feedback_},
-      {"gait_retry_count", gait_command_retry_count_},
-      {"gait_retry_max", gait_command_max_retries_},
-      {"last_gait_sdk_code", last_gait_sdk_code_}};
+      {"has_sport_state", has_sport_feedback_}};
     if (pending_transition_.has_value()) {
       status["route_sequence"] = pending_transition_->route_sequence;
       status["task_index"] = pending_transition_->task_index;
@@ -717,8 +645,6 @@ private:
     std_srvs::srv::Trigger::Response::SharedPtr response)
   {
     pending_transition_.reset();
-    gait_command_retry_count_ = 0;
-    last_gait_sdk_code_ = 0;
     selected_controller_ = "none";
     clearCommands();
     const bool stopped = stopRobot("emergency stop service");
@@ -736,8 +662,6 @@ private:
       response->message = "no failed gait transition is available for retry";
       return;
     }
-    gait_command_retry_count_ = 0;
-    last_gait_sdk_code_ = 0;
     transition_started_ = std::chrono::steady_clock::now();
     setState(AdapterState::kStopping, "operator requested gait transition retry");
     response->success = true;
@@ -766,9 +690,6 @@ private:
   double maximum_wz_radps_{1.20};
   double gait_settle_time_s_{2.0};
   double transition_timeout_s_{8.0};
-  std::int64_t gait_command_max_retries_{3};
-  double gait_command_retry_initial_delay_s_{1.0};
-  double gait_command_retry_backoff_multiplier_{2.0};
   bool require_state_feedback_{true};
   std::string sport_state_topic_;
   double state_timeout_s_{1.0};
@@ -784,10 +705,7 @@ private:
   CommandState efficient_command_;
   std::chrono::steady_clock::time_point transition_started_{};
   std::chrono::steady_clock::time_point settle_deadline_{};
-  std::chrono::steady_clock::time_point retry_deadline_{};
   std::chrono::steady_clock::time_point last_redundant_stop_time_{};
-  std::int64_t gait_command_retry_count_{0};
-  int last_gait_sdk_code_{0};
 
   std::mutex feedback_mutex_;
   bool has_sport_feedback_{false};
