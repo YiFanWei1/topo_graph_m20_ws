@@ -18,12 +18,12 @@ const log=(s:string)=>{const t=new Date().toLocaleTimeString();logBox.textConten
 
 let ws:WebSocket, clientId='';
 let topology:any=null, revision='', dirty=false;
-let pcdFiles:any[]=[], topologyFiles:any[]=[];
-let selectedPcd='', selectedTopology='';
+let pcdFiles:any[]=[], topologyFiles:any[]=[], localizationProfiles:any[]=[];
+let selectedPcd='', selectedTopology='', selectedProfile='';
 // The loaded resource and the user's pending dropdown choice are intentionally separate.
 // Periodic backend snapshots update selectedPcd/selectedTopology, but must not overwrite
 // a new choice the user has made before pressing the corresponding load button.
-let pcdChoiceDirty=false, topologyChoiceDirty=false;
+let pcdChoiceDirty=false, topologyChoiceDirty=false, profileChoiceDirty=false;
 let mapVoxelMin=0.01,mapVoxelMax=2.0;
 let selected:Selection|null=null, tool='select', edgeStart:string|null=null;
 let currentPose:any=null; const undoStack:string[]=[], redoStack:string[]=[];
@@ -32,7 +32,7 @@ const mapChunks=new Map<number,Float32Array[]>();
 
 function connect(){
   ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.binaryType='arraybuffer';
-  ws.onopen=()=>{$('wsLamp').classList.add('ok');$('wsText').textContent='已连接';send('resource.list');send('cloud.live.set',{enabled:$<HTMLInputElement>('showLive').checked})};
+  ws.onopen=()=>{$('wsLamp').classList.add('ok');$('wsText').textContent='已连接';send('resource.list')};
   ws.onclose=()=>{$('wsLamp').classList.remove('ok');$('wsText').textContent='连接断开，正在重连';setTimeout(connect,1500)};
   ws.onerror=()=>{};
   ws.onmessage=e=>typeof e.data==='string'?handle(JSON.parse(e.data)):handleCloud(e.data);
@@ -42,11 +42,12 @@ function handle(m:J){
   if(m.type==='hello'){clientId=m.client_id;return}
   if(m.type==='ack'){if(m.message!=='heartbeat'){toast(m.message,!m.success);log(`${m.success?'✓':'✗'} ${m.message}`)}return}
   if(m.type==='error'){toast(m.message,true);log(`错误: ${m.message}`);return}
-  if(m.type==='process.log'){log(`[${m.process}] ${m.line}`);if(m.process==='map_save'&&String(m.line).includes('[process exited with code 0]'))setTimeout(()=>send('resource.list'),350);return}
+  if(m.type==='process.log'){log(`[${m.process}] ${m.line}`);return}
   if(m.type==='resource.catalog'){
-    pcdFiles=m.pcds||[];topologyFiles=m.topologies||[];
+    pcdFiles=m.pcds||[];topologyFiles=m.topologies||[];localizationProfiles=m.localization_profiles||[];
     if('selected_pcd'in m)selectedPcd=m.selected_pcd||'';
     if('selected_topology'in m)selectedTopology=m.selected_topology||'';
+    if('selected_localization_profile'in m)selectedProfile=m.selected_localization_profile||'';
     if(Number.isFinite(Number(m.map_voxel_min_m)))mapVoxelMin=Number(m.map_voxel_min_m);
     if(Number.isFinite(Number(m.map_voxel_max_m)))mapVoxelMax=Number(m.map_voxel_max_m);
     const voxelInput=$<HTMLInputElement>('mapVoxelSize');voxelInput.min=String(mapVoxelMin);voxelInput.max=String(mapVoxelMax);
@@ -56,6 +57,7 @@ function handle(m:J){
   if(m.type==='resource.selection'){
     if('selected_pcd'in m)selectedPcd=m.selected_pcd||'';
     if('selected_topology'in m)selectedTopology=m.selected_topology||'';
+    if('selected_localization_profile'in m)selectedProfile=m.selected_localization_profile||'';
     renderResourceCatalog();return;
   }
   if(m.type==='map.cloud.clear'){clearGroup(mapGroup);mapChunks.clear();return}
@@ -74,31 +76,17 @@ function handle(m:J){
     return;
   }
   if(m.type==='snapshot'){
-    const f=m.features||{};
-    updateFeature('radar',f.radar,m.processes?.radar);
-    updateFeature('mapping',f.mapping,m.processes?.mapping);
-    updateFeature('localization',f.localization,m.processes?.localization);
-    updateFeature('planner',f.planner,m.processes?.planner);
-    updateFeature('initializer',f.vertex_initializer,null);
-    const loopFeature=f.loop_patrol||{},loopProcess=m.processes?.loop_patrol||{};
-    const loopOnline=!!loopFeature.online||!!loopProcess.running,loopManaged=!!loopFeature.managed||!!loopProcess.running;
-    const loopState=$('loopPatrolState');loopState.textContent=loopOnline?(loopManaged?'运行中':'ROS在线'):'未运行';loopState.classList.toggle('running',loopOnline&&loopManaged);loopState.classList.toggle('external',loopOnline&&!loopManaged);
-    const saveService=$('mapSaveServiceState');const serviceOnline=!!f.mapping?.save_service;saveService.textContent=serviceOnline?'在线':'离线';saveService.classList.toggle('running',serviceOnline);saveService.classList.toggle('external',false);
-    const saveState=$('mapSaveState');const saving=!!m.processes?.map_save?.running;saveState.textContent=saving?'保存中':'空闲';saveState.classList.toggle('running',saving);
-    updateRecording(m.topology_recording_state,!!f.topology_recording?.online);
+    updateProcess('radar',m.processes?.radar?.running);updateProcess('localization',m.processes?.localization?.running);updateProcess('planner',m.processes?.planner?.running);updateRecording(m.topology_recording_state,m.processes?.topology_recording?.running);
     if(m.selected_pcd)selectedPcd=m.selected_pcd;if(m.selected_topology)selectedTopology=m.selected_topology;
     if(m.pose){currentPose=m.pose;renderPose()}if(m.trajectory)renderTrajectory(m.trajectory);
     const voxelInput=$<HTMLInputElement>('mapVoxelSize');
     if(document.activeElement!==voxelInput&&Number.isFinite(Number(m.map_voxel_m)))voxelInput.value=Number(m.map_voxel_m).toFixed(2);
-    renderResourceCatalog();$('statusJson').textContent=JSON.stringify({features:m.features,processes:m.processes,topics:m.topics,ros:m.ros,selectedPcd,selectedTopology,mapVoxelM:Number(voxelInput.value)},null,2);return;
+    renderResourceCatalog();$('statusJson').textContent=JSON.stringify({processes:m.processes,topics:m.topics,ros:m.ros,selectedPcd,selectedTopology,mapVoxelM:Number(voxelInput.value)},null,2);return;
   }
   if(m.type==='map.cloud_ready'){log(`地图点云已加载：${m.points} 点，体素 ${m.voxel_m}m`)}
 }
 
-function setModuleStatus(module:string,text:string,stateClass=''){const el=document.getElementById(`${module}ModuleState`);if(!el)return;el.textContent=text;el.className=stateClass}
-function updateFeature(name:string,feature:any,process:any){const el=$(`${name}State`);if(!el)return;const online=!!feature?.online||!!process?.running;const managed=!!feature?.managed||!!process?.running;const text=online?(managed?'运行中':'ROS在线'):'未运行';el.textContent=text;el.classList.toggle('running',online&&managed);el.classList.toggle('external',online&&!managed);const module=name==='planner'?'navigation':name;if(['radar','mapping','localization','navigation'].includes(module))setModuleStatus(module,text,online?(managed?'running':'external'):'')}
-function activateModule(module:string){if(module==='navigation'&&tool==='select'){tool='navigate';edgeStart=null;setToolButton()}else if(module!=='navigation'&&tool==='navigate'){tool='select';edgeStart=null;setToolButton()}document.querySelectorAll<HTMLElement>('[data-module]').forEach(x=>x.classList.toggle('active-module',x.dataset.module===module));document.querySelectorAll<HTMLElement>('[data-module-tab]').forEach(x=>x.classList.toggle('active',x.dataset.moduleTab===module));document.body.classList.toggle('module-topology',module==='topology')}
-
+function updateProcess(name:string,running:boolean){const el=$(`${name}State`);el.textContent=running?'运行中':'未运行';el.classList.toggle('running',!!running)}
 function optionLabel(path:string){const parts=path.split('/').filter(Boolean);return parts.slice(-3).join('/')||path}
 function fillPathSelect(id:string,items:any[],loadedPath:string,placeholder:string,preservePending=false){
   const select=$<HTMLSelectElement>(id),current=select.value;
@@ -112,21 +100,26 @@ function fillPathSelect(id:string,items:any[],loadedPath:string,placeholder:stri
   if([...select.options].some(o=>o.value===wanted))select.value=wanted;
 }
 function reconcilePendingChoices(){
-  const pcd=$<HTMLSelectElement>('pcdSelect'),topo=$<HTMLSelectElement>('topologySelect');
+  const pcd=$<HTMLSelectElement>('pcdSelect'),topo=$<HTMLSelectElement>('topologySelect'),profile=$<HTMLSelectElement>('profileSelect');
   if(pcdChoiceDirty&&pcd.value===selectedPcd)pcdChoiceDirty=false;
   if(topologyChoiceDirty&&topo.value===selectedTopology)topologyChoiceDirty=false;
+  if(profileChoiceDirty&&profile.value===selectedProfile)profileChoiceDirty=false;
 }
 function renderResourceCatalog(){
   reconcilePendingChoices();
   fillPathSelect('pcdSelect',pcdFiles,selectedPcd,'请选择本地 PCD',pcdChoiceDirty);
   fillPathSelect('topologySelect',topologyFiles,selectedTopology,'请选择本地拓扑 JSON',topologyChoiceDirty);
+  const profile=$<HTMLSelectElement>('profileSelect'),current=profile.value;profile.innerHTML='<option value="">请选择定位配置模板</option>';
+  for(const item of localizationProfiles){const o=document.createElement('option');o.value=item.id;o.textContent=`${item.label||item.id}`;profile.append(o)}
+  const pendingProfileValid=profileChoiceDirty&&current&&[...profile.options].some(o=>o.value===current);
+  const wantedProfile=pendingProfileValid?current:(selectedProfile||current);
+  if([...profile.options].some(o=>o.value===wantedProfile))profile.value=wantedProfile;
   $('selectedPcdPath').textContent=selectedPcd?`已加载：${selectedPcd}`:'未加载 PCD';
   $('selectedTopologyPath').textContent=selectedTopology?`已加载：${selectedTopology}`:'未加载拓扑';
-  setModuleStatus('topology',selectedTopology?'已加载':'未加载',selectedTopology?'running':'');
 }
 function updateRecording(state='idle',running=false){
   const names:J={idle:'未运行',starting:'启动中',recording:'记录中',processing:'处理中',saved:'已保存',aborted:'已放弃',error:'失败'};
-  const el=$('recordingState');el.textContent=names[state]||state;el.classList.toggle('running',running||state==='processing');setModuleStatus('recording',names[state]||state,(running||state==='processing')?'running':'');
+  const el=$('recordingState');el.textContent=names[state]||state;el.classList.toggle('running',running||state==='processing');
   const active=state==='starting'||state==='recording'||state==='processing';const wasActive=lastRecordingState==='starting'||lastRecordingState==='recording'||lastRecordingState==='processing';
   topoGroup.visible=!active&&$<HTMLInputElement>('showTopo').checked;if(active&&!wasActive){selected=null;renderInspector();refreshTopologySelectionStyles()}if(!active&&wasActive)renderTopology();lastRecordingState=state;
 }
@@ -192,8 +185,7 @@ function renderInspector(){
     setForm(ef,{v0:e.v[0],v1:e.v[1],dir:m.dir??0,controllerMode:m.controllerMode??'auto',linearSpeedMps:m.linearSpeedMps??.8,angularSpeedRadps:m.angularSpeedRadps??0,locomotionMode:m.locomotionMode??0,obstacleMode:m.obstacleMode??0,heightOffsetM:m.heightOffsetM??0,headingAngleRad:m.headingAngleRad??0,gridMapName:m.gridMapName??'',box0:box[0]??0,box1:box[1]??0,box2:box[2]??0,box3:box[3]??0,rotationAllowed:e.rotationAllowed});
   }
 }
-function compactNumber(v:any,maxDecimals=6){const n=Number(v);if(!Number.isFinite(n))return String(v??'');if(Number.isInteger(n))return String(n);return Number(n.toFixed(maxDecimals)).toString()}
-function setForm(form:HTMLFormElement,values:J){for(const [k,v] of Object.entries(values)){const el=form.elements.namedItem(k) as HTMLInputElement;if(!el)continue;if(el.type==='checkbox')el.checked=!!v;else if(el.type==='number')el.value=compactNumber(v);else el.value=String(v??'')}}
+function setForm(form:HTMLFormElement,values:J){for(const [k,v] of Object.entries(values)){const el=form.elements.namedItem(k) as HTMLInputElement;if(!el)continue;if(el.type==='checkbox')el.checked=!!v;else el.value=String(v??'')}}
 function formValues(form:HTMLFormElement){const o:J={};new FormData(form).forEach((v,k)=>o[k]=v);for(const el of [...form.elements] as HTMLInputElement[]){if(el.name&&el.type==='checkbox')o[el.name]=el.checked}return o}
 function checkpoint(){if(topology)undoStack.push(JSON.stringify(topology));if(undoStack.length>50)undoStack.shift();redoStack.length=0;dirty=true;setDirty()}
 function setDirty(){$('dirtyState').textContent=dirty?'有未保存修改':'已保存';$('dirtyState').style.color=dirty?'#f2b84b':'#6f8b97'}
@@ -214,12 +206,6 @@ renderer.domElement.addEventListener('pointerdown',e=>{
   if(tool==='initial'){interactionPlane.constant=0;dragStart=groundPoint(e,false);if(dragStart)dragStart.z=0;controls.enabled=false;return}
   const hits=raycaster.intersectObjects(topoGroup.children,false).filter(h=>['vertex','edge'].includes(String((h.object.userData as any).kind||'')));
   if(hits.length){const u=hits[0].object.userData as any;
-    if(tool==='navigate'&&u.kind==='vertex'){
-      selected={kind:'vertex',id:u.id};refreshTopologySelectionStyles();renderInspector();
-      send('navigation.goal',{goal_id:+u.id});
-      $('quickActionStatus').textContent=`已点选导航到顶点 ${u.id}`;
-      return;
-    }
     if(tool==='edge'&&u.kind==='vertex'){
       if(!edgeStart){edgeStart=u.id;selected={kind:'vertex',id:u.id};refreshTopologySelectionStyles();renderInspector();toast(`已选择连接起点 ${u.id}，请再点击第二个点`)}
       else if(edgeStart===u.id){edgeStart=null;selected={kind:'vertex',id:u.id};refreshTopologySelectionStyles();toast('已取消连接起点')}
@@ -228,7 +214,7 @@ renderer.domElement.addEventListener('pointerdown',e=>{
       selected={kind:u.kind,id:u.id};refreshTopologySelectionStyles();renderInspector();
       if(u.kind==='vertex'){
         if(!$<HTMLInputElement>('startId').value)$<HTMLInputElement>('startId').value=u.id;else $<HTMLInputElement>('goalId').value=u.id;
-        if(tool==='select'&&$<HTMLInputElement>('enableVertexDrag').checked){draggingVertex={id:u.id,object:hits[0].object};dragMoved=false;interactionPlane.constant=-topology.vertices[u.id].pos[2];controls.enabled=false}
+        if(tool==='select'){draggingVertex={id:u.id,object:hits[0].object};dragMoved=false;interactionPlane.constant=-topology.vertices[u.id].pos[2];controls.enabled=false}
       }
     }return;
   }
@@ -257,45 +243,35 @@ $<HTMLFormElement>('edgeForm').onsubmit=e=>{
   renderTopology();toast('边属性已应用；点击“保存拓扑”写回本地 JSON');
 };
 $('vertexInitialPose').onclick=()=>{if(!selected||selected.kind!=='vertex')return;if(dirty&&!confirm('当前顶点有未保存修改。定位初值将按网页当前选中拓扑文件中已保存的数据发送。是否继续？'))return;send('localization.set_initial_pose_vertex',{vertex_id:+selected.id})};
-$('vertexNavigate').onclick=()=>{if(!selected||selected.kind!=='vertex')return;send('navigation.goal',{goal_id:+selected.id})};
 $('deleteVertex').onclick=()=>{if(!selected||selected.kind!=='vertex'||!confirm(`删除顶点 ${selected.id} 及其所有关联边？`))return;checkpoint();const id=selected.id;delete topology.vertices[id];for(const [eid,e] of Object.entries<any>(topology.edges))if(e.v.map(String).includes(id))delete topology.edges[eid];selected=null;renderTopology()};
 $('deleteEdge').onclick=()=>{if(!selected||selected.kind!=='edge'||!confirm(`删除边 ${selected.id}？`))return;checkpoint();delete topology.edges[selected.id];selected=null;renderTopology()};
 
 document.querySelectorAll<HTMLButtonElement>('[data-start]').forEach(b=>b.onclick=()=>{if(b.dataset.start==='planner'&&$<HTMLInputElement>('enableMotion').checked&&!confirm('即将启用实机运动。确认遥控急停已就绪、机器人周围安全？'))return;send('process.start',{target:b.dataset.start,enable_motion:$<HTMLInputElement>('enableMotion').checked})});
 document.querySelectorAll<HTMLButtonElement>('[data-stop]').forEach(b=>b.onclick=()=>send('process.stop',{target:b.dataset.stop}));
 document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach(b=>b.onclick=()=>{tool=b.dataset.tool!;edgeStart=null;if(tool==='robotVertex'){if(currentPose)addVertex([...currentPose.position]);else toast('尚无机器人位置',true);tool='select'}refreshTopologySelectionStyles();setToolButton()});
-$('enableVertexDrag').onchange=()=>{if(!$<HTMLInputElement>('enableVertexDrag').checked&&draggingVertex){draggingVertex=null;dragMoved=false;controls.enabled=true}setToolButton();toast($<HTMLInputElement>('enableVertexDrag').checked?'拖动编辑已开启：拖动顶点会修改坐标':'拖动编辑已关闭：点击顶点只会选择/高亮')};
-function setToolButton(){document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',(x as HTMLElement).dataset.tool===tool));$('hint').textContent=tool==='initial'?'在地图上按住左键拖出朝向':tool==='navigate'?'点选导航已开启：直接点击任意拓扑顶点即可导航过去':tool==='edge'?(edgeStart?`已选点 ${edgeStart}，请点击第二个点完成连接`:'依次点击两个拓扑点创建边；第一个点会绿色高亮'):tool==='vertex'?'点击 PCD/XY 平面添加拓扑点':($<HTMLInputElement>('enableVertexDrag').checked?'左键点击点/边选择并高亮；已开启拖动编辑，拖动顶点会修改坐标':'左键点击点/边只选择和高亮；拖动编辑默认关闭，右键旋转，滚轮缩放');const nav=$('pointNavigateMode');if(nav){nav.textContent=tool==='navigate'?'点选导航：开启':'点选导航：关闭';nav.classList.toggle('active',tool==='navigate')}}
+function setToolButton(){document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',(x as HTMLElement).dataset.tool===tool));$('hint').textContent=tool==='initial'?'在地图上按住左键拖出朝向':tool==='edge'?(edgeStart?`已选点 ${edgeStart}，请点击第二个点完成连接`:'依次点击两个拓扑点创建边；第一个点会绿色高亮'):tool==='vertex'?'点击 PCD/XY 平面添加拓扑点':'左键点击点/边选择并高亮；点可拖动，右键旋转，滚轮缩放'}
 $('initialPoseMode').onclick=()=>{tool='initial';edgeStart=null;refreshTopologySelectionStyles();setToolButton()};
-$('pointNavigateMode').onclick=()=>{tool=tool==='navigate'?'select':'navigate';edgeStart=null;refreshTopologySelectionStyles();setToolButton()};
 $('refreshResources').onclick=()=>send('resource.list');
 $<HTMLSelectElement>('pcdSelect').onchange=()=>{pcdChoiceDirty=true};
 $<HTMLSelectElement>('topologySelect').onchange=()=>{topologyChoiceDirty=true};
+$<HTMLSelectElement>('profileSelect').onchange=()=>{profileChoiceDirty=true};
 function requestedMapVoxel(){const input=$<HTMLInputElement>('mapVoxelSize');let value=Number(input.value);if(!Number.isFinite(value))value=0.20;value=Math.max(mapVoxelMin,Math.min(mapVoxelMax,value));input.value=value.toFixed(2);return value}
 $('selectPcd').onclick=()=>{const path=$<HTMLSelectElement>('pcdSelect').value;if(path)send('map.file.select',{path,voxel_m:requestedMapVoxel()});else toast('请选择地图文件夹',true)};
 $('applyMapVoxel').onclick=()=>{if(!selectedPcd){toast('请先加载 PCD 地图',true);return}send('map.cloud_lod',{voxel_m:requestedMapVoxel()})};
+$('selectProfile').onclick=()=>{const id=$<HTMLSelectElement>('profileSelect').value;if(id)send('localization.profile.select',{id});else toast('请选择定位配置模板',true)};
 $('selectTopology').onclick=()=>{const path=$<HTMLSelectElement>('topologySelect').value;if(path)send('topology.file.select',{path});else toast('请选择本地拓扑 JSON',true)};
-$('saveMappingMap').onclick=()=>{const name=$<HTMLInputElement>('mappingMapName').value.trim();if(!name){toast('请输入地图名称',true);return}if(!/^[A-Za-z0-9._-]+$/.test(name)){toast('地图名称只能包含字母、数字、点、下划线和横线',true);return}const overwrite=$<HTMLInputElement>('mappingOverwrite').checked;if(overwrite&&!confirm(`确认允许覆盖地图 ${name}？`))return;send('mapping.save_map',{name,overwrite})};
 $('startRecording').onclick=()=>send('topology.record.start');
 $('stopRecording').onclick=()=>{const name=$<HTMLInputElement>('recordingName').value.trim();if(!name){toast('请输入保存名称',true);return}send('topology.record.stop',{name})};
 $('abortRecording').onclick=()=>{if(confirm('放弃本次自动打点？临时数据不会保存为正式拓扑。'))send('topology.record.abort')};
 $('saveTopology').onclick=()=>{if(!topology)return;if(!selectedTopology){toast('请先加载本地拓扑 JSON',true);return}send('topology.save',{data:topology,revision})};
-$('sendGoalOnly').onclick=()=>{const goal=+$<HTMLInputElement>('goalOnlyId').value;if(!Number.isInteger(goal)||goal<0){toast('请输入有效目标点编号',true);return}send('navigation.goal',{goal_id:goal})};
 $('planRoute').onclick=()=>send('navigation.plan',{start_id:+$<HTMLInputElement>('startId').value,goal_id:+$<HTMLInputElement>('goalId').value});
-function startLoop(mode:'fixed'|'goal_only'){const start=+$<HTMLInputElement>('loopStartId').value,goal=+$<HTMLInputElement>('loopGoalId').value,dwell=+$<HTMLInputElement>('loopDwell').value,rounds=+$<HTMLInputElement>('loopRounds').value;if(!Number.isInteger(start)||start<0||!Number.isInteger(goal)||goal<0||start===goal){toast('循环需要两个不同的有效点位',true);return}if(!Number.isFinite(dwell)||dwell<0){toast('端点停留时间无效',true);return}if(!Number.isInteger(rounds)||rounds<0){toast('往返次数必须是非负整数',true);return}send('navigation.loop.start',{mode,start_id:start,goal_id:goal,dwell_time_s:dwell,max_round_trips:rounds})}
-$('startFixedLoop').onclick=()=>startLoop('fixed');
-$('startGoalOnlyLoop').onclick=()=>startLoop('goal_only');
-$('stopLoop').onclick=()=>send('navigation.loop.stop');
 $('pause').onclick=()=>send('navigation.pause');$('resume').onclick=()=>send('navigation.resume');$('cancel').onclick=()=>send('navigation.cancel');
 $('undo').onclick=()=>{if(!undoStack.length)return;redoStack.push(JSON.stringify(topology));topology=JSON.parse(undoStack.pop()!);dirty=true;renderTopology();setDirty()};
 $('redo').onclick=()=>{if(!redoStack.length)return;undoStack.push(JSON.stringify(topology));topology=JSON.parse(redoStack.pop()!);dirty=true;renderTopology();setDirty()};
 $('clearLog').onclick=()=>logBox.textContent='';
-$<HTMLInputElement>('showMap').onchange=e=>mapGroup.visible=(e.target as HTMLInputElement).checked;$<HTMLInputElement>('showLive').onchange=e=>{const enabled=(e.target as HTMLInputElement).checked;liveGroup.visible=enabled;if(!enabled)clearGroup(liveGroup);send('cloud.live.set',{enabled})};$<HTMLInputElement>('showTopo').onchange=e=>topoGroup.visible=(e.target as HTMLInputElement).checked;$<HTMLInputElement>('showPreview').onchange=e=>previewGroup.visible=(e.target as HTMLInputElement).checked;$<HTMLInputElement>('showTrack').onchange=e=>trackGroup.visible=(e.target as HTMLInputElement).checked;
+$<HTMLInputElement>('showMap').onchange=e=>mapGroup.visible=(e.target as HTMLInputElement).checked;$<HTMLInputElement>('showLive').onchange=e=>liveGroup.visible=(e.target as HTMLInputElement).checked;$<HTMLInputElement>('showTopo').onchange=e=>topoGroup.visible=(e.target as HTMLInputElement).checked;$<HTMLInputElement>('showPreview').onchange=e=>previewGroup.visible=(e.target as HTMLInputElement).checked;$<HTMLInputElement>('showTrack').onchange=e=>trackGroup.visible=(e.target as HTMLInputElement).checked;
 $('followRobot').onclick=()=>setRobotFollow(!followRobot);
 $('fitView').onclick=()=>{const target=(topoGroup.visible&&topoGroup.children.length)?topoGroup:mapGroup;const box=new THREE.Box3().setFromObject(target);if(box.isEmpty())return;setRobotFollow(false);const size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());controls.target.copy(center);camera.position.copy(center).add(new THREE.Vector3(size.length()*.55,-size.length()*.55,size.length()*.45));camera.near=Math.max(.01,size.length()/10000);camera.far=Math.max(100,size.length()*10);camera.updateProjectionMatrix()};
 window.addEventListener('keydown',e=>{const target=e.target as HTMLElement;if(e.key.toLowerCase()==='f'&&!target.closest('input, select, textarea'))setRobotFollow(!followRobot)});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
-document.querySelectorAll<HTMLElement>('[data-module-tab]').forEach(x=>x.onclick=()=>activateModule(x.dataset.moduleTab||'radar'));
-activateModule('radar');
-liveGroup.visible=$<HTMLInputElement>('showLive').checked;
 connect();resize();setToolButton();

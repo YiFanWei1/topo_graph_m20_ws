@@ -1,0 +1,31 @@
+route3d_vertex_initializer:
+  ros__parameters:
+    # 浏览器选择的拓扑路径优先；没有浏览器选择时，自动回退到规控 graph_file。
+    graph_file_topic: "/route3d_initial_pose/graph_file"
+    prefer_graph_file_topic: true
+
+    planner_node: "/route3d_dijkstra_planner"
+    planner_graph_parameter: "graph_file"
+    fallback_graph_file: ""
+
+    request_topic: "/route3d_initial_pose/vertex_id"
+    initial_pose_topic: "/initialpose"
+    selected_pose_topic: "/route3d_initial_pose/selected_pose"
+    status_topic: "/route3d_initial_pose/status"
+    graph_refresh_period_s: 1.0
+
+    initial_pose:
+      # 不做 TF 数值变换；这里应与定位程序接受 /initialpose 的 frame 保持一致。
+      frame_id: "map"
+      use_graph_frame_when_empty: true
+      use_vertex_z: true
+      z_override: 0.0
+      use_full_rpy: true
+
+    covariance:
+      x: 0.25
+      y: 0.25
+      z: 0.25
+      roll: 0.0685
+      pitch: 0.0685
+      yaw: 0.0685

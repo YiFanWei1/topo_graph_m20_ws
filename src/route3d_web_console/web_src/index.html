@@ -4,50 +4,120 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Route3D 机器人控制台</title>
-  <style>.step-help{margin:0 0 8px;color:#78929e;font-size:11px;line-height:1.55}</style>
+  <style>.step-help{margin:0 0 8px;color:#78929e;font-size:11px;line-height:1.55}.file-path{display:block;color:#66818c;font:10px/1.35 monospace;word-break:break-all;margin-top:5px}</style>
 </head>
 <body>
   <header>
-    <div class="brand"><span class="brand-mark">R3</span><div><b>Route3D</b><small>定位 · 拓扑 · 规划控制</small></div></div>
-    <div class="header-status"><span id="wsLamp" class="lamp"></span><span id="wsText">正在连接</span><button id="claimControl">取得控制权</button></div>
+    <div class="brand"><span class="brand-mark">R3</span><div><b>Route3D</b><small>定位 · 本地拓扑编辑 · 规划控制</small></div></div>
+    <div class="header-status"><span id="wsLamp" class="lamp"></span><span id="wsText">正在连接</span></div>
   </header>
   <main>
     <aside class="workflow">
-      <h2>运行流程</h2>
-      <section class="step" data-step="1"><div class="step-title"><b>01</b> 雷达服务</div><div class="row"><button data-start="radar">启动</button><button class="secondary" data-stop="radar">停止</button><span id="radarState" class="badge">未运行</span></div></section>
-      <section class="step" data-step="2"><div class="step-title"><b>02</b> 地图与定位</div><label>定位 PCD<select id="mapSelect"><option value="">请选择定位地图</option></select></label><div class="row"><button id="selectMap">加载 PCD</button><button id="refreshMaps" class="secondary">刷新</button></div><div class="row"><button data-start="localization">启动定位</button><button class="secondary" data-stop="localization">停止</button><span id="localizationState" class="badge">未运行</span></div><button id="initialPoseMode" class="wide secondary">在地图上拖动设置初始位姿</button></section>
-      <section class="step" data-step="3"><div class="step-title"><b>03</b> 自动打点</div><p class="step-help">启动后用遥控器完整走过路线；网页实时显示去重拓扑、闭环、拐点和坡点。</p><div class="row"><button id="startRecording">开始记录（1）</button><button id="abortRecording" class="danger">放弃</button><span id="recordingState" class="badge">未运行</span></div><label>保存名称<input id="recordingName" maxlength="80" placeholder="例如 building_a_v1" /></label><button id="stopRecording" class="wide">停止、处理并保存（2）</button></section>
-      <section class="step" data-step="4"><div class="step-title"><b>04</b> 拓扑选择与编辑</div><label>当前 PCD 绑定的拓扑图<select id="topologySelect"><option value="">请选择拓扑图</option></select></label><button id="selectTopology" class="wide">加载拓扑</button><div class="tool-grid"><button data-tool="select" class="active">选择</button><button data-tool="vertex">地图加点</button><button data-tool="robotVertex">当前位置加点</button><button data-tool="edge">连接边</button></div><div class="row"><button id="undo" class="secondary">撤销</button><button id="redo" class="secondary">重做</button><button id="saveTopology">保存拓扑</button></div><small id="dirtyState">未修改</small></section>
-      <section class="step" data-step="5"><div class="step-title"><b>05</b> 规划控制</div><label class="toggle"><input id="enableMotion" type="checkbox" />实机运动（默认关闭）</label><div class="row"><button data-start="planner">启动控制链</button><button class="secondary" data-stop="planner">停止</button><span id="plannerState" class="badge">未运行</span></div><div class="route-ids"><label>起点<input id="startId" type="number" min="1" /></label><span>→</span><label>终点<input id="goalId" type="number" min="1" /></label></div><button id="planRoute" class="wide">规划并执行</button><div class="row"><button id="pause" class="secondary">暂停</button><button id="resume" class="secondary">恢复</button><button id="cancel" class="danger">取消</button></div></section>
+      <h2>功能模块</h2>
+      <div class="module-switcher" aria-label="功能模块">
+        <button type="button" class="module-tab active" data-module-tab="radar"><span>雷达</span><em id="radarModuleState">未运行</em></button>
+        <button type="button" class="module-tab" data-module-tab="mapping"><span>建图</span><em id="mappingModuleState">未运行</em></button>
+        <button type="button" class="module-tab" data-module-tab="localization"><span>定位</span><em id="localizationModuleState">未运行</em></button>
+        <button type="button" class="module-tab" data-module-tab="recording"><span>打点</span><em id="recordingModuleState">未运行</em></button>
+        <button type="button" class="module-tab" data-module-tab="topology"><span>拓扑</span><em id="topologyModuleState">未加载</em></button>
+        <button type="button" class="module-tab" data-module-tab="navigation"><span>规控</span><em id="navigationModuleState">未运行</em></button>
+      </div>
+      <section class="step module-detail active-module" data-step="1" data-module="radar"><div class="step-title"><b>01</b> 雷达服务</div><p class="step-help">状态直接检测当前 ROS 图中的 /livox/lidar。网页启动/停止操作统一控制系统 driver.service，不再另起第二套雷达驱动。</p><div class="row"><button data-start="radar">启动/重启 driver.service</button><button class="secondary" data-stop="radar">停止 driver.service</button><span id="radarState" class="badge">未运行</span></div></section>
+
+      <section class="step module-detail" data-step="2" data-module="mapping">
+        <div class="step-title"><b>02</b> 建图与保存地图</div>
+        <p class="step-help">启动命令：/opt/mapping_ws/run_mapping_nodes.sh mode:=mapping。建图与自动打点互不排斥，可以同时运行。</p>
+        <div class="row"><button data-start="mapping">开始建图</button><button class="secondary" data-stop="mapping">关闭建图节点</button><span id="mappingState" class="badge">未运行</span></div>
+        <div class="row compact-status"><span>保存服务</span><span id="mapSaveServiceState" class="badge">离线</span><span>保存任务</span><span id="mapSaveState" class="badge">空闲</span></div>
+        <label>保存地图名称<input id="mappingMapName" maxlength="80" placeholder="例如 510、floor_a" /></label>
+        <label class="toggle"><input id="mappingOverwrite" type="checkbox" />允许覆盖同名地图</label>
+        <button id="saveMappingMap" class="wide">保存地图</button>
+        <small class="file-path">输入名称后自动保存到 /home/langyi/workspace/map/&lt;地图名&gt;/map/&lt;地图名&gt;-0.1.pcd，并建立 &lt;地图名&gt;.pcd 供网页加载。0.1 由 YAML 的 mapping.save_resolution_tag 配置。</small>
+      </section>
+
+      <section class="step module-detail" data-step="3" data-module="localization">
+        <div class="step-title"><b>03</b> PCD 地图与定位</div>
+        <p class="step-help">PCD 与拓扑完全独立。地图列表来自 /home/langyi/workspace/map/&lt;地图名&gt;/map/&lt;地图名&gt;.pcd，下拉框只显示地图文件夹名。</p>
+        <label>本地 PCD 地图<select id="pcdSelect"><option value="">请选择地图</option></select></label>
+        <label>PCD 加载降采样（voxel，m）<input id="mapVoxelSize" type="number" min="0.01" max="2.0" step="0.01" value="0.20" /></label>
+        <div class="row"><button id="selectPcd">加载 PCD</button><button id="applyMapVoxel" class="secondary">应用降采样</button><button id="refreshResources" class="secondary">刷新列表</button></div>
+        <small id="selectedPcdPath" class="file-path">未选择 PCD</small>
+        <p class="step-help">定位配置模板由后台自动选择：若当前 PCD 在旧 catalog 中有匹配配置则自动复用，否则使用 YAML 的 localization.config_template。无需手工选择模板。</p>
+        <div class="row"><button data-start="localization">启动定位</button><button class="secondary" data-stop="localization">停止</button><span id="localizationState" class="badge">未运行</span></div>
+        <button id="initialPoseMode" class="wide secondary">定位启动后，在地图上拖动设置 2D 初始位姿</button>
+      </section>
+
+      <section class="step module-detail" data-step="4" data-module="recording"><div class="step-title"><b>04</b> 自动打点</div><p class="step-help">保留原在线打点流程。生成后的 topoGraph_data.json 会自动出现在本地拓扑列表中。</p><div class="row"><button id="startRecording">开始记录（1）</button><button id="abortRecording" class="danger">放弃</button><span id="recordingState" class="badge">未运行</span></div><label>保存名称<input id="recordingName" maxlength="80" placeholder="例如 building_a_v1" /></label><button id="stopRecording" class="wide">停止、处理并保存（2）</button></section>
+
+      <section class="step module-detail" data-step="5" data-module="topology">
+        <div class="step-title"><b>05</b> 本地拓扑选择与编辑</div>
+        <p class="step-help">拓扑列表只读取 /home/langyi/workspace/wyf/topo_graph_ws/data/&lt;拓扑名&gt;/topoGraph_data.json。下拉框显示对应文件夹名；保存会直接写回这个文件。</p>
+        <label>本地拓扑地图<select id="topologySelect"><option value="">请选择拓扑地图</option></select></label>
+        <button id="selectTopology" class="wide">加载拓扑</button>
+        <small id="selectedTopologyPath" class="file-path">未选择拓扑</small>
+        <div class="row compact-status"><span>点位初始化服务</span><span id="initializerState" class="badge">检测中</span></div>
+        <div class="tool-grid"><button data-tool="select" class="active">选择</button><button data-tool="vertex">地图加点</button><button data-tool="robotVertex">当前位置加点</button><button data-tool="edge">连接边</button></div>
+        <label class="toggle"><input id="enableVertexDrag" type="checkbox" />拖动编辑点位（默认关闭，避免误触）</label>
+        <div class="row"><button id="undo" class="secondary">撤销</button><button id="redo" class="secondary">重做</button><button id="saveTopology">保存拓扑</button></div><small id="dirtyState">未修改</small>
+      </section>
+
+      <section class="step module-detail" data-step="6" data-module="navigation">
+        <div class="step-title"><b>06</b> 规划控制</div>
+        <label class="toggle"><input id="enableMotion" type="checkbox" />实机运动（默认关闭）</label>
+        <div class="row"><button data-start="planner">启动控制链</button><button class="secondary" data-stop="planner">停止</button><span id="plannerState" class="badge">未运行</span></div>
+        <button id="pointNavigateMode" type="button" class="wide secondary">点选导航：关闭</button>
+        <small class="file-path">开启后，直接点击 3D 拓扑中的任意顶点就会发布目标点，不需要记住点号。</small>
+        <div class="goal-only-box"><label>直接发送目标点<input id="goalOnlyId" type="number" min="0" placeholder="例如 11" /></label><button id="sendGoalOnly" class="wide">当前位置 → 目标点</button><small class="file-path">等价于 06_send_goal_only.sh：发布 /route3d_dijkstra/goal_request，起点由机器人当前位置自动匹配最近拓扑点。</small><small id="quickActionStatus" class="file-path"></small></div>
+        <div class="route-ids"><label>指定起点<input id="startId" type="number" min="0" /></label><span>→</span><label>指定终点<input id="goalId" type="number" min="0" /></label></div>
+        <button id="planRoute" class="wide secondary">指定起终点规划</button>
+        <div class="loop-box">
+          <h3>两点往返循环</h3>
+          <div class="route-ids"><label>点 A<input id="loopStartId" type="number" min="0" /></label><span>↔</span><label>点 B<input id="loopGoalId" type="number" min="0" /></label></div>
+          <div class="two"><label>端点停留 s<input id="loopDwell" type="number" min="0" step="0.1" value="2.0" /></label><label>往返次数<input id="loopRounds" type="number" min="0" step="1" value="0" /></label></div>
+          <small class="file-path">往返次数 0 = 无限循环。</small>
+          <div class="row"><button id="startFixedLoop">固定 A↔B 循环（05）</button><button id="startGoalOnlyLoop" class="secondary">当前位置匹配循环（07）</button></div>
+          <div class="row"><button id="stopLoop" class="danger">停止循环</button><span id="loopPatrolState" class="badge">未运行</span></div>
+        </div>
+        <div class="row"><button id="pause" class="secondary">暂停</button><button id="resume" class="secondary">恢复</button><button id="cancel" class="danger">取消</button></div>
+      </section>
     </aside>
 
     <section class="viewport-wrap">
       <div id="viewport"></div>
-      <div class="scene-tools"><label><input id="showMap" type="checkbox" checked />地图</label><label><input id="showLive" type="checkbox" checked />实时点云</label><label><input id="showTopo" type="checkbox" checked />拓扑</label><label><input id="showPreview" type="checkbox" checked />打点预览</label><label><input id="showTrack" type="checkbox" checked />轨迹</label><button id="followRobot" class="icon" title="跟随机器人中心（快捷键 F）" aria-pressed="false">跟随机器人</button><button id="fitView" class="icon">适配视图</button></div>
-      <div id="hint" class="hint">左键选择，右键旋转，滚轮缩放</div>
+      <div class="scene-tools"><label><input id="showMap" type="checkbox" checked />PCD地图</label><label><input id="showLive" type="checkbox" />实时点云（按需传输）</label><label><input id="showTopo" type="checkbox" checked />拓扑</label><label><input id="showPreview" type="checkbox" checked />打点预览</label><label><input id="showTrack" type="checkbox" checked />轨迹</label><button id="followRobot" class="icon" title="跟随机器人中心（快捷键 F）" aria-pressed="false">跟随机器人</button><button id="fitView" class="icon">适配视图</button></div>
+      <div id="hint" class="hint">左键点击点/边会高亮；选择“连接边”后依次点击两个点</div>
       <div class="telemetry"><div><span>位置 X</span><b id="poseX">--</b></div><div><span>位置 Y</span><b id="poseY">--</b></div><div><span>航向</span><b id="poseYaw">--</b></div><div><span>控制器</span><b id="controller">none</b></div><div><span>速度</span><b id="velocity">0.00</b></div></div>
     </section>
 
     <aside class="inspector">
       <h2>属性</h2>
-      <div id="emptyInspector" class="empty">选择一个拓扑点或边进行编辑</div>
+      <div id="emptyInspector" class="empty">点击一个拓扑点或边进行编辑</div>
       <form id="vertexForm" hidden>
         <h3>顶点 <span id="vertexId"></span></h3>
-        <div class="three"><label>X<input name="x" type="number" step="0.01" /></label><label>Y<input name="y" type="number" step="0.01" /></label><label>Z<input name="z" type="number" step="0.01" /></label></div>
-        <div class="three"><label>Roll<input name="roll" type="number" step="0.01" /></label><label>Pitch<input name="pitch" type="number" step="0.01" /></label><label>Yaw<input name="yaw" type="number" step="0.01" /></label></div>
-        <div class="two"><label>到点精度<input name="acc" type="number" min="0.01" step="0.01" /></label><label>通过半径<input name="passRadiusM" type="number" min="0.01" step="0.01" /></label></div>
+        <button id="vertexInitialPose" type="button" class="wide">使用此点发送定位初值</button>
+        <button id="vertexNavigate" type="button" class="wide secondary">导航到此点（当前位置为起点）</button>
+        <div class="three"><label>X<input name="x" type="number" step="any" /></label><label>Y<input name="y" type="number" step="any" /></label><label>Z<input name="z" type="number" step="any" /></label></div>
+        <div class="three"><label>Roll<input name="roll" type="number" step="any" /></label><label>Pitch<input name="pitch" type="number" step="any" /></label><label>Yaw<input name="yaw" type="number" step="any" /></label></div>
+        <div class="two"><label>到点精度<input name="acc" type="number" min="0.01" step="any" /></label><label>通过半径<input name="passRadiusM" type="number" min="0.01" step="any" /></label></div>
+        <div class="two"><label>type<input name="type" type="number" /></label><label>typeId<input name="typeId" type="number" /></label></div>
+        <div class="two"><label>chargingMode<input name="chargingMode" type="number" /></label><label>component<input name="component" type="number" /></label></div>
+        <div class="two"><label>turnDeg<input name="turnDeg" type="number" step="any" /></label><label>state<input name="state" type="text" /></label></div>
         <label class="toggle"><input name="isCorner" type="checkbox" />拐点</label><label class="toggle"><input name="isSlope" type="checkbox" />坡点</label><label class="toggle"><input name="isJunction" type="checkbox" />交汇点</label><label class="toggle"><input name="mustPassThrough" type="checkbox" />必须经过</label><label class="toggle"><input name="alignFinalYaw" type="checkbox" />终点对齐航向</label><label class="toggle"><input name="turnable" type="checkbox" />允许转向</label>
-        <button type="submit">应用修改</button><button id="deleteVertex" type="button" class="danger wide">删除点及关联边</button>
+        <button type="submit">应用顶点修改</button><button id="deleteVertex" type="button" class="danger wide">删除点及关联边</button>
       </form>
       <form id="edgeForm" hidden>
         <h3>边 <span id="edgeId"></span></h3>
         <div class="two"><label>端点 A<input name="v0" type="number" readonly /></label><label>端点 B<input name="v1" type="number" readonly /></label></div>
         <label>方向<select name="dir"><option value="0">双向</option><option value="1">A → B</option><option value="2">B → A</option></select></label>
-        <label>控制器<select name="controllerMode"><option value="auto">自动</option><option value="pid">PID</option><option value="efficient_3d_local_planner">Efficient 3D</option></select></label>
-        <div class="two"><label>线速度 m/s<input name="linearSpeedMps" type="number" step="0.05" min="0" /></label><label>角速度 rad/s<input name="angularSpeedRadps" type="number" step="0.05" min="0" /></label></div>
+        <label>控制器<select name="controllerMode"><option value="auto">自动</option><option value="pid">PID</option><option value="local_planner">Local Planner</option><option value="efficient_3d_local_planner">Efficient 3D</option></select></label>
+        <div class="two"><label>线速度 m/s<input name="linearSpeedMps" type="number" step="any" min="0" /></label><label>角速度 rad/s<input name="angularSpeedRadps" type="number" step="any" min="0" /></label></div>
         <div class="two"><label>步态编号<input name="locomotionMode" type="number" /></label><label>障碍模式<input name="obstacleMode" type="number" /></label></div>
-        <label>车身高度补偿 m<input name="heightOffsetM" type="number" step="0.01" /></label><label class="toggle"><input name="rotationAllowed" type="checkbox" />允许转向</label>
-        <button type="submit">应用修改</button><button id="deleteEdge" type="button" class="danger wide">删除边</button>
+        <div class="two"><label>车身高度补偿 m<input name="heightOffsetM" type="number" step="any" /></label><label>headingAngleRad<input name="headingAngleRad" type="number" step="any" /></label></div>
+        <label>gridMapName<input name="gridMapName" type="text" /></label>
+        <div class="two"><label>障碍框前<input name="box0" type="number" step="any" /></label><label>障碍框后<input name="box1" type="number" step="any" /></label></div>
+        <div class="two"><label>障碍框左<input name="box2" type="number" step="any" /></label><label>障碍框右<input name="box3" type="number" step="any" /></label></div>
+        <label class="toggle"><input name="rotationAllowed" type="checkbox" />允许转向</label>
+        <button type="submit">应用边修改</button><button id="deleteEdge" type="button" class="danger wide">删除边</button>
       </form>
       <div class="status-panel"><h3>系统状态</h3><pre id="statusJson">等待数据…</pre></div>
     </aside>

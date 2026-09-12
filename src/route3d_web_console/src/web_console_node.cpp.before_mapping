@@ -244,13 +244,11 @@ class HttpWsServer
 public:
   using CommandCallback = WebSession::CommandCallback;
   using ConnectCallback = std::function<void(const std::shared_ptr<WebSession> &)>;
-  using DisconnectCallback = std::function<void(const std::string &)>;
 
   HttpWsServer(std::string address, const unsigned short port, fs::path static_root,
-    CommandCallback command, ConnectCallback connected, DisconnectCallback disconnected)
+    CommandCallback command, ConnectCallback connected)
   : address_(std::move(address)), port_(port), static_root_(std::move(static_root)),
-    command_(std::move(command)), connected_(std::move(connected)),
-    disconnected_(std::move(disconnected)) {}
+    command_(std::move(command)), connected_(std::move(connected)) {}
 
   ~HttpWsServer() {stop();}
   void start() {thread_ = std::thread(&HttpWsServer::acceptLoop, this);}
@@ -289,13 +287,6 @@ public:
       session->enqueueBinary(packet, replace_live);
     });
   }
-  void sendBinary(const std::string & id, const std::vector<std::uint8_t> & packet,
-    const bool replace_live)
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const auto found = sessions_.find(id);
-    if (found != sessions_.end()) {found->second->enqueueBinary(packet, replace_live);}
-  }
 
 private:
   template<typename Function>
@@ -310,12 +301,9 @@ private:
   }
   void remove(const std::string & id)
   {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      sessions_.erase(id);
-      sessions_closed_.notify_all();
-    }
-    if (disconnected_) {disconnected_(id);}
+    std::lock_guard<std::mutex> lock(mutex_);
+    sessions_.erase(id);
+    sessions_closed_.notify_all();
   }
   void acceptLoop()
   {
@@ -391,7 +379,6 @@ private:
   fs::path static_root_;
   CommandCallback command_;
   ConnectCallback connected_;
-  DisconnectCallback disconnected_;
   std::atomic<bool> stopping_{false};
   std::atomic<std::uint64_t> next_id_{1};
   std::thread thread_;
@@ -421,11 +408,7 @@ public:
     createRosInterfaces();
     server_ = std::make_unique<HttpWsServer>(bind_address_, port_, static_root_,
       [this](const std::string & id, const json & request) {handleCommand(id, request);},
-      [this](const std::shared_ptr<WebSession> & session) {sendSnapshot(session);},
-      [this](const std::string & id) {
-        std::lock_guard<std::mutex> lock(live_cloud_clients_mutex_);
-        live_cloud_clients_.erase(id);
-      });
+      [this](const std::shared_ptr<WebSession> & session) {sendSnapshot(session);});
     server_->start();
     status_timer_ = create_wall_timer(500ms, std::bind(&WebConsoleNode::publishSnapshot, this));
     recording_timer_ = create_wall_timer(500ms, std::bind(&WebConsoleNode::pollTopologyRecording, this));
@@ -470,26 +453,18 @@ private:
       "vertex_initializer.vertex_id_topic", "/route3d_initial_pose/vertex_id");
     raw_cloud_topic_ = declare_parameter<std::string>("topics.raw_cloud", "/livox/lidar");
     registered_cloud_topic_ = declare_parameter<std::string>(
-      "topics.registered_cloud", "/cloud_registered_body");
-    mapping_cloud_topic_ = declare_parameter<std::string>(
-      "topics.mapping_cloud", "/cloud_registered_body");
+      "topics.registered_cloud", "/cloud_registered");
     global_map_topic_ = declare_parameter<std::string>("topics.global_map", "/global_map");
     odometry_topic_ = declare_parameter<std::string>("topics.odometry", "/lio_odom_hf");
-    mapping_odometry_topic_ = declare_parameter<std::string>(
-      "topics.mapping_odometry", "/lio_odom");
     initial_pose_topic_ = declare_parameter<std::string>("topics.initial_pose", "/initialpose");
     plan_topic_ = declare_parameter<std::string>(
       "topics.plan_request", "/route3d_dijkstra/plan_request");
-    goal_topic_ = declare_parameter<std::string>(
-      "topics.goal_request", "/route3d_dijkstra/goal_request");
     pause_service_ = declare_parameter<std::string>(
       "services.pause", "/route3d_pid_controller/pause");
     resume_service_ = declare_parameter<std::string>(
       "services.resume", "/route3d_pid_controller/resume");
     cancel_service_ = declare_parameter<std::string>(
       "services.cancel", "/route3d_pid_controller/cancel");
-    save_map_service_ = declare_parameter<std::string>(
-      "services.save_map", "/save_pcd_service");
     cloud_voxel_ = static_cast<float>(declare_parameter<double>("cloud.voxel_size_m", 0.12));
     cloud_range_ = static_cast<float>(declare_parameter<double>("cloud.maximum_range_m", 20.0));
     cloud_max_points_ = static_cast<std::size_t>(declare_parameter<int>(
@@ -518,26 +493,8 @@ private:
     ros_setup_ = declare_parameter<std::string>("process.ros_setup", "/opt/ros/jazzy/setup.bash");
     workspace_setup_ = declare_parameter<std::string>("process.workspace_setup", "");
     radar_command_ = declare_parameter<std::string>("process.radar_command", "");
-    radar_stop_command_ = declare_parameter<std::string>(
-      "process.radar_stop_command", "sudo -n systemctl stop driver.service");
     localization_command_ = declare_parameter<std::string>("process.localization_command", "");
-    localization_default_config_template_ = expandUser(declare_parameter<std::string>(
-      "localization.config_template", "/opt/mapping_ws/glio_mapping/mid360_loc.yaml"));
-    transform_registered_body_cloud_ = declare_parameter<bool>(
-      "cloud.registered_body_transform_with_odometry", true);
     planner_command_ = declare_parameter<std::string>("process.planner_command", "");
-    loop_patrol_script_ = expandUser(declare_parameter<std::string>(
-      "process.loop_patrol_script",
-      "/home/langyi/workspace/wyf/topo_graph_ws/sh/05_start_loop_patrol.sh"));
-    goal_only_loop_patrol_script_ = expandUser(declare_parameter<std::string>(
-      "process.goal_only_loop_patrol_script",
-      "/home/langyi/workspace/wyf/topo_graph_ws/sh/07_start_goal_only_loop.sh"));
-    mapping_command_ = declare_parameter<std::string>(
-      "process.mapping_command", "cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping");
-    mapping_setup_ = expandUser(declare_parameter<std::string>(
-      "process.mapping_setup", "/opt/mapping_ws/install/setup.bash"));
-    mapping_save_resolution_tag_ = declare_parameter<std::string>(
-      "mapping.save_resolution_tag", "0.1");
     topology_record_command_ = declare_parameter<std::string>(
       "process.topology_record_command",
       "script -q -e -c 'ros2 launch route3d_product_demo live_route_product.launch.py "
@@ -629,15 +586,6 @@ private:
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(odometry_topic_,
       rclcpp::QoS(20).best_effort(), std::bind(&WebConsoleNode::odometryCallback, this,
       std::placeholders::_1));
-    mapping_odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
-      mapping_odometry_topic_, rclcpp::QoS(20).best_effort(),
-      [this](const nav_msgs::msg::Odometry::ConstSharedPtr message) {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        last_mapping_odometry_steady_ = std::chrono::steady_clock::now();
-        latest_mapping_pose_ = message->pose.pose;
-        latest_mapping_frame_id_ = message->header.frame_id;
-        has_mapping_pose_ = true;
-      });
     initial_pose_publisher_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
       initial_pose_topic_, rclcpp::QoS(10).reliable());
     auto initializer_graph_qos = rclcpp::QoS(1).reliable().transient_local();
@@ -647,8 +595,6 @@ private:
       initializer_vertex_topic_, rclcpp::QoS(10).reliable());
     plan_publisher_ = create_publisher<std_msgs::msg::Int32MultiArray>(
       plan_topic_, rclcpp::QoS(10).reliable());
-    goal_publisher_ = create_publisher<std_msgs::msg::Int32>(
-      goal_topic_, rclcpp::QoS(10).reliable());
     pause_client_ = create_client<std_srvs::srv::Trigger>(pause_service_);
     resume_client_ = create_client<std_srvs::srv::Trigger>(resume_service_);
     cancel_client_ = create_client<std_srvs::srv::Trigger>(cancel_service_);
@@ -697,9 +643,6 @@ private:
       std::lock_guard<std::mutex> lock(state_mutex_);
       last_pose_ = pose;
       last_odometry_steady_ = std::chrono::steady_clock::now();
-      latest_localization_pose_ = message->pose.pose;
-      latest_localization_frame_id_ = message->header.frame_id;
-      has_localization_pose_ = true;
       trajectory_.push_back({p.x, p.y, p.z});
       if (trajectory_.size() > 2000U) {
         std::vector<std::array<double, 3>> compact;
@@ -714,19 +657,11 @@ private:
   void cloudCallback(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr message, const CloudStream stream)
   {
-    // Real-time clouds are browser-demand driven. When the UI does not enable
-    // "实时点云", skip conversion/encoding and do not send binary cloud traffic.
-    // ROS subscriptions remain alive so feature/status detection still works.
-    std::vector<std::string> live_clients;
-    {
-      std::lock_guard<std::mutex> lock(live_cloud_clients_mutex_);
-      if (live_cloud_clients_.empty()) {return;}
-      live_clients.assign(live_cloud_clients_.begin(), live_cloud_clients_.end());
-    }
     const auto now = std::chrono::steady_clock::now();
-    // /livox/lidar and /cloud_registered_body are body-local clouds in the deployed stack.
-    // Raw lidar is only a pre-localization fallback. /cloud_registered_body is transformed
-    // below by the freshest localization/mapping odometry before it is sent to the browser.
+    // /livox/lidar is expressed in the sensor/body frame while /cloud_registered is
+    // already in the localization frame.  Sending both into the same browser layer
+    // makes the cloud alternate between the origin and the localized pose.  Raw lidar
+    // is therefore only a fallback while registered output is unavailable or stale.
     if (stream == CloudStream::kRawLidar &&
       last_registered_cloud_.time_since_epoch().count() != 0 &&
       now - last_registered_cloud_ < registered_cloud_fallback_timeout_)
@@ -738,61 +673,8 @@ private:
     last = now;
     try {
       auto cloud = PointCloudCodec::fromRos(*message, cloud_voxel_, cloud_range_, cloud_max_points_);
-      if (stream == CloudStream::kLiveRegistered && transform_registered_body_cloud_) {
-        geometry_msgs::msg::Pose pose;
-        std::string frame_id;
-        bool have_pose = false;
-        {
-          std::lock_guard<std::mutex> lock(state_mutex_);
-          const auto current = std::chrono::steady_clock::now();
-          if (has_localization_pose_ && last_odometry_steady_.time_since_epoch().count() != 0 &&
-            std::chrono::duration<double>(current - last_odometry_steady_).count() <= odom_freshness_s_)
-          {
-            pose = latest_localization_pose_;
-            frame_id = latest_localization_frame_id_;
-            have_pose = true;
-          } else if (has_mapping_pose_ && last_mapping_odometry_steady_.time_since_epoch().count() != 0 &&
-            std::chrono::duration<double>(current - last_mapping_odometry_steady_).count() <= odom_freshness_s_)
-          {
-            pose = latest_mapping_pose_;
-            frame_id = latest_mapping_frame_id_;
-            have_pose = true;
-          }
-        }
-        if (have_pose) {
-          const double qx = pose.orientation.x;
-          const double qy = pose.orientation.y;
-          const double qz = pose.orientation.z;
-          const double qw = pose.orientation.w;
-          const double norm2 = qx*qx + qy*qy + qz*qz + qw*qw;
-          if (norm2 > 1.0e-12) {
-            const double inv = 1.0 / std::sqrt(norm2);
-            const double x = qx * inv, y = qy * inv, z = qz * inv, w = qw * inv;
-            const double r00 = 1.0 - 2.0 * (y*y + z*z);
-            const double r01 = 2.0 * (x*y - z*w);
-            const double r02 = 2.0 * (x*z + y*w);
-            const double r10 = 2.0 * (x*y + z*w);
-            const double r11 = 1.0 - 2.0 * (x*x + z*z);
-            const double r12 = 2.0 * (y*z - x*w);
-            const double r20 = 2.0 * (x*z - y*w);
-            const double r21 = 2.0 * (y*z + x*w);
-            const double r22 = 1.0 - 2.0 * (x*x + y*y);
-            for (auto & point : cloud.points) {
-              const double px = point.x, py = point.y, pz = point.z;
-              point.x = static_cast<float>(r00*px + r01*py + r02*pz + pose.position.x);
-              point.y = static_cast<float>(r10*px + r11*py + r12*pz + pose.position.y);
-              point.z = static_cast<float>(r20*px + r21*py + r22*pz + pose.position.z);
-            }
-            cloud.frame_id = frame_id.empty() ? selected_pcd_frame_id_ : frame_id;
-          }
-        }
-      }
       const auto packets = PointCloudCodec::encode(cloud, stream, ++cloud_sequence_, cloud_max_points_);
-      if (server_ && !packets.empty()) {
-        for (const auto & client_id : live_clients) {
-          server_->sendBinary(client_id, packets.front(), true);
-        }
-      }
+      if (server_ && !packets.empty()) {server_->broadcastBinary(packets.front(), true);}
       const std::string key = stream == CloudStream::kLiveRegistered ? "registered_cloud" : "raw_cloud";
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -816,21 +698,6 @@ private:
       else if (type == "map.list") {sendMaps(client, request_id);}
       else if (type == "map.select") {selectMap(client, request, request_id);}
       else if (type == "map.upsert") {upsertMap(client, request, request_id);}
-      else if (type == "cloud.live.set") {
-        const bool enabled = request.value("enabled", false);
-        {
-          std::lock_guard<std::mutex> lock(live_cloud_clients_mutex_);
-          if (enabled) {live_cloud_clients_.insert(client);}
-          else {live_cloud_clients_.erase(client);}
-        }
-        if (!enabled) {
-          last_raw_cloud_ = {};
-          last_registered_cloud_ = {};
-        }
-        reply(client, request_id, true,
-          enabled ? "live cloud streaming enabled for this browser" :
-          "live cloud streaming disabled for this browser");
-      }
       else if (type == "map.cloud_lod") {
         if (selected_pcd_path_.empty()) {throw std::runtime_error("select a PCD map first");}
         const float voxel = request.value("voxel_m", selected_map_voxel_);
@@ -855,15 +722,11 @@ private:
       else {
         if (type == "process.start") {startProcess(client, request, request_id);}
         else if (type == "process.stop") {stopProcess(client, request, request_id);}
-        else if (type == "mapping.save_map") {saveMappingMap(client, request, request_id);}
         else if (type == "localization.set_initial_pose") {setInitialPose(client, request, request_id);}
         else if (type == "localization.set_initial_pose_vertex") {
           setInitialPoseFromVertex(client, request, request_id);
         }
         else if (type == "navigation.plan") {plan(client, request, request_id);}
-        else if (type == "navigation.goal") {goalOnly(client, request, request_id);}
-        else if (type == "navigation.loop.start") {startLoopPatrol(client, request, request_id);}
-        else if (type == "navigation.loop.stop") {stopLoopPatrol(client, request_id);}
         else if (type == "navigation.pause") {callTrigger(client, pause_client_, "pause", request_id);}
         else if (type == "navigation.resume") {callTrigger(client, resume_client_, "resume", request_id);}
         else if (type == "navigation.cancel") {callTrigger(client, cancel_client_, "cancel", request_id);}
@@ -890,81 +753,10 @@ private:
     }
   }
 
-  bool mappingOdometryReady() const
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    if (last_mapping_odometry_steady_.time_since_epoch().count() == 0) {return false;}
-    return std::chrono::duration<double>(
-      std::chrono::steady_clock::now() - last_mapping_odometry_steady_).count() <= odom_freshness_s_;
-  }
-
-  bool serviceAvailable(const std::string & service_name) const
-  {
-    for (const auto & entry : get_service_names_and_types()) {
-      if (entry.first == service_name) {return true;}
-    }
-    return false;
-  }
-
-  static bool nodeMatches(const std::vector<std::string> & nodes,
-    const std::initializer_list<const char *> patterns)
-  {
-    for (const auto & node : nodes) {
-      for (const auto * pattern : patterns) {
-        if (node.find(pattern) != std::string::npos) {return true;}
-      }
-    }
-    return false;
-  }
-
-  json detectFeatures() const
-  {
-    const auto nodes = get_node_names();
-    const bool save_service = serviceAvailable(save_map_service_);
-    const bool radar_topic = count_publishers(raw_cloud_topic_) > 0U;
-    const bool localization_topic = count_publishers(odometry_topic_) > 0U;
-    const bool mapping_odom = count_publishers(mapping_odometry_topic_) > 0U;
-    const bool mapping_cloud = count_publishers(mapping_cloud_topic_) > 0U;
-    const bool planner_nodes = nodeMatches(nodes, {
-      "route3d_dijkstra_planner", "route3d_route_slicer", "route3d_pid_controller",
-      "route3d_go2_adapter"});
-    const bool recording_nodes = nodeMatches(nodes, {
-      "route3d_online_skeleton", "route3d_data_recorder", "route3d_live"});
-    const bool initializer_node = nodeMatches(nodes, {"route3d_vertex_initializer"}) ||
-      count_subscribers(initializer_vertex_topic_) > 0U;
-    const bool loop_patrol_node = nodeMatches(nodes, {"route3d_loop_patrol"});
-
-    const auto radar_proc = process_manager_.snapshot("radar").running;
-    const auto mapping_proc = process_manager_.snapshot("mapping").running;
-    const auto localization_proc = process_manager_.snapshot("localization").running;
-    const auto planner_proc = process_manager_.snapshot("planner").running;
-    const auto recording_proc = process_manager_.snapshot("topology_recording").running;
-    const auto save_proc = process_manager_.snapshot("map_save").running;
-    const auto loop_proc = process_manager_.snapshot("loop_patrol").running;
-
-    return {
-      {"radar", {{"online", radar_proc || radar_topic}, {"managed", radar_proc},
-        {"topic_publishers", count_publishers(raw_cloud_topic_)}}},
-      {"mapping", {{"online", mapping_proc || save_service || (mapping_odom && mapping_cloud)},
-        {"managed", mapping_proc}, {"save_service", save_service},
-        {"odom_publishers", count_publishers(mapping_odometry_topic_)},
-        {"cloud_publishers", count_publishers(mapping_cloud_topic_)}}},
-      {"map_save", {{"online", save_proc}, {"managed", save_proc},
-        {"save_service", save_service}}},
-      {"localization", {{"online", localization_proc || localization_topic},
-        {"managed", localization_proc}, {"odom_publishers", count_publishers(odometry_topic_)}}},
-      {"planner", {{"online", planner_proc || planner_nodes}, {"managed", planner_proc}}},
-      {"loop_patrol", {{"online", loop_proc || loop_patrol_node}, {"managed", loop_proc}}},
-      {"topology_recording", {{"online", recording_proc || recording_nodes},
-        {"managed", recording_proc}}},
-      {"vertex_initializer", {{"online", initializer_node}, {"managed", false}}}
-    };
-  }
-
   json snapshot()
   {
     json processes = json::object();
-    for (const auto & name : {"radar", "mapping", "map_save", "localization", "planner", "loop_patrol", "topology_recording"}) {
+    for (const auto & name : {"radar", "localization", "planner", "topology_recording"}) {
       const auto value = process_manager_.snapshot(name);
       processes[name] = {{"running", value.running}, {"pid", value.pid},
         {"exit_code", value.exit_code}};
@@ -980,7 +772,6 @@ private:
       {"selected_topology", selected_topology_path_.string()},
       {"map_voxel_m", selected_map_voxel_},
       {"topology_recording_state", recording_state},
-      {"features", detectFeatures()},
       {"control_owner", ""}, {"ros", ros_status_}, {"topics", topic_health_},
       {"pose", last_pose_}, {"trajectory", trajectory_}};
   }
@@ -1402,68 +1193,11 @@ private:
       {"path", selected_topology_path_.string()}});
   }
 
-  void saveMappingMap(
-    const std::string & client, const json & request, const std::string & request_id)
-  {
-    if (!serviceAvailable(save_map_service_)) {
-      throw std::runtime_error("/save_pcd_service is not available; start mapping first");
-    }
-    if (process_manager_.snapshot("map_save").running) {
-      throw std::runtime_error("a map save request is already running");
-    }
-    const std::string map_name = validateSaveName(request.value("name", ""));
-    const std::string resolution = mapping_save_resolution_tag_;
-    if (!std::regex_match(resolution, std::regex("[0-9]+([.][0-9]+)?"))) {
-      throw std::runtime_error("mapping.save_resolution_tag must be a positive numeric tag such as 0.1");
-    }
-    const fs::path map_dir = pcd_root_ / map_name / "map";
-    if (!pathInside(map_dir, std::vector<fs::path>{pcd_root_})) {
-      throw std::runtime_error("map save directory is outside resources.pcd_root");
-    }
-    fs::create_directories(map_dir);
-    const fs::path filename = map_dir / (map_name + "-" + resolution);
-    const fs::path generated_pcd = fs::path(filename.string() + ".pcd");
-    const fs::path canonical_pcd = map_dir / (map_name + ".pcd");
-    if ((fs::exists(generated_pcd) || fs::exists(canonical_pcd)) &&
-      !request.value("overwrite", false))
-    {
-      throw std::runtime_error("map already exists; enable overwrite in the web page to replace it");
-    }
-
-    const std::string yaml = "{filename: '" + filename.string() + "'}";
-    std::string command = "ros2 service call " + shellQuote(save_map_service_) +
-      " moveit_msgs/srv/SaveMap " + shellQuote(yaml);
-    // Keep the user's requested filename (e.g. 510-0.1.pcd), and expose the canonical
-    // <map_name>.pcd path used by the web map selector without duplicating a large PCD.
-    command += "; rc=$?; if [ $rc -eq 0 ] && [ -f " + shellQuote(generated_pcd.string()) +
-      " ]; then ln -sfn " + shellQuote(generated_pcd.filename().string()) + " " +
-      shellQuote(canonical_pcd.string()) + "; fi; exit $rc";
-
-    std::string error;
-    if (!process_manager_.start("map_save", mappingCommandPrefix() + command,
-      {{"ROS_DOMAIN_ID", std::to_string(domain_id_)}}, error)) {
-      throw std::runtime_error(error);
-    }
-    reply(client, request_id, true,
-      "map save started: " + filename.string() + " (PCD selector will use " +
-      canonical_pcd.string() + ")");
-  }
-
   std::string commandPrefix() const
   {
     std::string command = "source " + shellQuote(ros_setup_);
     if (!workspace_setup_.empty()) {command += " && source " + shellQuote(workspace_setup_);}
     return command + " && ";
-  }
-
-  std::string mappingCommandPrefix() const
-  {
-    std::string command = commandPrefix();
-    if (!mapping_setup_.empty()) {
-      command += "if [ -f " + shellQuote(mapping_setup_) + " ]; then source " +
-        shellQuote(mapping_setup_) + "; fi; ";
-    }
-    return command;
   }
 
   void startProcess(const std::string & client, const json & request, const std::string & request_id)
@@ -1472,18 +1206,16 @@ private:
     std::string command;
     if (target == "radar") {
       command = radar_command_;
-    } else if (target == "mapping") {
-      if (detectFeatures().at("mapping").value("online", false)) {
-        throw std::runtime_error("mapping is already detected as running");
-      }
-      command = mapping_command_;
     } else if (target == "localization") {
       if (selected_pcd_path_.empty()) {throw std::runtime_error("select a local PCD map first");}
-      if (!detectFeatures().at("radar").value("online", false)) {
-        throw std::runtime_error("/livox/lidar is not online; start driver.service first");
+      if (selected_map_id_.empty()) {
+        throw std::runtime_error("select a localization configuration template first");
+      }
+      if (!process_manager_.snapshot("radar").running) {
+        throw std::runtime_error("radar must be running before localization");
       }
       command = replaceAll(localization_command_, "{localization_config}",
-        shellQuote(makeLocalizationConfig(selected_pcd_path_)));
+        shellQuote(makeLocalizationConfig(findMap(selected_map_id_), selected_pcd_path_)));
     } else if (target == "planner") {
       if (process_manager_.snapshot("topology_recording").running) {
         throw std::runtime_error("finish topology recording before starting planner");
@@ -1500,8 +1232,7 @@ private:
       throw std::runtime_error("invalid process target");
     }
     std::string error;
-    const std::string prefix = target == "mapping" ? mappingCommandPrefix() : commandPrefix();
-    if (!process_manager_.start(target, prefix + command,
+    if (!process_manager_.start(target, commandPrefix() + command,
       {{"ROS_DOMAIN_ID", std::to_string(domain_id_)}}, error)) {throw std::runtime_error(error);}
     reply(client, request_id, true, target + " started");
   }
@@ -1509,41 +1240,8 @@ private:
   void stopProcess(const std::string & client, const json & request, const std::string & request_id)
   {
     const std::string target = request.value("target", "");
-    if (target != "radar" && target != "mapping" && target != "localization" && target != "planner") {
+    if (target != "radar" && target != "localization" && target != "planner") {
       throw std::runtime_error("invalid process target");
-    }
-    if (target == "radar") {
-      if (process_manager_.snapshot("planner").running) {
-        throw std::runtime_error("stop planner before stopping radar");
-      }
-      if (process_manager_.snapshot("topology_recording").running) {
-        throw std::runtime_error("finish or abort topology recording before stopping radar");
-      }
-      std::string error;
-      // The radar is a systemd service in the deployed robot. Always stop that service,
-      // even if it was started from SSH rather than by this web console.
-      if (process_manager_.snapshot("radar").running) {
-        process_manager_.stop("radar", stop_timeout_, error);
-      }
-      if (!radar_stop_command_.empty()) {
-        if (!process_manager_.start("radar", commandPrefix() + radar_stop_command_,
-          {{"ROS_DOMAIN_ID", std::to_string(domain_id_)}}, error)) {
-          throw std::runtime_error(error);
-        }
-      }
-      reply(client, request_id, true, "radar stop requested via driver.service");
-      return;
-    }
-    if (target == "planner" && process_manager_.snapshot("loop_patrol").running) {
-      std::string loop_error;
-      process_manager_.stop("loop_patrol", stop_timeout_, loop_error);
-      if (!loop_error.empty()) {
-        RCLCPP_WARN(get_logger(), "failed to stop loop patrol before planner: %s", loop_error.c_str());
-      }
-    }
-    if (!process_manager_.snapshot(target).running && detectFeatures().contains(target) &&
-      detectFeatures().at(target).value("online", false)) {
-      throw std::runtime_error(target + " is running outside the web console; stop it from the terminal that started it");
     }
     if ((target == "radar" || target == "localization") &&
       process_manager_.snapshot("planner").running) {
@@ -1575,9 +1273,7 @@ private:
 
   void startTopologyRecording(const std::string & client, const std::string & request_id)
   {
-    if (!localizationReady() && !mappingOdometryReady()) {
-      throw std::runtime_error("fresh localization or mapping odometry is required");
-    }
+    if (!localizationReady()) {throw std::runtime_error("fresh localization odometry is required");}
     if (process_manager_.snapshot("planner").running) {
       throw std::runtime_error("stop planner before topology recording");
     }
@@ -1864,33 +1560,10 @@ private:
     }
   }
 
-  fs::path localizationTemplateForPcd(const fs::path & pcd_path) const
+  std::string makeLocalizationConfig(const json & profile, const fs::path & pcd_path)
   {
-    // Prefer a legacy catalog entry that exactly matches the selected PCD. This preserves
-    // map-specific localization tuning without exposing a separate template selector in UI.
-    for (const auto & profile : catalog_.value("maps", json::array())) {
-      if (!profile.value("enabled", true)) {continue;}
-      const fs::path candidate_pcd = expandUser(profile.value("pcd_path", ""));
-      std::error_code error;
-      if (!candidate_pcd.empty() && fs::exists(candidate_pcd, error) && fs::exists(pcd_path, error) &&
-        fs::equivalent(candidate_pcd, pcd_path, error) && !error)
-      {
-        const fs::path candidate = expandUser(profile.value("localization_config_template", ""));
-        if (!candidate.empty() && fs::is_regular_file(candidate)) {return candidate;}
-      }
-    }
-    return localization_default_config_template_;
-  }
-
-  std::string makeLocalizationConfig(const fs::path & pcd_path)
-  {
-    const fs::path source = localizationTemplateForPcd(pcd_path);
-    if (!pathInside(source, allowed_localization_roots_)) {
-      throw std::runtime_error("localization template is outside allowed roots: " + source.string());
-    }
-    if (!fs::is_regular_file(source)) {
-      throw std::runtime_error("localization template does not exist: " + source.string());
-    }
+    const fs::path source = expandUser(profile.at("localization_config_template").get<std::string>());
+    if (!fs::is_regular_file(source)) {throw std::runtime_error("localization template does not exist");}
     std::istringstream input(readText(source));
     std::ostringstream output;
     std::string line;
@@ -1906,8 +1579,7 @@ private:
     if (!changed) {throw std::runtime_error("localization template has no global_map_path key");}
     const fs::path directory = cache_directory_ / "runtime";
     fs::create_directories(directory);
-    const std::string map_name = pcd_path.parent_path().parent_path().filename().string();
-    const fs::path result = directory / ((map_name.empty() ? "selected_map" : map_name) + "_localization.yaml");
+    const fs::path result = directory / (profile.at("id").get<std::string>() + "_localization.yaml");
     std::ofstream(result, std::ios::trunc) << output.str();
     return result.string();
   }
@@ -2010,122 +1682,11 @@ private:
 
   void plan(const std::string & client, const json & request, const std::string & request_id)
   {
-    if (!detectFeatures().at("planner").value("online", false)) {
-      throw std::runtime_error("planner is not running");
-    }
-    const int start_id = request.at("start_id").get<int>();
-    const int goal_id = request.at("goal_id").get<int>();
-    if (start_id < 0 || goal_id < 0 || start_id == goal_id) {
-      throw std::runtime_error("start_id and goal_id must be different non-negative integers");
-    }
+    if (!process_manager_.snapshot("planner").running) {throw std::runtime_error("planner is not running");}
     std_msgs::msg::Int32MultiArray message;
-    message.data = {start_id, goal_id};
+    message.data = {request.at("start_id").get<int>(), request.at("goal_id").get<int>()};
     plan_publisher_->publish(message);
     reply(client, request_id, true, "plan request published");
-  }
-
-  void goalOnly(const std::string & client, const json & request, const std::string & request_id)
-  {
-    if (!detectFeatures().at("planner").value("online", false)) {
-      throw std::runtime_error("planner is not running");
-    }
-    const int goal_id = request.at("goal_id").get<int>();
-    if (goal_id < 0) {throw std::runtime_error("goal_id must be a non-negative integer");}
-    std_msgs::msg::Int32 message;
-    message.data = goal_id;
-    goal_publisher_->publish(message);
-    reply(client, request_id, true,
-      "goal-only request published; start vertex will be matched from current robot position");
-  }
-
-  fs::path writeLoopPatrolConfig(
-    const int start_id, const int goal_id, const std::string & mode,
-    const double dwell_time_s, const int max_round_trips)
-  {
-    if (start_id < 0 || goal_id < 0 || start_id == goal_id) {
-      throw std::runtime_error("loop patrol requires two different non-negative vertex ids");
-    }
-    if (!std::isfinite(dwell_time_s) || dwell_time_s < 0.0 || dwell_time_s > 3600.0) {
-      throw std::runtime_error("dwell_time_s must be between 0 and 3600 seconds");
-    }
-    if (max_round_trips < 0) {
-      throw std::runtime_error("max_round_trips must be >= 0 (0 means infinite)");
-    }
-    fs::create_directories(cache_directory_ / "loop_patrol");
-    const fs::path config = cache_directory_ / "loop_patrol" / "web_loop_patrol.yaml";
-    std::ofstream stream(config, std::ios::trunc);
-    if (!stream) {throw std::runtime_error("cannot create loop patrol runtime config");}
-    stream << "route3d_loop_patrol:\n"
-           << "  ros__parameters:\n"
-           << "    patrol:\n"
-           << "      start_vertex_id: " << start_id << "\n"
-           << "      goal_vertex_id: " << goal_id << "\n"
-           << "      initial_direction: start_to_goal\n";
-    if (mode == "goal_only") {
-      stream << "      request_mode: goal_only\n";
-    }
-    stream << "      auto_start: true\n"
-           << "      wait_for_idle_before_first_request: true\n"
-           << "      startup_delay_s: 0.5\n"
-           << "      dwell_time_s: " << dwell_time_s << "\n"
-           << "      max_round_trips: " << max_round_trips << "\n"
-           << "    timeouts:\n"
-           << "      plan_response_s: 10.0\n"
-           << "      route_activation_s: 10.0\n"
-           << "      arrival_s: 0.0\n"
-           << "    topics:\n"
-           << "      plan_request: /route3d_dijkstra/plan_request\n"
-           << "      goal_request: /route3d_dijkstra/goal_request\n"
-           << "      dijkstra_status: /route3d_dijkstra/status\n"
-           << "      sliced_route: /route3d_route_slicer/tasks\n"
-           << "      controller_status: /route3d_pid_controller/status\n"
-           << "      status: /route3d_loop_patrol/status\n";
-    stream.flush();
-    if (!stream) {throw std::runtime_error("failed to write loop patrol runtime config");}
-    return config;
-  }
-
-  void startLoopPatrol(
-    const std::string & client, const json & request, const std::string & request_id)
-  {
-    if (!detectFeatures().at("planner").value("online", false)) {
-      throw std::runtime_error("planner/control chain is not running");
-    }
-    if (process_manager_.snapshot("loop_patrol").running) {
-      throw std::runtime_error("loop patrol is already running");
-    }
-    const int start_id = request.at("start_id").get<int>();
-    const int goal_id = request.at("goal_id").get<int>();
-    const std::string mode = request.value("mode", "fixed");
-    if (mode != "fixed" && mode != "goal_only") {
-      throw std::runtime_error("loop patrol mode must be fixed or goal_only");
-    }
-    const double dwell_time_s = request.value("dwell_time_s", 2.0);
-    const int max_round_trips = request.value("max_round_trips", 0);
-    const fs::path config = writeLoopPatrolConfig(
-      start_id, goal_id, mode, dwell_time_s, max_round_trips);
-    const fs::path script = mode == "goal_only" ? goal_only_loop_patrol_script_ : loop_patrol_script_;
-    if (!fs::is_regular_file(script)) {
-      throw std::runtime_error("loop patrol script does not exist: " + script.string());
-    }
-    std::string error;
-    const std::string command = shellQuote(script.string()) + " " + shellQuote(config.string());
-    if (!process_manager_.start("loop_patrol", commandPrefix() + command,
-      {{"ROS_DOMAIN_ID", std::to_string(domain_id_)}}, error))
-    {
-      throw std::runtime_error(error);
-    }
-    reply(client, request_id, true,
-      std::string("loop patrol started: ") + (mode == "goal_only" ? "goal-only" : "fixed start/goal"));
-  }
-
-  void stopLoopPatrol(const std::string & client, const std::string & request_id)
-  {
-    std::string error;
-    if (!process_manager_.stop("loop_patrol", stop_timeout_, error)) {
-      throw std::runtime_error(error);
-    }
-    reply(client, request_id, true, "loop patrol stopped");
   }
 
   void callTrigger(const std::string & client,
@@ -2231,13 +1792,11 @@ private:
   std::size_t resource_scan_max_files_{1000};
   int resource_scan_max_depth_{6};
 
-  std::string raw_cloud_topic_, registered_cloud_topic_, mapping_cloud_topic_, global_map_topic_;
-  std::string odometry_topic_, mapping_odometry_topic_, initial_pose_topic_;
+  std::string raw_cloud_topic_, registered_cloud_topic_, global_map_topic_;
+  std::string odometry_topic_, initial_pose_topic_;
   std::string initializer_graph_topic_, initializer_vertex_topic_;
-  std::string plan_topic_, goal_topic_, pause_service_, resume_service_, cancel_service_, save_map_service_;
-  std::string ros_setup_, workspace_setup_, radar_command_, radar_stop_command_, localization_command_, planner_command_;
-  fs::path loop_patrol_script_, goal_only_loop_patrol_script_;
-  std::string mapping_command_, mapping_setup_, mapping_save_resolution_tag_;
+  std::string plan_topic_, pause_service_, resume_service_, cancel_service_;
+  std::string ros_setup_, workspace_setup_, radar_command_, localization_command_, planner_command_;
   std::string topology_record_command_;
   fs::path topology_record_config_template_;
   fs::path topology_results_root_;
@@ -2254,25 +1813,16 @@ private:
   std::chrono::duration<double> registered_cloud_fallback_timeout_{1.0};
   std::chrono::steady_clock::time_point last_raw_cloud_{}, last_registered_cloud_{};
   std::atomic<std::uint32_t> cloud_sequence_{0};
-  mutable std::mutex live_cloud_clients_mutex_;
-  std::set<std::string> live_cloud_clients_;
   std::chrono::milliseconds stop_timeout_{5000};
   std::chrono::duration<double> lease_timeout_{3.0};
   double odom_freshness_s_{0.75}, xy_variance_{0.25}, yaw_variance_{0.0685};
   double initial_pose_z_{0.0};
   std::string initial_pose_frame_id_{"map"};
-  fs::path localization_default_config_template_;
-  bool transform_registered_body_cloud_{true};
 
   mutable std::mutex state_mutex_;
   std::string control_owner_;
   std::chrono::steady_clock::time_point control_heartbeat_{};
   std::chrono::steady_clock::time_point last_odometry_steady_{};
-  std::chrono::steady_clock::time_point last_mapping_odometry_steady_{};
-  geometry_msgs::msg::Pose latest_localization_pose_{};
-  geometry_msgs::msg::Pose latest_mapping_pose_{};
-  std::string latest_localization_frame_id_, latest_mapping_frame_id_;
-  bool has_localization_pose_{false}, has_mapping_pose_{false};
   json last_pose_;
   json ros_status_ = json::object();
   json topic_health_ = json::object();
@@ -2290,14 +1840,12 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr registered_cloud_subscription_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr mapping_odometry_subscription_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr selected_command_subscription_;
   std::vector<rclcpp::Subscription<std_msgs::msg::String>::SharedPtr> status_subscriptions_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr initializer_graph_publisher_;
   rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr initializer_vertex_publisher_;
   rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr plan_publisher_;
-  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr goal_publisher_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr pause_client_, resume_client_, cancel_client_;
   rclcpp::TimerBase::SharedPtr status_timer_, lease_timer_, recording_timer_;
 };
