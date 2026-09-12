@@ -18,6 +18,7 @@ struct SliceOptions
   int normal_locomotion_mode{0};
   int slope_locomotion_mode{2};
   double attribute_epsilon{1.0e-6};
+  bool split_at_corners{true};
   double default_corner_pass_radius_m{0.20};
   double default_normal_pass_radius_m{0.45};
   std::string auto_default_controller{"pid"};

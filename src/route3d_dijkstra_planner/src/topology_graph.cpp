@@ -143,7 +143,11 @@ void synchronizeSlopeAnnotationsOnePass(
   // one slope seed would recursively spread through the whole component.
   std::unordered_set<VertexId> configured_slope_vertices;
   configured_slope_vertices.reserve(vertices.size());
-  for (const auto & [vertex_id, vertex] : vertices) {
+  for (auto & [vertex_id, vertex] : vertices) {
+    // Programmatically constructed graphs historically set only is_slope.
+    // Preserve that behavior while keeping the immutable authored value for
+    // graphs loaded from JSON.
+    vertex.configured_is_slope = vertex.configured_is_slope || vertex.is_slope;
     if (vertex.is_slope) {
       configured_slope_vertices.insert(vertex_id);
     }
@@ -312,7 +316,9 @@ TopologyGraph TopologyGraph::load(const std::filesystem::path & path, const bool
     vertex.semantic_type_id = integerMember(meta, "typeId", 0, path_prefix + ".meta.typeId");
     vertex.is_corner = booleanMember(
       meta, "isCorner", false, path_prefix + ".meta.isCorner");
-    vertex.is_slope = booleanMember(meta, "isSlope", false, path_prefix + ".meta.isSlope");
+    vertex.configured_is_slope = booleanMember(
+      meta, "isSlope", false, path_prefix + ".meta.isSlope");
+    vertex.is_slope = vertex.configured_is_slope;
     vertex.is_junction = booleanMember(
       meta, "isJunction", false, path_prefix + ".meta.isJunction");
     vertex.turn_degrees = numberMember(

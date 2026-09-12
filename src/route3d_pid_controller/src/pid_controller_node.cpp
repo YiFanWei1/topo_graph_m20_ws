@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -22,6 +23,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp/parameter_client.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -58,6 +60,7 @@ enum class ControllerState
   kTracking,
   kPaused,
   kWaitingTransition,
+  kApplyingEfficientProfile,
   kHandoverRequired,
   kFinished,
   kCancelled,
@@ -72,6 +75,7 @@ const char * stateName(const ControllerState state)
     case ControllerState::kTracking: return "TRACKING";
     case ControllerState::kPaused: return "PAUSED";
     case ControllerState::kWaitingTransition: return "WAITING_TRANSITION";
+    case ControllerState::kApplyingEfficientProfile: return "APPLYING_EFFICIENT_PROFILE";
     case ControllerState::kHandoverRequired: return "HANDOVER_REQUIRED";
     case ControllerState::kFinished: return "FINISHED";
     case ControllerState::kCancelled: return "CANCELLED";
@@ -114,6 +118,23 @@ PidAxisConfig pidConfig(
 
 }  // namespace
 
+struct EfficientPlanningProfile
+{
+  std::string name;
+  double path_height{0.0};
+  bool extension_enabled{true};
+  double soft_radius{0.0};
+};
+
+bool sameProfile(const EfficientPlanningProfile & lhs, const EfficientPlanningProfile & rhs)
+{
+  constexpr double epsilon = 1.0e-9;
+  return lhs.name == rhs.name &&
+         std::abs(lhs.path_height - rhs.path_height) <= epsilon &&
+         lhs.extension_enabled == rhs.extension_enabled &&
+         std::abs(lhs.soft_radius - rhs.soft_radius) <= epsilon;
+}
+
 class PidControllerNode : public rclcpp::Node
 {
 public:
@@ -124,6 +145,8 @@ public:
     control_rate_hz_ = declare_parameter<double>("execution.control_rate_hz", 50.0);
     odometry_timeout_s_ = declare_parameter<double>("safety.odometry_timeout_s", 0.30);
     safety_clear_hold_s_ = declare_parameter<double>("safety.clear_hold_s", 3.0);
+    obstacle_stop_uses_stop_move_ = declare_parameter<bool>(
+      "safety.obstacle_stop_uses_stop_move", true);
     emergency_collision_level_threshold_ = declare_parameter<std::int64_t>(
       "safety.emergency_collision_level_threshold", 100);
     obstacle_enabled_ = declare_parameter<bool>("obstacle.enabled", true);
@@ -252,6 +275,37 @@ public:
     {
       throw std::invalid_argument("efficient completion tolerances are invalid");
     }
+
+    efficient_profile_switching_enabled_ = declare_parameter<bool>(
+      "efficient_profile.enabled", true);
+    efficient_normal_profile_ = EfficientPlanningProfile{
+      "normal",
+      declare_parameter<double>("efficient_profile.normal.path_height", 0.10),
+      declare_parameter<bool>("efficient_profile.normal.extension_enabled", true),
+      declare_parameter<double>("efficient_profile.normal.soft_radius", 0.60)};
+    efficient_slope_profile_ = EfficientPlanningProfile{
+      "slope",
+      declare_parameter<double>("efficient_profile.slope.path_height", 0.40),
+      declare_parameter<bool>("efficient_profile.slope.extension_enabled", false),
+      declare_parameter<double>("efficient_profile.slope.soft_radius", 0.20)};
+    efficient_planner_node_name_ = declare_parameter<std::string>(
+      "efficient_profile.planner_node", "/corridor_astar_planner");
+    efficient_mapper_node_name_ = declare_parameter<std::string>(
+      "efficient_profile.mapper_node", "/local_voxel_mapper");
+    efficient_extension_node_name_ = declare_parameter<std::string>(
+      "efficient_profile.extension_node", "/obstacle_occlusion_extension");
+    const auto valid_profile = [](const EfficientPlanningProfile & profile) {
+        return std::isfinite(profile.path_height) && profile.path_height >= 0.0 &&
+               std::isfinite(profile.soft_radius) && profile.soft_radius >= 0.0;
+      };
+    if (!valid_profile(efficient_normal_profile_) || !valid_profile(efficient_slope_profile_)) {
+      throw std::invalid_argument("efficient planning profile values must be finite and non-negative");
+    }
+    if (efficient_planner_node_name_.empty() || efficient_mapper_node_name_.empty() ||
+      efficient_extension_node_name_.empty())
+    {
+      throw std::invalid_argument("efficient planning profile node names must not be empty");
+    }
     tracker_config.adjustment_maximum_vx_mps = declare_parameter<double>(
       "adjustment.maximum_vx_mps", tracker_config.adjustment_maximum_vx_mps);
     tracker_config.adjustment_maximum_vy_mps = declare_parameter<double>(
@@ -290,6 +344,13 @@ public:
     if (gait_transition_ack_delay_s_ < 0.0) {
       throw std::invalid_argument("gait.transition_ack_delay_s must be non-negative");
     }
+
+    efficient_planner_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      this, efficient_planner_node_name_);
+    efficient_mapper_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      this, efficient_mapper_node_name_);
+    efficient_extension_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      this, efficient_extension_node_name_);
 
     tasks_subscription_ = create_subscription<RouteTaskArray>(
       tasks_topic, latchedQos(),
@@ -387,6 +448,17 @@ public:
       pid_route_goal_position_tolerance_m_, pid_route_goal_yaw_tolerance_rad_,
       efficient_route_goal_position_tolerance_m_, efficient_route_goal_yaw_tolerance_rad_,
       efficient_use_planar_distance_ ? "planar" : "3d");
+    RCLCPP_INFO(
+      get_logger(),
+      "Efficient profile switching: enabled=%s normal=[height=%.2f extension=%s soft=%.2f] "
+      "slope=[height=%.2f extension=%s soft=%.2f] nodes=[%s,%s,%s]",
+      efficient_profile_switching_enabled_ ? "true" : "false",
+      efficient_normal_profile_.path_height,
+      efficient_normal_profile_.extension_enabled ? "true" : "false",
+      efficient_normal_profile_.soft_radius, efficient_slope_profile_.path_height,
+      efficient_slope_profile_.extension_enabled ? "true" : "false",
+      efficient_slope_profile_.soft_radius, efficient_planner_node_name_.c_str(),
+      efficient_mapper_node_name_.c_str(), efficient_extension_node_name_.c_str());
   }
 
   ~PidControllerNode() override
@@ -397,6 +469,235 @@ public:
   }
 
 private:
+  enum class EfficientProfileNode
+  {
+    Planner,
+    Mapper,
+    Extension
+  };
+
+  struct EfficientProfileTransition
+  {
+    std::uint64_t revision{0U};
+    std::uint64_t route_sequence{0U};
+    std::size_t task_index{0U};
+    EfficientPlanningProfile profile;
+    bool planner_request_sent{false};
+    bool mapper_request_sent{false};
+    bool extension_request_sent{false};
+    bool planner_confirmed{false};
+    bool mapper_confirmed{false};
+    bool extension_confirmed{false};
+  };
+
+  const EfficientPlanningProfile & desiredEfficientProfile(const RouteTask & task) const
+  {
+    return task.contains_slope ? efficient_slope_profile_ : efficient_normal_profile_;
+  }
+
+  void cancelEfficientProfileTransition()
+  {
+    if (efficient_profile_transition_) {
+      ++efficient_profile_revision_;
+      efficient_profile_transition_.reset();
+    }
+  }
+
+  bool ensureEfficientProfile(const RouteTask & task)
+  {
+    if (!efficient_profile_switching_enabled_) {
+      return true;
+    }
+    const auto & desired = desiredEfficientProfile(task);
+    if (applied_efficient_profile_ && sameProfile(*applied_efficient_profile_, desired)) {
+      return true;
+    }
+    if (efficient_profile_transition_) {
+      const auto & pending = *efficient_profile_transition_;
+      if (pending.route_sequence == route_.route_sequence &&
+        pending.task_index == active_task_index_ && sameProfile(pending.profile, desired))
+      {
+        return false;
+      }
+      cancelEfficientProfileTransition();
+    }
+
+    publishZero();
+    // Hold zero velocity without StopMove so a gait that was just confirmed is
+    // not cancelled while the three efficient-planner parameters are switching.
+    publishControllerSelection("profile_hold");
+    publishEfficientStop();
+    active_ = false;
+    paused_ = false;
+    task_controller_ = "none";
+    efficient_profile_transition_ = EfficientProfileTransition{
+      ++efficient_profile_revision_, route_.route_sequence, active_task_index_, desired,
+      false, false, false, false, false, false};
+    setState(
+      ControllerState::kApplyingEfficientProfile,
+      "applying efficient profile '" + desired.name + "' for task " +
+      std::to_string(active_task_index_));
+    RCLCPP_INFO(
+      get_logger(),
+      "Efficient profile requested: revision=%lu route=%lu task=%zu contains_slope=%s "
+      "profile=%s planner.path_height=%.3f extension.enabled=%s soft_radius=%.3f",
+      static_cast<unsigned long>(efficient_profile_revision_),
+      static_cast<unsigned long>(route_.route_sequence), active_task_index_,
+      task.contains_slope ? "true" : "false", desired.name.c_str(), desired.path_height,
+      desired.extension_enabled ? "true" : "false", desired.soft_radius);
+    dispatchEfficientProfileRequests();
+    return false;
+  }
+
+  void handleEfficientProfileResponse(
+    const std::uint64_t revision, const EfficientProfileNode node, const bool success,
+    const std::string & reason)
+  {
+    if (!efficient_profile_transition_ || efficient_profile_transition_->revision != revision) {
+      return;
+    }
+    bool * sent = nullptr;
+    bool * confirmed = nullptr;
+    const char * node_name = "unknown";
+    switch (node) {
+      case EfficientProfileNode::Planner:
+        sent = &efficient_profile_transition_->planner_request_sent;
+        confirmed = &efficient_profile_transition_->planner_confirmed;
+        node_name = "planner";
+        break;
+      case EfficientProfileNode::Mapper:
+        sent = &efficient_profile_transition_->mapper_request_sent;
+        confirmed = &efficient_profile_transition_->mapper_confirmed;
+        node_name = "mapper";
+        break;
+      case EfficientProfileNode::Extension:
+        sent = &efficient_profile_transition_->extension_request_sent;
+        confirmed = &efficient_profile_transition_->extension_confirmed;
+        node_name = "extension";
+        break;
+    }
+    if (!success) {
+      *sent = false;
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Efficient profile revision=%lu rejected by %s: %s; retrying",
+        static_cast<unsigned long>(revision), node_name, reason.c_str());
+      return;
+    }
+    *confirmed = true;
+    finishEfficientProfileTransitionIfReady();
+  }
+
+  void dispatchEfficientProfileRequests()
+  {
+    if (!efficient_profile_transition_) {
+      return;
+    }
+    const std::uint64_t revision = efficient_profile_transition_->revision;
+    if (!efficient_profile_transition_->planner_request_sent &&
+      efficient_planner_parameter_client_->service_is_ready())
+    {
+      efficient_profile_transition_->planner_request_sent = true;
+      const double path_height = efficient_profile_transition_->profile.path_height;
+      efficient_planner_parameter_client_->set_parameters(
+        {rclcpp::Parameter("planner.path_height", path_height)},
+        [this, revision](auto future) {
+          try {
+            const auto results = future.get();
+            const bool success = results.size() == 1U && results.front().successful;
+            handleEfficientProfileResponse(
+              revision, EfficientProfileNode::Planner, success,
+              results.empty() ? "empty parameter response" : results.front().reason);
+          } catch (const std::exception & error) {
+            handleEfficientProfileResponse(
+              revision, EfficientProfileNode::Planner, false, error.what());
+          }
+        });
+    }
+    if (!efficient_profile_transition_->mapper_request_sent &&
+      efficient_mapper_parameter_client_->service_is_ready())
+    {
+      efficient_profile_transition_->mapper_request_sent = true;
+      const double soft_radius = efficient_profile_transition_->profile.soft_radius;
+      efficient_mapper_parameter_client_->set_parameters(
+        {rclcpp::Parameter("map.soft_inflation_radius", soft_radius)},
+        [this, revision](auto future) {
+          try {
+            const auto results = future.get();
+            const bool success = results.size() == 1U && results.front().successful;
+            handleEfficientProfileResponse(
+              revision, EfficientProfileNode::Mapper, success,
+              results.empty() ? "empty parameter response" : results.front().reason);
+          } catch (const std::exception & error) {
+            handleEfficientProfileResponse(
+              revision, EfficientProfileNode::Mapper, false, error.what());
+          }
+        });
+    }
+    if (!efficient_profile_transition_->extension_request_sent &&
+      efficient_extension_parameter_client_->service_is_ready())
+    {
+      efficient_profile_transition_->extension_request_sent = true;
+      const bool enabled = efficient_profile_transition_->profile.extension_enabled;
+      const double soft_radius = efficient_profile_transition_->profile.soft_radius;
+      efficient_extension_parameter_client_->set_parameters(
+        {rclcpp::Parameter("extension.enabled", enabled),
+          rclcpp::Parameter("inflation.soft_radius", soft_radius)},
+        [this, revision](auto future) {
+          try {
+            const auto results = future.get();
+            const bool success = results.size() == 2U && std::all_of(
+              results.begin(), results.end(), [](const auto & item) {return item.successful;});
+            const auto rejected = std::find_if(
+              results.begin(), results.end(), [](const auto & item) {return !item.successful;});
+            handleEfficientProfileResponse(
+              revision, EfficientProfileNode::Extension, success,
+              results.empty() ? "empty parameter response" :
+              (rejected == results.end() ? std::string{} : rejected->reason));
+          } catch (const std::exception & error) {
+            handleEfficientProfileResponse(
+              revision, EfficientProfileNode::Extension, false, error.what());
+          }
+        });
+    }
+  }
+
+  void finishEfficientProfileTransitionIfReady()
+  {
+    if (!efficient_profile_transition_ ||
+      !efficient_profile_transition_->planner_confirmed ||
+      !efficient_profile_transition_->mapper_confirmed ||
+      !efficient_profile_transition_->extension_confirmed)
+    {
+      return;
+    }
+    const auto transition = *efficient_profile_transition_;
+    if (!has_route_ || route_.route_sequence != transition.route_sequence ||
+      active_task_index_ != transition.task_index || active_task_index_ >= route_.tasks.size())
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "Discarding stale efficient profile revision=%lu after route/task changed",
+        static_cast<unsigned long>(transition.revision));
+      efficient_profile_transition_.reset();
+      return;
+    }
+    applied_efficient_profile_ = transition.profile;
+    efficient_profile_transition_.reset();
+    RCLCPP_INFO(
+      get_logger(),
+      "Efficient profile applied: revision=%lu route=%lu task=%zu profile=%s "
+      "planner.path_height=%.3f extension.enabled=%s soft_radius=%.3f",
+      static_cast<unsigned long>(transition.revision),
+      static_cast<unsigned long>(transition.route_sequence), transition.task_index,
+      transition.profile.name.c_str(), transition.profile.path_height,
+      transition.profile.extension_enabled ? "true" : "false",
+      transition.profile.soft_radius);
+    // Only now expose the efficient path. activateTask(true) sees the already-applied
+    // profile and proceeds without another parameter transaction.
+    (void)activateTask(true);
+  }
+
   void validateParameters() const
   {
     if (control_rate_hz_ < 5.0 || control_rate_hz_ > 200.0 || odometry_timeout_s_ <= 0.0 ||
@@ -422,6 +723,7 @@ private:
       return;
     }
     clearPendingGaitResume();
+    cancelEfficientProfileTransition();
     publishZero();
     publishControllerSelection("none");
     publishEfficientStop();
@@ -547,6 +849,9 @@ private:
       enterGaitTransition(task);
       return false;
     }
+    if (use_efficient && !ensureEfficientProfile(task)) {
+      return false;
+    }
     TrackingTask tracking_task;
     tracking_task.endpoint_tolerance_m = task.endpoint_tolerance_m;
     tracking_task.maximum_speed_mps = task.linear_speed_mps;
@@ -596,13 +901,26 @@ private:
 
   void advanceTask()
   {
+    const auto & completed = route_.tasks[active_task_index_];
+    if (!completed.is_route_goal && active_task_index_ + 1U < route_.tasks.size()) {
+      const auto & next = route_.tasks[active_task_index_ + 1U];
+      const bool seamless_transition =
+        !completed.requires_stop_at_end &&
+        !next.requires_gait_switch_at_start &&
+        completed.completion_policy != RouteTask::COMPLETION_BUSINESS_STOP;
+      if (seamless_transition) {
+        ++active_task_index_;
+        (void)activateTask(true);
+        return;
+      }
+    }
+
     publishZero();
     publishControllerSelection("none");
     publishEfficientStop();
     active_ = false;
     resume_existing_task_after_gait_ = false;
     task_controller_ = "none";
-    const auto & completed = route_.tasks[active_task_index_];
     if (completed.is_route_goal || active_task_index_ + 1U >= route_.tasks.size()) {
       setState(ControllerState::kFinished, "route goal reached");
       return;
@@ -796,6 +1114,7 @@ private:
 
   void controlTimer()
   {
+    dispatchEfficientProfileRequests();
     const auto steady_now = std::chrono::steady_clock::now();
     double dt = std::chrono::duration<double>(steady_now - last_control_time_).count();
     last_control_time_ = steady_now;
@@ -812,20 +1131,25 @@ private:
 
     const bool odometry_stale = !has_odometry_ ||
       (now() - last_odometry_time_).seconds() > odometry_timeout_s_;
-    const bool cloud_stale = obstacleDetectionEnabledForTask() && stop_on_cloud_timeout_ &&
+    const bool obstacle_checks_enabled = obstacleDetectionEnabledForTask();
+    const bool cloud_stale = obstacle_checks_enabled && stop_on_cloud_timeout_ &&
       (!has_cloud_ || (now() - last_cloud_time_).seconds() > cloud_timeout_s_);
-    const bool elevation_map_missing = obstacleDetectionEnabledForTask() &&
-      !elevation_checker_->ready();
-    const bool obstacle_stop = obstacleDetectionEnabledForTask() &&
-      (cloud_parse_error_ || elevationTrajectoryBlocked());
+    const bool elevation_map_missing = obstacle_checks_enabled && !elevation_checker_->ready();
+    const bool invalid_obstacle_cloud = obstacle_checks_enabled && cloud_parse_error_;
+    const bool trajectory_obstacle = obstacle_checks_enabled &&
+      !cloud_parse_error_ && elevationTrajectoryBlocked();
+    const bool obstacle_stop = invalid_obstacle_cloud || trajectory_obstacle;
     if (debug_visualization_generation_ != elevation_map_generation_) {
       publishElevationDebug();
       debug_visualization_generation_ = elevation_map_generation_;
     }
     const bool emergency_collision =
       collision_level_ >= emergency_collision_level_threshold_;
-    const bool must_stop = external_safety_stop_ || emergency_collision || odometry_stale ||
-      cloud_stale || elevation_map_missing || obstacle_stop;
+    const bool hard_stop = external_safety_stop_ || emergency_collision || odometry_stale ||
+      cloud_stale || elevation_map_missing || invalid_obstacle_cloud;
+    const bool preserve_gait_for_stop = trajectory_obstacle &&
+      !hard_stop && !obstacle_stop_uses_stop_move_;
+    const bool must_stop = hard_stop || obstacle_stop;
     publishSafetyFlags(must_stop, elevation_replan_required_);
     if (must_stop) {
       publishZero();
@@ -834,7 +1158,8 @@ private:
       if (!safety_stopped_) {
         tracker_->stopAndResetControllers();
         safety_stopped_ = true;
-        publishControllerSelection("none");
+        safety_stop_preserves_gait_ = preserve_gait_for_stop;
+        publishControllerSelection(preserve_gait_for_stop ? "safety_hold" : "none");
         std::string reason = external_safety_stop_ ? "external safety stop" :
           (emergency_collision ? "emergency collision level" :
           (odometry_stale ? "odometry timeout" :
@@ -844,6 +1169,12 @@ private:
           "elevation-map trajectory collision")))));
         publishStatus(reason);
         RCLCPP_WARN(get_logger(), "PID safety stop: %s", reason.c_str());
+      } else if (safety_stop_preserves_gait_ && !preserve_gait_for_stop) {
+        // Escalate a soft obstacle hold immediately if an emergency or sensor
+        // failure appears while the robot is already stopped.
+        safety_stop_preserves_gait_ = false;
+        publishControllerSelection("none");
+        RCLCPP_WARN(get_logger(), "PID safety stop escalated to StopMove");
       }
       return;
     }
@@ -860,9 +1191,16 @@ private:
       if (!safety_clear_gate_->ready(steady_now)) {
         return;
       }
+      const bool resume_preserved_gait = safety_stop_preserves_gait_;
       safety_stopped_ = false;
+      safety_stop_preserves_gait_ = false;
       safety_clear_waiting_logged_ = false;
       safety_clear_gate_->reset();
+      if (resume_preserved_gait) {
+        publishControllerSelection(task_controller_);
+        setState(ControllerState::kTracking, "safety hold cleared; preserved gait resumed");
+        return;
+      }
       // active_source=none makes the Go2 adapter call StopMove so a human can
       // take over with the remote.  StopMove also exits StaticWalk/SwitchGait
       // on the deployed firmware.  Never resume velocity directly: restore
@@ -1371,7 +1709,8 @@ private:
       {"paused", paused_},
       {"resume_existing_task_after_gait", resume_existing_task_after_gait_},
       {"transition_kind", waiting_for_gait_transition_ ? "gait" :
-        (state_ == ControllerState::kWaitingTransition ? "manual" : "")},
+        (state_ == ControllerState::kApplyingEfficientProfile ? "efficient_profile" :
+        (state_ == ControllerState::kWaitingTransition ? "manual" : ""))},
       {"safety_stopped", safety_stopped_},
       {"safety_clear_hold_s", safety_clear_hold_s_},
       {"safety_clear_waiting", safety_clear_waiting_logged_},
@@ -1390,6 +1729,16 @@ private:
       {"progress_m", last_tracking_output_.progress_m},
       {"remaining_m", last_tracking_output_.remaining_m},
       {"goal_distance_m", last_tracking_output_.goal_distance_m}};
+    status["efficient_profile_switching_enabled"] = efficient_profile_switching_enabled_;
+    status["efficient_profile"] = applied_efficient_profile_ ?
+      applied_efficient_profile_->name : "none";
+    status["efficient_profile_transition_pending"] = efficient_profile_transition_.has_value();
+    if (applied_efficient_profile_) {
+      status["efficient_profile_path_height_m"] = applied_efficient_profile_->path_height;
+      status["efficient_profile_soft_radius_m"] = applied_efficient_profile_->soft_radius;
+      status["efficient_profile_extension_enabled"] =
+        applied_efficient_profile_->extension_enabled;
+    }
     const double endpoint_distance_3d = activeTaskEndpointDistance3d();
     const double endpoint_distance_planar = activeTaskEndpointDistancePlanar();
     status["task_endpoint_distance_3d_m"] = std::isfinite(endpoint_distance_3d) ?
@@ -1449,7 +1798,8 @@ private:
     }
     active_task_index_ = 0U;
     const bool started = activateTask(false);
-    response->success = started || state_ == ControllerState::kWaitingTransition;
+    response->success = started || state_ == ControllerState::kWaitingTransition ||
+      state_ == ControllerState::kApplyingEfficientProfile;
     response->message = state_detail_;
   }
 
@@ -1621,6 +1971,7 @@ private:
     std_srvs::srv::Trigger::Response::SharedPtr response)
   {
     clearPendingGaitResume();
+    cancelEfficientProfileTransition();
     active_ = false;
     paused_ = false;
     waiting_for_gait_transition_ = false;
@@ -1641,6 +1992,7 @@ private:
   double control_rate_hz_{50.0};
   double odometry_timeout_s_{0.30};
   double safety_clear_hold_s_{3.0};
+  bool obstacle_stop_uses_stop_move_{true};
   bool obstacle_enabled_{true};
   std::int64_t emergency_collision_level_threshold_{100};
   bool stop_on_cloud_timeout_{true};
@@ -1676,6 +2028,7 @@ private:
   bool external_safety_stop_{false};
   std::int32_t collision_level_{0};
   bool safety_stopped_{false};
+  bool safety_stop_preserves_gait_{false};
   bool safety_clear_waiting_logged_{false};
   bool rotation_footprint_active_{false};
   std::size_t trajectory_collision_count_{0U};
@@ -1696,6 +2049,15 @@ private:
   double efficient_route_goal_position_tolerance_m_{0.20};
   double efficient_route_goal_yaw_tolerance_rad_{0.25};
   bool efficient_use_planar_distance_{true};
+  bool efficient_profile_switching_enabled_{true};
+  EfficientPlanningProfile efficient_normal_profile_{"normal", 0.10, true, 0.60};
+  EfficientPlanningProfile efficient_slope_profile_{"slope", 0.40, false, 0.20};
+  std::string efficient_planner_node_name_{"/corridor_astar_planner"};
+  std::string efficient_mapper_node_name_{"/local_voxel_mapper"};
+  std::string efficient_extension_node_name_{"/obstacle_occlusion_extension"};
+  std::optional<EfficientPlanningProfile> applied_efficient_profile_;
+  std::optional<EfficientProfileTransition> efficient_profile_transition_;
+  std::uint64_t efficient_profile_revision_{0U};
   rclcpp::Time last_odometry_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_cloud_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time elevation_map_stamp_{0, 0, RCL_ROS_TIME};
@@ -1704,6 +2066,9 @@ private:
   std::unique_ptr<TimestampedPoseBuffer> odometry_pose_buffer_;
   std::unique_ptr<ElevationCollisionChecker> elevation_checker_;
   std::unique_ptr<RouteTracker> tracker_;
+  std::shared_ptr<rclcpp::AsyncParametersClient> efficient_planner_parameter_client_;
+  std::shared_ptr<rclcpp::AsyncParametersClient> efficient_mapper_parameter_client_;
+  std::shared_ptr<rclcpp::AsyncParametersClient> efficient_extension_parameter_client_;
 
   rclcpp::Subscription<RouteTaskArray>::SharedPtr tasks_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odometry_subscription_;

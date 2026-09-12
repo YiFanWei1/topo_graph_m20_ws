@@ -210,6 +210,12 @@ bool isObstacleSingleton(const EffectiveAttributes & attributes)
   return attributes.obstacle_mode == 1 || attributes.obstacle_mode == 4;
 }
 
+bool isMandatoryCorner(const TopologyVertex & vertex)
+{
+  return vertex.is_corner &&
+         (!vertex.must_pass_through_explicit || vertex.must_pass_through);
+}
+
 void validateTraversal(
   const TopologyEdge & edge, const VertexId from, const VertexId to)
 {
@@ -264,16 +270,26 @@ SliceResult RouteSlicer::slice(
     task.task_index = 0U;
     task.task_mode = "normal";
     task.configured_controller_mode = "auto";
-    task.resolved_controller_mode = options_.auto_default_controller;
-    task.gait_command = options_.normal_gait_command;
+    task.resolved_controller_mode = goal.configured_is_slope ?
+      options_.auto_slope_controller : options_.auto_default_controller;
+    task.gait_command = goal.configured_is_slope ?
+      options_.slope_gait_command : options_.normal_gait_command;
     task.completion_policy = CompletionPolicy::kRouteGoal;
     task.is_route_goal = true;
     task.requires_stop_at_end = true;
     task.endpoint_tolerance_m = goal.goal_tolerance_m;
-    task.align_goal_yaw = goal.align_final_yaw;
-    task.locomotion_mode = options_.normal_locomotion_mode;
+    task.align_goal_yaw = goal.align_final_yaw && !goal.configured_is_slope;
+    task.locomotion_mode = goal.configured_is_slope ?
+      options_.slope_locomotion_mode : options_.normal_locomotion_mode;
+    task.contains_slope = goal.configured_is_slope;
+    if (goal.configured_is_slope && options_.slope_ignore_ordinary_obstacles) {
+      task.obstacle_mode = 3;
+    }
     task.waypoints.push_back(waypoint(goal, options_));
     task.split_reasons.emplace_back("same_vertex_goal");
+    if (goal.align_final_yaw && goal.configured_is_slope) {
+      task.split_reasons.emplace_back("slope_goal_yaw_suppressed");
+    }
     result.tasks.push_back(std::move(task));
     return result;
   }
@@ -344,6 +360,9 @@ SliceResult RouteSlicer::slice(
 
     if (!current_task.has_value() || !split_reasons.empty()) {
       finish_current();
+      if (options_.split_at_corners && index > 0U && isMandatoryCorner(from)) {
+        split_reasons.emplace_back("corner_waypoint");
+      }
       if (split_reasons.empty()) {
         split_reasons.emplace_back(index == 0U ? "route_start" : "after_singleton_task");
       }
@@ -355,12 +374,46 @@ SliceResult RouteSlicer::slice(
     }
     previous_attributes = attributes;
     previous_edge_id = edge.id;
+
+    // Efficient planning receives only nav_msgs/Path, so per-waypoint
+    // must-pass metadata is otherwise lost. Make each intermediate corner a
+    // task endpoint; the supervisor then applies that corner's pass radius
+    // before publishing the following segment.
+    if (options_.split_at_corners && isMandatoryCorner(to) &&
+      index + 1U < edge_ids.size())
+    {
+      finish_current();
+    }
   }
   finish_current();
 
   if (result.tasks.empty()) {
     throw std::logic_error("slicer produced no tasks");
   }
+
+  // A flat route goal that is approached by the efficient controller still
+  // needs the normal PID terminal-adjustment phase.  Keep the efficient task
+  // responsible only for reaching the endpoint; the appended single-point
+  // task stops the robot, restores the normal gait when necessary, and lets
+  // PID converge to the requested final position and yaw.
+  const auto & route_goal = graph.vertex(result.route_goal_id);
+  const bool requires_flat_pid_alignment =
+    route_goal.align_final_yaw && !route_goal.configured_is_slope &&
+    result.tasks.back().resolved_controller_mode == "efficient_3d_local_planner";
+  if (requires_flat_pid_alignment) {
+    RouteTask alignment_task;
+    alignment_task.task_mode = "normal";
+    alignment_task.configured_controller_mode = "pid";
+    alignment_task.resolved_controller_mode = "pid";
+    alignment_task.gait_command = options_.normal_gait_command;
+    alignment_task.locomotion_mode = options_.normal_locomotion_mode;
+    alignment_task.linear_speed_mps = result.tasks.back().linear_speed_mps;
+    alignment_task.rotation_allowed = route_goal.turnable;
+    alignment_task.waypoints.push_back(waypoint(route_goal, options_));
+    alignment_task.split_reasons.emplace_back("flat_goal_pid_alignment");
+    result.tasks.push_back(std::move(alignment_task));
+  }
+
   for (std::size_t index = 0; index < result.tasks.size(); ++index) {
     auto & task = result.tasks[index];
     task.task_index = index;
@@ -370,8 +423,14 @@ SliceResult RouteSlicer::slice(
       (task.is_route_goal ? CompletionPolicy::kRouteGoal : CompletionPolicy::kTransition);
     task.endpoint_tolerance_m = task.is_route_goal || business_task ?
       task.waypoints.back().goal_tolerance_m : task.waypoints.back().pass_radius_m;
+    const auto & endpoint = graph.vertex(task.waypoints.back().vertex_id);
     task.align_goal_yaw = (task.is_route_goal || business_task) &&
-      task.waypoints.back().align_final_yaw;
+      task.waypoints.back().align_final_yaw && !endpoint.configured_is_slope;
+    if ((task.is_route_goal || business_task) && task.waypoints.back().align_final_yaw &&
+      endpoint.configured_is_slope)
+    {
+      task.split_reasons.emplace_back("slope_goal_yaw_suppressed");
+    }
     // The robot's gait before a new route is unknown.  Always establish the
     // first task's requested gait explicitly; later tasks only switch when the
     // locomotion mode changes.

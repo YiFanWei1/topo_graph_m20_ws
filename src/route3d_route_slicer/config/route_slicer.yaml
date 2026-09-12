@@ -24,6 +24,9 @@ route3d_route_slicer:
       normal_pass_radius_m: 0.45
 
     slicing:
+      # End the current task at every mandatory corner. This preserves the
+      # corner pass radius for controllers that only consume nav_msgs/Path.
+      split_at_corners: true
       attribute_epsilon: 1.0e-6
 
     controller:

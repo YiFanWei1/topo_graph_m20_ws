@@ -122,6 +122,56 @@ TEST(RouteSlicer, ExplicitSlopeEdgePromotesEndpointsWithoutRecursiveSpread)
   EXPECT_EQ(result.tasks[2].gait_command, "static_walk");
 }
 
+TEST(RouteSlicer, ConfiguredSlopeGoalSuppressesFinalYawAlignment)
+{
+  auto graph = lineGraph(
+    {vertex(1), vertex(2, false, true)},
+    {edge(1, 1, 2)});
+
+  const auto result = RouteSlicer().slice(graph, {1, 2}, {1});
+
+  ASSERT_EQ(result.tasks.size(), 1U);
+  const auto & task = result.tasks.front();
+  EXPECT_TRUE(task.is_route_goal);
+  EXPECT_EQ(task.resolved_controller_mode, "efficient_3d_local_planner");
+  EXPECT_FALSE(task.align_goal_yaw);
+  EXPECT_NE(
+    std::find(
+      task.split_reasons.begin(), task.split_reasons.end(),
+      "slope_goal_yaw_suppressed"),
+    task.split_reasons.end());
+}
+
+TEST(RouteSlicer, EfficientApproachToConfiguredFlatGoalAddsPidAlignment)
+{
+  auto slope_edge = edge(1, 1, 2);
+  slope_edge.locomotion_mode = 2;
+  auto graph = lineGraph({vertex(1), vertex(2)}, {slope_edge});
+
+  ASSERT_FALSE(graph.vertex(2).configured_is_slope);
+  ASSERT_TRUE(graph.vertex(2).is_slope);
+
+  const auto result = RouteSlicer().slice(graph, {1, 2}, {1});
+
+  ASSERT_EQ(result.tasks.size(), 2U);
+  const auto & approach = result.tasks[0];
+  EXPECT_EQ(approach.resolved_controller_mode, "efficient_3d_local_planner");
+  EXPECT_FALSE(approach.is_route_goal);
+  EXPECT_FALSE(approach.align_goal_yaw);
+  EXPECT_TRUE(approach.requires_stop_at_end);
+
+  const auto & alignment = result.tasks[1];
+  EXPECT_EQ(alignment.resolved_controller_mode, "pid");
+  EXPECT_EQ(alignment.gait_command, "static_walk");
+  EXPECT_EQ(alignment.locomotion_mode, 0);
+  EXPECT_TRUE(alignment.is_route_goal);
+  EXPECT_TRUE(alignment.align_goal_yaw);
+  EXPECT_TRUE(alignment.requires_gait_switch_at_start);
+  ASSERT_EQ(alignment.waypoints.size(), 1U);
+  EXPECT_TRUE(alignment.edge_ids.empty());
+  EXPECT_EQ(alignment.waypoints.front().vertex_id, 2);
+}
+
 TEST(RouteSlicer, ExplicitSlopeObstaclePolicyIsNotOverwritten)
 {
   auto slope_edge = edge(1, 1, 2);
@@ -135,7 +185,7 @@ TEST(RouteSlicer, ExplicitSlopeObstaclePolicyIsNotOverwritten)
   EXPECT_EQ(result.tasks.front().obstacle_mode, 1);
 }
 
-TEST(RouteSlicer, CornerIsHardViaPointWithoutSemanticTaskSplit)
+TEST(RouteSlicer, CornerCreatesTaskBoundaryWithItsPassRadius)
 {
   auto goal = vertex(5);
   goal.goal_tolerance_m = 0.08;
@@ -146,15 +196,44 @@ TEST(RouteSlicer, CornerIsHardViaPointWithoutSemanticTaskSplit)
 
   const auto result = RouteSlicer().slice(graph, {1, 2, 3, 4, 5}, {1, 2, 3, 4});
 
-  ASSERT_EQ(result.tasks.size(), 1U);
-  ASSERT_EQ(result.tasks.front().waypoints.size(), 5U);
-  const auto & corner = result.tasks.front().waypoints[2];
+  ASSERT_EQ(result.tasks.size(), 2U);
+  ASSERT_EQ(result.tasks[0].waypoints.size(), 3U);
+  const auto & corner = result.tasks[0].waypoints.back();
   EXPECT_TRUE(corner.is_corner);
   EXPECT_TRUE(corner.must_pass_through);
   EXPECT_DOUBLE_EQ(corner.pass_radius_m, 0.20);
-  EXPECT_EQ(result.tasks.front().completion_policy, CompletionPolicy::kRouteGoal);
-  EXPECT_DOUBLE_EQ(result.tasks.front().endpoint_tolerance_m, 0.08);
-  EXPECT_FALSE(result.tasks.front().align_goal_yaw);
+  EXPECT_EQ(result.tasks[0].edge_ids, (std::vector<EdgeId>{1, 2}));
+  EXPECT_EQ(result.tasks[0].completion_policy, CompletionPolicy::kTransition);
+  EXPECT_DOUBLE_EQ(result.tasks[0].endpoint_tolerance_m, 0.20);
+  EXPECT_FALSE(result.tasks[0].align_goal_yaw);
+  EXPECT_FALSE(result.tasks[0].requires_stop_at_end);
+
+  ASSERT_EQ(result.tasks[1].waypoints.size(), 3U);
+  EXPECT_EQ(result.tasks[1].waypoints.front().vertex_id, 3);
+  EXPECT_EQ(result.tasks[1].edge_ids, (std::vector<EdgeId>{3, 4}));
+  EXPECT_EQ(result.tasks[1].completion_policy, CompletionPolicy::kRouteGoal);
+  EXPECT_DOUBLE_EQ(result.tasks[1].endpoint_tolerance_m, 0.08);
+  EXPECT_FALSE(result.tasks[1].align_goal_yaw);
+  EXPECT_NE(
+    std::find(
+      result.tasks[1].split_reasons.begin(), result.tasks[1].split_reasons.end(),
+      "corner_waypoint"),
+    result.tasks[1].split_reasons.end());
+}
+
+TEST(RouteSlicer, CornerTaskSplittingCanBeDisabled)
+{
+  auto graph = lineGraph(
+    {vertex(1), vertex(2, true, false), vertex(3)},
+    {edge(1, 1, 2), edge(2, 2, 3)});
+  route3d_route_slicer::SliceOptions options;
+  options.split_at_corners = false;
+
+  const auto result = RouteSlicer(options).slice(graph, {1, 2, 3}, {1, 2});
+
+  ASSERT_EQ(result.tasks.size(), 1U);
+  ASSERT_EQ(result.tasks.front().waypoints.size(), 3U);
+  EXPECT_TRUE(result.tasks.front().waypoints[1].is_corner);
 }
 
 TEST(RouteSlicer, ExplicitViaPropertiesOverrideCornerDefaults)
@@ -168,6 +247,7 @@ TEST(RouteSlicer, ExplicitViaPropertiesOverrideCornerDefaults)
 
   const auto result = RouteSlicer().slice(graph, {1, 2, 3}, {1, 2});
 
+  ASSERT_EQ(result.tasks.size(), 1U);
   EXPECT_FALSE(result.tasks.front().waypoints[1].must_pass_through);
   EXPECT_DOUBLE_EQ(result.tasks.front().waypoints[1].pass_radius_m, 0.12);
 }

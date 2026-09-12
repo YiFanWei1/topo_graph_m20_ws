@@ -12,7 +12,7 @@ colcon build --packages-select route3d_web_console
 source install/setup.bash
 ros2 launch route3d_web_console route3d_web_console.launch.py \
   ros_domain_id:=42 \
-  port:=8080
+  port:=18080
 ```
 
 浏览器访问 `http://<机器人电脑IP>:8080`。首次使用前编辑本包安装前的

@@ -25,6 +25,12 @@ struct TopologyVertex
   int semantic_type{0};
   int semantic_type_id{0};
   bool is_corner{false};
+  // Author-provided meta.isSlope.  Unlike is_slope, this value is not
+  // changed by the one-pass point/edge synchronization and can therefore be
+  // used for physical-point decisions such as whether final yaw alignment is
+  // safe.
+  bool configured_is_slope{false};
+  // Effective runtime slope annotation after one-pass synchronization.
   bool is_slope{false};
   bool is_junction{false};
   double turn_degrees{0.0};

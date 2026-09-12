@@ -4,10 +4,11 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Elevation Collision Debug1
         - /Elevation Collision Debug1/Namespaces1
+        - /PointCloud22
+        - /PointCloud22/Topic1
       Splitter Ratio: 0.5
-    Tree Height: 349
+    Tree Height: 334
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -224,6 +225,39 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: false
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 0.6929134130477905
+      Min Color: 0; 0; 0
+      Min Intensity: 0.003937007859349251
+      Name: PointCloud2
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /local_voxel_map/soft_cost
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 28; 30; 34
@@ -243,35 +277,35 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 4.8113250732421875
+      Distance: 8.479199409484863
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -1.1592434644699097
-        Y: 0.2438766211271286
-        Z: 0.1670704334974289
+        X: 0.08114366233348846
+        Y: -1.8834357261657715
+        Z: -0.03208095207810402
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7047981023788452
+      Pitch: 1.5697963237762451
       Target Frame: base_link
       Value: Orbit (rviz_default_plugins)
-      Yaw: 6.263582229614258
+      Yaw: 1.465394139289856
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: false
-  Height: 900
-  Hide Left Dock: false
+    collapsed: true
+  Height: 750
+  Hide Left Dock: true
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000023800000326fc0200000002fb000000100044006900730070006c006100790073010000003f000001e3000000cc00fffffffb0000000a0056006900650077007301000002280000013d000000a900ffffff0000033a0000032600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000023800000290fc0200000002fb000000100044006900730070006c006100790073000000003f000001d4000000cc00fffffffb0000000a005600690065007700730000000219000000b6000000a900ffffff000003dd0000029000000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
-    collapsed: false
-  Width: 1400
-  X: 294
-  Y: 73
+    collapsed: true
+  Width: 989
+  X: 923
+  Y: 228

@@ -217,6 +217,7 @@ public:
       declare_parameter<double>("waypoint.corner_pass_radius_m", 0.20);
     options.default_normal_pass_radius_m =
       declare_parameter<double>("waypoint.normal_pass_radius_m", 0.45);
+    options.split_at_corners = declare_parameter<bool>("slicing.split_at_corners", true);
     options.attribute_epsilon = declare_parameter<double>("slicing.attribute_epsilon", 1.0e-6);
     options.auto_default_controller =
       declare_parameter<std::string>("controller.auto_default", "pid");

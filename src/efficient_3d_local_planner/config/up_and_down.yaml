@@ -41,11 +41,14 @@ target_route_sequencer:
     route.goal_arrival_tolerance: 0.30         # 最终目标严格三维到点半径，单位 m
     route.max_start_distance: 3.0              # 起点距最近记录点超过该值时拒绝目标，单位 m
     route.update_rate: 50.0                    # 缓存里程计后的路线状态更新频率，单位 Hz
+    # Legacy recorded_waypoint_route 链使用下面 profile.*。
+    # 正式 go2_pid_route 主链由 route3d_pid_controller/config/go2_pid.yaml 中
+    # efficient_profile.* 管理；两套链不要同时运行并争抢同一组运行时参数。
     # 统一属性解析接口：当前只看 JSON 顶点 meta.isSlope；以后特殊点规则集中扩展 resolver。
-    profile.normal.path_height: 0.1            # 普通点按地面路径高度规划
+    profile.normal.path_height: 0.2            # 普通点按地面路径高度规划
     profile.normal.extension_enabled: true     # 普通点启用障碍物后向补全
     profile.normal.soft_radius: 0.60           # 普通点基础障碍与后向补障共用的 Soft 半径
-    profile.slope.path_height: 0.4             # 坡点（含坡段前后 3m）抬升到机身中心
+    profile.slope.path_height: 0.5             # 坡点（含坡段前后 3m）抬升到机身中心
     profile.slope.extension_enabled: false     # 坡点关闭后向补全，避免把坡面误延伸为 hard
     profile.slope.soft_radius: 0.20            # 坡点缩小 Soft 范围，单位 m
     profile.planner_node: /corridor_astar_planner
@@ -83,7 +86,7 @@ local_voxel_mapper:
     map.decay_enabled: true                    # 是否按最后命中时间被动衰减旧障碍
     map.decay_start: 0.40                      # 最后命中后先保持 0.40 s，允许静态障碍短暂漏检而不闪烁
     map.decay_rate: 6.5                        # 饱和 log-odds 约在最后命中后 0.50 s 降到硬障碍阈值以下
-    map.decay_front_only: true                 # 仅对机体前方旧障碍做时间衰减，后方地图保留
+    map.decay_front_only: false                 # 仅对机体前方旧障碍做时间衰减，后方地图保留
     map.decay_front_fov_deg: 180.0    # FOV        # 前向衰减扇区总角度，120 表示左右各 60 度
     map.ray_step_factor: 0.90                  # 射线采样步长相对栅格分辨率的比例
     map.soft_inflation_radius: 0.60            # hard 外单一软膨胀半径；等于旧 0.20m footprint + 0.40m soft
@@ -110,7 +113,7 @@ corridor_astar_planner:
     frames.planning: camera_init               # A* 搜索使用的固定坐标系
     input.voxel_grid_topic: /local_voxel_map/grid_with_occlusion # extension 关闭时也会原样透传基础地图
     input.path_topic: /recorded_waypoint_route/active_segment_ground # 当前目标的滚动路径窗，保留中间黄色点且覆盖机器人所在路段
-    planner.path_height: 0.3                  # 全局路径整体向上抬升高度，单位 m
+    planner.path_height: 0.5                  # 静态回退值；正式 Route3D 主链会按 contains_slope 动态覆盖
     planner.project_start_z: true              # 起点 Z 是否投影到抬升后的全局路径
     planner.start_z_max_correction: 0.60       # 起点 Z 允许的最大投影修正量，单位 m
     planner.reject_wrong_path_level: true      # 路径高度与机器人相差过大时保留旧路径，不向错误楼层搜索

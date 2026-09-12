@@ -25,6 +25,9 @@ route3d_pid_controller:
     # continuously for this long. This prevents obstacle-cloud flicker from
     # repeatedly issuing StopMove and gait-switch SDK requests.
     safety.clear_hold_s: 1.0
+    # Ordinary path-obstacle stops hold zero velocity without exiting the
+    # current gait. Emergency and sensor-failure stops still use StopMove.
+    safety.obstacle_stop_uses_stop_move: false
     # Same final protection as the reference: obs=3 suppresses ordinary
     # obstacles, but collision level >=100 always stops.
     safety.emergency_collision_level_threshold: 100
@@ -99,6 +102,21 @@ route3d_pid_controller:
     completion.efficient.yaw_tolerance_rad: 0.7853981633974483  # 45 deg
     completion.efficient.use_planar_distance: true
 
+    # Runtime profile manager for efficient_3d_local_planner.  The PID supervisor
+    # selects ONLY from RouteTask.contains_slope; corner status does not change
+    # this profile.  A new efficient path is published only after all three
+    # target nodes acknowledge the same profile revision.
+    efficient_profile.enabled: true
+    efficient_profile.normal.path_height: 0.10
+    efficient_profile.normal.extension_enabled: true
+    efficient_profile.normal.soft_radius: 0.60
+    efficient_profile.slope.path_height: 0.40
+    efficient_profile.slope.extension_enabled: false
+    efficient_profile.slope.soft_radius: 0.20
+    efficient_profile.planner_node: /corridor_astar_planner
+    efficient_profile.mapper_node: /local_voxel_mapper
+    efficient_profile.extension_node: /obstacle_occlusion_extension
+
     # Safe Go2 limits. Edge linearSpeedMps can lower, never raise, max vx.
     limits.maximum_vx_mps: 0.80
     limits.maximum_vy_mps: 0.25
@@ -118,7 +136,7 @@ route3d_pid_controller:
     pid.lateral.ki: 0.00
     pid.lateral.kd: 0.04
     pid.lateral.integral_limit: 0.20
-    pid.lateral.output_limit: 0.25
+    pid.lateral.output_limit: 0.4
     pid.lateral.integral_separation: 1.30
     pid.lateral.derivative_filter_tau: 0.04
 

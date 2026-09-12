@@ -287,7 +287,8 @@ private:
 
   void controllerSourceCallback(const std_msgs::msg::String::ConstSharedPtr message)
   {
-    if (message->data != "none" && message->data != "pid" &&
+    if (message->data != "none" && message->data != "safety_hold" &&
+      message->data != "profile_hold" && message->data != "pid" &&
       message->data != "efficient_3d_local_planner")
     {
       RCLCPP_ERROR(
@@ -303,6 +304,16 @@ private:
       publishStatus();
       return;
     }
+    if (message->data == "safety_hold" || message->data == "profile_hold") {
+      selected_controller_ = message->data;
+      clearCommands();
+      state_detail_ = message->data == "safety_hold" ?
+        "ordinary obstacle safety hold; gait preserved" :
+        "efficient profile hold; gait preserved";
+      publishStatus();
+      RCLCPP_INFO(get_logger(), "%s", state_detail_.c_str());
+      return;
+    }
     if (message->data == selected_controller_) {
       return;
     }
@@ -315,7 +326,9 @@ private:
     // StaticWalk/SwitchGait mode that was just selected.  A real stop remains
     // mandatory when disabling an active controller or switching directly
     // between two active command sources.
-    if (selected_controller_ == "none" || previous != "none") {
+    if (selected_controller_ == "none" ||
+      (previous != "none" && previous != "safety_hold" && previous != "profile_hold"))
+    {
       (void)stopRobot("controller source switch");
       if (selected_controller_ == "none") {
         // Releasing control for an obstacle stop or operator pause invalidates
