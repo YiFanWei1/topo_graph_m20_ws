@@ -80,9 +80,9 @@ route3d_live:
   slope:
     enabled: true
     fit_radius: 2.0
-    grade_threshold: 0.06
+    grade_threshold: 0.001 # 0.001 0.06
     minimum_core_length: 1.0
-    minimum_height_change: 0.20
+    minimum_height_change: 0.001 # 0.001 0.2
     maximum_core_gap: 1.0
     buffer_distance: 2.0
 
