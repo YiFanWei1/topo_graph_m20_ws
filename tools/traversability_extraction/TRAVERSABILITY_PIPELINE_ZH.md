@@ -4,7 +4,7 @@
 
 - ROS 2 Bag：`/home/wei/bag/regu/`
 - 完整注册地图：`/home/wei/github_code/dddmr_navigation/map/silou180.pcd`
-- 工作区：`/home/wei/github_code/topo_graph_ws_`
+- 工作区：`/home/wei/github_code/topo_graph_m20_ws`
 
 离线提取代码位于：
 
@@ -113,9 +113,9 @@ head -n 12 /home/wei/github_code/dddmr_navigation/map/silou180.pcd
 ```bash
 source /opt/ros/jazzy/setup.bash
 
-python3 /home/wei/github_code/topo_graph_ws_/tools/traversability_extraction/extract_bag_trajectory.py \
+python3 /home/wei/github_code/topo_graph_m20_ws/tools/traversability_extraction/extract_bag_trajectory.py \
   --bag /home/wei/bag/regu \
-  --output-dir /home/wei/github_code/topo_graph_ws_/data/regu/traversability_result \
+  --output-dir /home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result \
   --topic /lio_odom \
   --body-height 0.40 \
   --min-spacing 0.04
@@ -168,7 +168,7 @@ trajectory_summary.json  话题、坐标系、点数和范围
 依赖为 PCL、Eigen 和 OpenMP。当前源码可以用下面的命令直接编译：
 
 ```bash
-cd /home/wei/github_code/topo_graph_ws_
+cd /home/wei/github_code/topo_graph_m20_ws
 
 g++ -std=c++17 -O3 -fopenmp \
   tools/traversability_extraction/extract_traversable_region.cpp \
@@ -182,10 +182,10 @@ g++ -std=c++17 -O3 -fopenmp \
 执行：
 
 ```bash
-/home/wei/github_code/topo_graph_ws_/tools/traversability_extraction/extract_traversable_region \
+/home/wei/github_code/topo_graph_m20_ws/tools/traversability_extraction/extract_traversable_region \
   /home/wei/github_code/dddmr_navigation/map/silou180.pcd \
-  /home/wei/github_code/topo_graph_ws_/data/regu/traversability_result/trajectory_ground.pcd \
-  /home/wei/github_code/topo_graph_ws_/data/regu/traversability_result
+  /home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result/trajectory_ground.pcd \
+  /home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result
 ```
 
 以下小节按源码的实际执行顺序说明每一步。
@@ -446,7 +446,7 @@ auto obstacles = selectCloud(
 输出目录为：
 
 ```text
-/home/wei/github_code/topo_graph_ws_/data/regu/traversability_result/
+/home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result/
 ```
 
 主要文件：
@@ -494,10 +494,10 @@ auto obstacles = selectCloud(
 traversability_planner:
   ros__parameters:
     frame_id: camera_init
-    surface_pcd: /home/wei/github_code/topo_graph_ws_/data/regu/traversability_result/traversable_surface_unfiltered.pcd
-    filtered_surface_pcd: /home/wei/github_code/topo_graph_ws_/data/regu/traversability_result/traversable_surface.pcd
-    obstacle_pcd: /home/wei/github_code/topo_graph_ws_/data/regu/traversability_result/obstacle_points.pcd
-    route_pcd: /home/wei/github_code/topo_graph_ws_/data/regu/traversability_result/trajectory_ground.pcd
+    surface_pcd: /home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result/traversable_surface_unfiltered.pcd
+    filtered_surface_pcd: /home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result/traversable_surface.pcd
+    obstacle_pcd: /home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result/obstacle_points.pcd
+    route_pcd: /home/wei/github_code/topo_graph_m20_ws/data/regu/traversability_result/trajectory_ground.pcd
 
     # false：完全不执行高度范围点去除；true：启用下面的高度范围。
     height_range_filter.enabled: false
@@ -673,7 +673,7 @@ const float step = distance *
 编译 ROS 2 包：
 
 ```bash
-cd /home/wei/github_code/topo_graph_ws_
+cd /home/wei/github_code/topo_graph_m20_ws
 source /opt/ros/jazzy/setup.bash
 
 colcon build \
@@ -685,7 +685,7 @@ colcon build \
 启动规划器和 RViz：
 
 ```bash
-cd /home/wei/github_code/topo_graph_ws_
+cd /home/wei/github_code/topo_graph_m20_ws
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 
@@ -731,7 +731,7 @@ ros2 topic echo /traversability/plan --once
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-cd /home/wei/github_code/topo_graph_ws_
+cd /home/wei/github_code/topo_graph_m20_ws
 
 python3 tools/traversability_extraction/extract_bag_trajectory.py \
   --bag /home/wei/bag/regu \

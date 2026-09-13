@@ -1,0 +1,24 @@
+print_table_en: true
+basic_server_bridge:
+  server_ip: 10.21.31.103
+  udp_port: 30000
+  tcp_port: 30001
+  local_udp_port: 0
+  transport: tcp
+  heartbeat_hz: 1.0
+  motion_state_control_topic: /m20/control/motion_state
+  cmd_vel_topic: /m20/manual/cmd_vel_safe
+  mode_control_topic: /m20/control/usage_mode
+  motion_state_status_topic: /m20/state/motion_state
+  gait_status_topic: /m20/state/gait
+  motion_info_status_topic: /m20/state/motion_info
+  odometry_topic: /m20/state/odometry
+  odom_frame_id: odom
+  base_frame_id: base_link
+  odom_max_integration_dt_sec: 0.2
+  control_result_topic: /m20/state/control_result
+  axis_command_timeout_ms: 300
+  maximum_vx_mps: 0.8
+  maximum_vy_mps: 0.3
+  maximum_wz_radps: 0.5
+  network_disconnect_timeout_ms: 3000

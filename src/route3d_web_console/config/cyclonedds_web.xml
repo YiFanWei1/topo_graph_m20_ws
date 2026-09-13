@@ -3,7 +3,7 @@
   DDS profile private to the web-managed process tree.
 
   Loopback keeps the high-bandwidth mapping traffic local. enp2s0 is also present so
-  CycloneDDS control nodes can discover the Fast DDS Go2 adapter, while the Unitree SDK
+  CycloneDDS control nodes can discover the M20 bridge, while the web console
   continues to own its separate domain-0 participant on the robot interface.
 -->
 <CycloneDDS xmlns="https://cdds.io/config">

@@ -40,7 +40,7 @@ struct TopologyVertex
   bool pass_radius_explicit{false};
   bool must_pass_through_explicit{false};
   bool turnable{true};
-  bool align_final_yaw{true};
+  bool align_final_yaw{false};
   int charging_mode{0};
   std::string pcd_name;
 };
@@ -53,7 +53,6 @@ struct TopologyEdge
   double weight{0.0};
   std::string travel_mode{"bidirectional"};
   bool rotation_allowed{true};
-  int locomotion_mode{0};
   double linear_speed_mps{1.0};
   double angular_speed_radps{0.0};
   double height_offset_m{0.0};
@@ -63,8 +62,8 @@ struct TopologyEdge
   std::string grid_map_name;
   std::string controller_mode{"auto"};
   // Runtime-only result of the one-pass point/edge slope synchronization.
-  // The JSON representation continues to use vertex meta.isSlope and edge
-  // locomotionMode=2 as its two explicit slope inputs.
+  // M20 derives it only from physical vertex slope annotations; legacy
+  // locomotionMode values are accepted in JSON but deliberately ignored.
   bool is_slope{false};
 };
 

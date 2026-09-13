@@ -1,8 +1,7 @@
 # Route3D live product configuration.
 #
-# The two static transforms below default to identity because the current localization output
-# uses camera_init/body while RViz and downstream software may expect map/base_link. Disable a
-# transform immediately if another node starts publishing the same parent/child relationship.
+# M20 localization publishes camera_init -> body, where body is the LiDAR frame.
+# The static body -> base_link transform below lets localization derive the robot center.
 
 route3d_live:
   # auto 根据当前包安装位置查找工作空间，本机和远端可以共用此 YAML。
@@ -25,7 +24,7 @@ route3d_live:
   skeleton:
     target_spacing: 1.0
     dedup_distance: 0.05
-    body_height: 0.40
+    body_height: 0.57
     corner_xy_radius: 0.50
     corner_yaw_degrees: 45.0
     corner_min_duration: 0.50
@@ -99,10 +98,10 @@ static_tf:
     translation: [0.0, 0.0, 0.0]
     rotation_rpy: [0.0, 0.0, 0.0]
 
+  # 雷达在机身中心坐标系下为 [0.32028, 0, -0.013]，下列数值为其逆变换。
   body_to_base_link:
     publish: true
     parent_frame: body
     child_frame: base_link
-    # base_link origin expressed in the body frame, matching up_and_down_demo.launch.py.
-    translation: [-0.15, 0.0, -0.21]
+    translation: [-0.32028, 0.0, 0.013]
     rotation_rpy: [0.0, 0.0, 0.0]

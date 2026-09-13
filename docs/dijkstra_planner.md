@@ -39,7 +39,7 @@
 | `/route3d_dijkstra/goal_request` | `std_msgs/msg/Int32` | 只给终点 ID；从当前定位自动匹配 1 m 内最近拓扑点作为起点 |
 
 仅终点模式订阅 `/lio_odom_hf`。由于拓扑点保存地面高度，匹配前默认从里程计 Z 减去
-`request.odometry_body_height_m=0.40`，再计算三维距离；匹配半径由
+`request.odometry_body_height_m=0.57`，再计算三维距离；匹配半径由
 `request.start_snap_radius_m=1.0` 控制。没有定位或最近点超过半径时会发布失败状态，且不会
 产生新路径。两个接口彼此独立，原有双 ID 请求格式不变。
 
@@ -83,7 +83,7 @@
 ## 3. 编译
 
 ```bash
-cd /home/wei/github_code/topo_graph_ws_
+cd /home/wei/github_code/topo_graph_m20_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select route3d_dijkstra_planner \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
@@ -103,7 +103,7 @@ source install/setup.bash
 启动规划节点和 RViz：
 
 ```bash
-cd /home/wei/github_code/topo_graph_ws_
+cd /home/wei/github_code/topo_graph_m20_ws
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ros2 launch route3d_dijkstra_planner dijkstra_demo.launch.xml
@@ -113,7 +113,7 @@ ros2 launch route3d_dijkstra_planner dijkstra_demo.launch.xml
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/wei/github_code/topo_graph_ws_/install/setup.bash
+source /home/wei/github_code/topo_graph_m20_ws/install/setup.bash
 
 ros2 topic pub --once \
   /route3d_dijkstra/plan_request \
@@ -182,7 +182,7 @@ RViz 颜色：
 
 ```bash
 ros2 launch route3d_dijkstra_planner dijkstra_demo.launch.xml \
-  graph_file:=/home/wei/github_code/topo_graph_ws_/data/regu_schema_v2/topoGraph_data.json
+  graph_file:=/home/wei/github_code/topo_graph_m20_ws/data/m20_validation/regu/topoGraph_data.json
 ```
 
 发送实际节点编号，例如：

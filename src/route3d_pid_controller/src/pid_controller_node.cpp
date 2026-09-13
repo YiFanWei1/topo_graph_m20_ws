@@ -1,10 +1,12 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <future>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -28,6 +30,8 @@
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
+#include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/header.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -36,10 +40,10 @@
 
 #include "route3d_pid_controller/controller_core.hpp"
 #include "route3d_pid_controller/elevation_collision_checker.hpp"
-#include "route3d_pid_controller/msg/gait_transition.hpp"
+#include "route3d_pid_controller/m20_swept_volume_checker.hpp"
 #include "route3d_pid_controller/safety_clear_gate.hpp"
-#include "route3d_pid_controller/srv/acknowledge_gait_transition.hpp"
 #include "route3d_pid_controller/timestamped_pose_buffer.hpp"
+#include "route3d_pid_controller/timestamped_pose_3d_buffer.hpp"
 #include "route3d_route_slicer/msg/route_task.hpp"
 #include "route3d_route_slicer/msg/route_task_array.hpp"
 
@@ -50,8 +54,6 @@ namespace
 
 using route3d_route_slicer::msg::RouteTask;
 using route3d_route_slicer::msg::RouteTaskArray;
-using route3d_pid_controller::msg::GaitTransition;
-using route3d_pid_controller::srv::AcknowledgeGaitTransition;
 
 enum class ControllerState
 {
@@ -199,6 +201,8 @@ public:
       "obstacle.rotation.footprint_forward_scale", 0.50);
     trajectory_collision_spacing_m_ = declare_parameter<double>(
       "obstacle.trajectory.spacing_m", 0.40);
+    swept_maximum_path_distance_m_ = declare_parameter<double>(
+      "obstacle.swept.maximum_path_distance_m", 1.0);
     trajectory_collision_samples_ = static_cast<std::size_t>(
       std::max<std::int64_t>(1, declare_parameter<std::int64_t>(
         "obstacle.trajectory.maximum_samples", 15)));
@@ -216,9 +220,50 @@ public:
       std::max<std::int64_t>(0, declare_parameter<std::int64_t>(
         "obstacle.elevation.base_collision_hold_cycles", 20)));
     elevation_checker_ = std::make_unique<ElevationCollisionChecker>(elevation_config);
+    M20SweptVolumeConfig swept_config;
+    swept_config.body_half_length_m = declare_parameter<double>(
+      "obstacle.swept.body_half_length_m", swept_config.body_half_length_m);
+    swept_config.body_half_width_m = declare_parameter<double>(
+      "obstacle.swept.body_half_width_m", swept_config.body_half_width_m);
+    swept_config.body_min_z_m = declare_parameter<double>(
+      "obstacle.swept.body_min_z_m", swept_config.body_min_z_m);
+    swept_config.body_max_z_m = declare_parameter<double>(
+      "obstacle.swept.body_max_z_m", swept_config.body_max_z_m);
+    swept_config.detection_half_length_m = declare_parameter<double>(
+      "obstacle.swept.detection_half_length_m", swept_config.detection_half_length_m);
+    swept_config.detection_half_width_m = declare_parameter<double>(
+      "obstacle.swept.detection_half_width_m", swept_config.detection_half_width_m);
+    swept_config.detection_min_z_m = declare_parameter<double>(
+      "obstacle.swept.detection_min_z_m", swept_config.detection_min_z_m);
+    swept_config.detection_max_z_m = declare_parameter<double>(
+      "obstacle.swept.detection_max_z_m", swept_config.detection_max_z_m);
+    swept_config.path_center_height_m = declare_parameter<double>(
+      "obstacle.swept.path_center_height_m", swept_config.path_center_height_m);
+    swept_config.surface_exclusion_height_m = declare_parameter<double>(
+      "obstacle.swept.surface_exclusion_height_m", swept_config.surface_exclusion_height_m);
+    swept_config.step_surface_max_deviation_m = declare_parameter<double>(
+      "obstacle.swept.step_surface_max_deviation_m",
+      swept_config.step_surface_max_deviation_m);
+    swept_config.step_surface_support_radius_m = declare_parameter<double>(
+      "obstacle.swept.step_surface_support_radius_m",
+      swept_config.step_surface_support_radius_m);
+    swept_config.step_surface_height_tolerance_m = declare_parameter<double>(
+      "obstacle.swept.step_surface_height_tolerance_m",
+      swept_config.step_surface_height_tolerance_m);
+    swept_config.step_surface_min_planar_spread_m = declare_parameter<double>(
+      "obstacle.swept.step_surface_min_planar_spread_m",
+      swept_config.step_surface_min_planar_spread_m);
+    swept_config.step_surface_min_support_points = static_cast<std::size_t>(
+      std::max<int64_t>(
+        1, declare_parameter<int>("obstacle.swept.step_surface_min_support_points", 3)));
+    swept_log_jsonl_path_ = declare_parameter<std::string>(
+      "obstacle.swept.log_jsonl_path", "/tmp/route3d_m20_swept_volume.jsonl");
+    swept_checker_ = std::make_unique<M20SweptVolumeChecker>(swept_config);
     validateParameters();
     safety_clear_gate_ = std::make_unique<SafetyClearGate>(safety_clear_hold_s_);
     odometry_pose_buffer_ = std::make_unique<TimestampedPoseBuffer>(
+      2.0, cloud_pose_sync_tolerance_s_);
+    odometry_pose_3d_buffer_ = std::make_unique<TimestampedPose3dBuffer>(
       2.0, cloud_pose_sync_tolerance_s_);
 
     TrackerConfig tracker_config;
@@ -242,6 +287,10 @@ public:
       "limits.maximum_vy_mps", tracker_config.maximum_vy_mps);
     tracker_config.maximum_wz_radps = declare_parameter<double>(
       "limits.maximum_wz_radps", tracker_config.maximum_wz_radps);
+    tracker_config.minimum_linear_speed_mps = declare_parameter<double>(
+      "limits.minimum_linear_speed_mps", tracker_config.minimum_linear_speed_mps);
+    tracker_config.minimum_yaw_speed_radps = declare_parameter<double>(
+      "limits.minimum_yaw_speed_radps", tracker_config.minimum_yaw_speed_radps);
     tracker_config.maximum_linear_acceleration_mps2 = declare_parameter<double>(
       "limits.maximum_linear_acceleration_mps2",
       tracker_config.maximum_linear_acceleration_mps2);
@@ -285,7 +334,7 @@ public:
       declare_parameter<double>("efficient_profile.normal.soft_radius", 0.60)};
     efficient_slope_profile_ = EfficientPlanningProfile{
       "slope",
-      declare_parameter<double>("efficient_profile.slope.path_height", 0.40),
+      declare_parameter<double>("efficient_profile.slope.path_height", 0.57),
       declare_parameter<bool>("efficient_profile.slope.extension_enabled", false),
       declare_parameter<double>("efficient_profile.slope.soft_radius", 0.20)};
     efficient_planner_node_name_ = declare_parameter<std::string>(
@@ -318,6 +367,15 @@ public:
       *this, "pid.lateral", PidAxisConfig{1.5, 0.0, 0.04, 0.20, 0.25, 1.3, 0.04});
     tracker_config.yaw_pid = pidConfig(
       *this, "pid.yaw", PidAxisConfig{2.0, 0.0, 0.05, 0.20, 0.80, 1.3, 0.04});
+    tracker_config.adjustment_longitudinal_pid = pidConfig(
+      *this, "adjustment.pid.longitudinal",
+      PidAxisConfig{1.2, 0.0, 0.05, 0.20, 0.20, 1.3, 0.04});
+    tracker_config.adjustment_lateral_pid = pidConfig(
+      *this, "adjustment.pid.lateral",
+      PidAxisConfig{1.5, 0.0, 0.04, 0.20, 0.30, 1.3, 0.04});
+    tracker_config.adjustment_yaw_pid = pidConfig(
+      *this, "adjustment.pid.yaw",
+      PidAxisConfig{2.0, 0.0, 0.05, 0.20, 0.50, 1.3, 0.04});
     tracker_ = std::make_unique<RouteTracker>(tracker_config);
 
     const auto tasks_topic = declare_parameter<std::string>(
@@ -336,14 +394,8 @@ public:
       "topics.efficient_path", "/route3d_controller/efficient_path");
     const auto active_controller_topic = declare_parameter<std::string>(
       "topics.active_controller", "/route3d_controller/active_source");
-    const auto gait_transition_topic = declare_parameter<std::string>(
-      "topics.gait_transition", "/route3d_pid_controller/gait_transition");
-    const auto gait_acknowledged_topic = declare_parameter<std::string>(
-      "topics.gait_acknowledged", "/route3d_pid_controller/gait_acknowledged");
-    gait_transition_ack_delay_s_ = declare_parameter<double>("gait.transition_ack_delay_s", 1.0);
-    if (gait_transition_ack_delay_s_ < 0.0) {
-      throw std::invalid_argument("gait.transition_ack_delay_s must be non-negative");
-    }
+    const auto alignment_active_topic = declare_parameter<std::string>(
+      "topics.alignment_active", "/route3d_pid_controller/alignment_active");
 
     efficient_planner_parameter_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
       this, efficient_planner_node_name_);
@@ -371,9 +423,6 @@ public:
       [this](const std_msgs::msg::Int32::ConstSharedPtr message) {
         collision_level_ = message->data;
       });
-    gait_acknowledged_subscription_ = create_subscription<GaitTransition>(
-      gait_acknowledged_topic, latchedQos(),
-      std::bind(&PidControllerNode::gaitAcknowledgedCallback, this, std::placeholders::_1));
 
     command_publisher_ = create_publisher<geometry_msgs::msg::Twist>(
       command_topic, rclcpp::QoS(10).reliable());
@@ -381,6 +430,8 @@ public:
       efficient_path_topic, latchedQos());
     active_controller_publisher_ = create_publisher<std_msgs::msg::String>(
       active_controller_topic, latchedQos());
+    alignment_active_publisher_ = create_publisher<std_msgs::msg::Bool>(
+      alignment_active_topic, latchedQos());
     status_publisher_ = create_publisher<std_msgs::msg::String>(
       "/route3d_pid_controller/status", latchedQos());
     diagnostic_publisher_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
@@ -393,14 +444,18 @@ public:
       "/route3d_pid_controller/obstacle_stop", latchedQos());
     replan_publisher_ = create_publisher<std_msgs::msg::Bool>(
       "/route3d_pid_controller/replan_required", latchedQos());
-    gait_transition_publisher_ = create_publisher<GaitTransition>(
-      gait_transition_topic, rclcpp::QoS(10).reliable());
     elevation_debug_publisher_ = create_publisher<visualization_msgs::msg::MarkerArray>(
       "/route3d_pid_controller/elevation_debug", rclcpp::QoS(1).reliable());
     elevation_range_publisher_ = create_publisher<visualization_msgs::msg::MarkerArray>(
       "/route3d_pid_controller/elevation_detection_range", rclcpp::QoS(1).reliable());
     used_cloud_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
       "/route3d_pid_controller/elevation_used_cloud", rclcpp::QoS(1).reliable());
+    swept_volume_publisher_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+      "/route3d_pid_controller/swept_volume", rclcpp::QoS(1).reliable());
+    swept_collision_cloud_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
+      "/route3d_pid_controller/swept_collision_points", rclcpp::QoS(1).reliable());
+    nearest_hit_distance_publisher_ = create_publisher<std_msgs::msg::Float64>(
+      "/route3d_pid_controller/nearest_hit_distance", rclcpp::QoS(10).reliable());
 
     start_service_ = create_service<std_srvs::srv::Trigger>(
       "~/start", std::bind(
@@ -409,10 +464,6 @@ public:
     continue_service_ = create_service<std_srvs::srv::Trigger>(
       "~/continue", std::bind(
         &PidControllerNode::continueCallback, this, std::placeholders::_1,
-        std::placeholders::_2));
-    acknowledge_gait_service_ = create_service<AcknowledgeGaitTransition>(
-      "~/acknowledge_gait_transition", std::bind(
-        &PidControllerNode::acknowledgeGaitCallback, this, std::placeholders::_1,
         std::placeholders::_2));
     pause_service_ = create_service<std_srvs::srv::Trigger>(
       "~/pause", std::bind(
@@ -433,6 +484,7 @@ public:
       std::bind(&PidControllerNode::controlTimer, this));
     last_control_time_ = std::chrono::steady_clock::now();
     publishControllerSelection("none");
+    publishAlignmentActive(false);
     publishEfficientStop();
     state_detail_ = "node initialized; waiting for a sliced route";
     publishStatus(state_detail_);
@@ -523,8 +575,7 @@ private:
     }
 
     publishZero();
-    // Hold zero velocity without StopMove so a gait that was just confirmed is
-    // not cancelled while the three efficient-planner parameters are switching.
+    // Hold zero velocity while the three efficient-planner parameters switch.
     publishControllerSelection("profile_hold");
     publishEfficientStop();
     active_ = false;
@@ -693,9 +744,9 @@ private:
       transition.profile.name.c_str(), transition.profile.path_height,
       transition.profile.extension_enabled ? "true" : "false",
       transition.profile.soft_radius);
-    // Only now expose the efficient path. activateTask(true) sees the already-applied
+    // Only now expose the efficient path after all nodes accepted the profile.
     // profile and proceeds without another parameter transaction.
-    (void)activateTask(true);
+    (void)activateTask();
   }
 
   void validateParameters() const
@@ -705,6 +756,7 @@ private:
       emergency_collision_level_threshold_ <= 0 ||
       cloud_timeout_s_ <= 0.0 || !std::isfinite(cloud_pose_sync_tolerance_s_) ||
       cloud_pose_sync_tolerance_s_ < 0.0 || trajectory_collision_spacing_m_ <= 0.0 ||
+      !std::isfinite(swept_maximum_path_distance_m_) || swept_maximum_path_distance_m_ <= 0.0 ||
       !std::isfinite(rotation_footprint_forward_scale_) ||
       rotation_footprint_forward_scale_ <= 0.0 || rotation_footprint_forward_scale_ > 1.0 ||
       trajectory_collision_samples_ == 0U || replan_near_spacing_m_ <= 0.0 ||
@@ -722,7 +774,6 @@ private:
       publishZero();
       return;
     }
-    clearPendingGaitResume();
     cancelEfficientProfileTransition();
     publishZero();
     publishControllerSelection("none");
@@ -733,8 +784,6 @@ private:
     active_ = false;
     task_controller_ = "none";
     paused_ = false;
-    waiting_for_gait_transition_ = false;
-    resume_existing_task_after_gait_ = false;
     safety_stopped_ = false;
     safety_clear_waiting_logged_ = false;
     rotation_footprint_active_ = false;
@@ -750,7 +799,7 @@ private:
       static_cast<unsigned long>(route_.route_sequence), route_.route_start_id,
       route_.route_goal_id, route_.tasks.size());
     if (auto_start_) {
-      (void)activateTask(false);
+      (void)activateTask();
     }
   }
 
@@ -766,6 +815,14 @@ private:
     const rclcpp::Time message_stamp(message->header.stamp, RCL_ROS_TIME);
     const auto stamp = message_stamp.nanoseconds() > 0 ? message_stamp : last_odometry_time_;
     odometry_pose_buffer_->add(stamp.nanoseconds(), robot_pose_);
+    robot_pose_3d_.position = {
+      message->pose.pose.position.x, message->pose.pose.position.y,
+      message->pose.pose.position.z};
+    robot_pose_3d_.qx = message->pose.pose.orientation.x;
+    robot_pose_3d_.qy = message->pose.pose.orientation.y;
+    robot_pose_3d_.qz = message->pose.pose.orientation.z;
+    robot_pose_3d_.qw = message->pose.pose.orientation.w;
+    odometry_pose_3d_buffer_->add(stamp.nanoseconds(), robot_pose_3d_);
   }
 
   void cloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr message)
@@ -793,18 +850,36 @@ private:
       return;
     }
     has_elevation_map_pose_ = true;
+    Pose3d cloud_pose_3d;
+    if (!odometry_pose_3d_buffer_->lookup(elevation_map_stamp_.nanoseconds(), cloud_pose_3d)) {
+      cloud_parse_error_ = true;
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Cannot time-align obstacle cloud with full 3D odometry pose");
+      return;
+    }
 
     try {
-            std::vector<ElevationPoint> points;
+      std::vector<ElevationPoint> points;
+      std::vector<Point3d> world_points;
       points.reserve(static_cast<std::size_t>(message->width) * message->height);
+      world_points.reserve(static_cast<std::size_t>(message->width) * message->height);
       sensor_msgs::PointCloud2ConstIterator<float> x(*message, "x");
       sensor_msgs::PointCloud2ConstIterator<float> y(*message, "y");
       sensor_msgs::PointCloud2ConstIterator<float> z(*message, "z");
       for (; x != x.end(); ++x, ++y, ++z) {
         if (std::isfinite(*x) && std::isfinite(*y) && std::isfinite(*z)) {
           points.push_back({*x, *y, *z});
+          const Point3d body_point{*x, *y, *z};
+          if (!swept_checker_->isSelfPoint(body_point)) {
+            world_points.push_back(M20SweptVolumeChecker::transformPoint(
+              cloud_pose_3d, body_point));
+          }
         }
       }
+      swept_cloud_world_ = std::move(world_points);
+      swept_cloud_ready_ = true;
+      ++swept_cloud_generation_;
       const auto used_points = filterElevationPoints(points);
       if (!used_points.empty()) {
         elevation_checker_->update(used_points);
@@ -827,7 +902,7 @@ private:
     }
   }
 
-  bool activateTask(const bool transition_acknowledged)
+  bool activateTask()
   {
     if (!has_route_ || active_task_index_ >= route_.tasks.size()) {
       setState(ControllerState::kError, "no task is available");
@@ -845,10 +920,6 @@ private:
         "task requires controller '" + task.resolved_controller_mode + "'");
       return false;
     }
-    if (task.requires_gait_switch_at_start && !transition_acknowledged) {
-      enterGaitTransition(task);
-      return false;
-    }
     if (use_efficient && !ensureEfficientProfile(task)) {
       return false;
     }
@@ -856,7 +927,7 @@ private:
     tracking_task.endpoint_tolerance_m = task.endpoint_tolerance_m;
     tracking_task.maximum_speed_mps = task.linear_speed_mps;
     tracking_task.align_goal_yaw = task.align_goal_yaw;
-    tracking_task.reverse_motion = task.reverse_motion;
+    tracking_task.reverse_motion = false;
     tracking_task.is_route_goal = task.is_route_goal;
     tracking_task.waypoints.reserve(task.waypoints.size());
     for (const auto & input : task.waypoints) {
@@ -872,10 +943,8 @@ private:
       return false;
     }
     active_ = true;
-    resume_existing_task_after_gait_ = false;
     task_controller_ = use_pid ? "pid" : "efficient_3d_local_planner";
     paused_ = false;
-    waiting_for_gait_transition_ = false;
     safety_stopped_ = false;
     safety_clear_waiting_logged_ = false;
     rotation_footprint_active_ = false;
@@ -903,14 +972,12 @@ private:
   {
     const auto & completed = route_.tasks[active_task_index_];
     if (!completed.is_route_goal && active_task_index_ + 1U < route_.tasks.size()) {
-      const auto & next = route_.tasks[active_task_index_ + 1U];
       const bool seamless_transition =
         !completed.requires_stop_at_end &&
-        !next.requires_gait_switch_at_start &&
         completed.completion_policy != RouteTask::COMPLETION_BUSINESS_STOP;
       if (seamless_transition) {
         ++active_task_index_;
-        (void)activateTask(true);
+        (void)activateTask();
         return;
       }
     }
@@ -919,26 +986,19 @@ private:
     publishControllerSelection("none");
     publishEfficientStop();
     active_ = false;
-    resume_existing_task_after_gait_ = false;
     task_controller_ = "none";
     if (completed.is_route_goal || active_task_index_ + 1U >= route_.tasks.size()) {
       setState(ControllerState::kFinished, "route goal reached");
       return;
     }
     ++active_task_index_;
-    const auto & next = route_.tasks[active_task_index_];
-    if (next.requires_gait_switch_at_start) {
-      enterGaitTransition(next);
-      return;
-    }
     if (completed.completion_policy == RouteTask::COMPLETION_BUSINESS_STOP) {
-      waiting_for_gait_transition_ = false;
       setState(
         ControllerState::kWaitingTransition,
         "stopped at task boundary; perform transition then call ~/continue");
       return;
     }
-    (void)activateTask(true);
+    (void)activateTask();
   }
 
   bool obstacleDetectionEnabledForTask() const
@@ -946,8 +1006,11 @@ private:
     if (!active_ || !has_route_ || active_task_index_ >= route_.tasks.size()) {
       return false;
     }
-    // Reference semantics: 3 means explicitly ignore ordinary obstacles.
-    return route_.tasks[active_task_index_].obstacle_mode != 3;
+    // M20 ordinary cloud stopping is exclusive to PID obstacleMode=0.
+    // Modes 1/2/3/4 rely on Efficient, explicit bypass, legacy bypass, or an
+    // external grid controller respectively. Global emergency gates remain on.
+    return task_controller_ == "pid" &&
+           route_.tasks[active_task_index_].obstacle_mode == 0;
   }
 
   double activeTaskEndpointDistance3d() const
@@ -1054,6 +1117,234 @@ private:
     return local_trajectory;
   }
 
+  std::vector<SweptVolumePose> sweptTrajectory() const
+  {
+    std::vector<SweptVolumePose> result;
+    if (!has_route_ || active_task_index_ >= route_.tasks.size()) {
+      return result;
+    }
+    const auto & task = route_.tasks[active_task_index_];
+    if (task.waypoints.empty()) {
+      return result;
+    }
+    const auto center_height = swept_checker_->config().path_center_height_m + task.height_offset_m;
+    if (task.waypoints.size() == 1U) {
+      const auto & waypoint = task.waypoints.front();
+      result.push_back({
+        {waypoint.position.x, waypoint.position.y, waypoint.position.z + center_height},
+        waypoint.rpy.z, waypoint.rpy.y, 0.0});
+      return result;
+    }
+
+    std::size_t closest_segment = 0U;
+    double closest_ratio = 0.0;
+    double closest_squared = std::numeric_limits<double>::infinity();
+    for (std::size_t index = 0U; index + 1U < task.waypoints.size(); ++index) {
+      const auto & first = task.waypoints[index].position;
+      const auto & second = task.waypoints[index + 1U].position;
+      const double dx = second.x - first.x;
+      const double dy = second.y - first.y;
+      const double denominator = dx * dx + dy * dy;
+      const double ratio = denominator > 1.0e-12 ? std::clamp(
+        ((robot_pose_.x - first.x) * dx + (robot_pose_.y - first.y) * dy) /
+        denominator, 0.0, 1.0) : 0.0;
+      const double error_x = first.x + ratio * dx - robot_pose_.x;
+      const double error_y = first.y + ratio * dy - robot_pose_.y;
+      const double squared = error_x * error_x + error_y * error_y;
+      if (squared < closest_squared) {
+        closest_squared = squared;
+        closest_segment = index;
+        closest_ratio = ratio;
+      }
+    }
+
+    double travelled = 0.0;
+    for (std::size_t index = closest_segment;
+      index + 1U < task.waypoints.size() && result.size() < trajectory_collision_samples_ &&
+      travelled <= swept_maximum_path_distance_m_;
+      ++index)
+    {
+      const auto & first = task.waypoints[index].position;
+      const auto & second = task.waypoints[index + 1U].position;
+      const double start_ratio = index == closest_segment ? closest_ratio : 0.0;
+      const double dx = second.x - first.x;
+      const double dy = second.y - first.y;
+      const double dz = second.z - first.z;
+      const double segment_length = std::sqrt(dx * dx + dy * dy + dz * dz);
+      const double remaining_length = (1.0 - start_ratio) * segment_length;
+      const double yaw = std::atan2(dy, dx);
+      const double pitch = std::atan2(dz, std::hypot(dx, dy));
+      const std::size_t steps = std::max<std::size_t>(
+        1U, static_cast<std::size_t>(std::ceil(
+          remaining_length / trajectory_collision_spacing_m_)));
+      for (std::size_t step = 0U;
+        step <= steps && result.size() < trajectory_collision_samples_; ++step)
+      {
+        if (index != closest_segment && step == 0U) {
+          continue;
+        }
+        const double ratio = start_ratio + (1.0 - start_ratio) *
+          static_cast<double>(step) / static_cast<double>(steps);
+        const double distance_along_path =
+          travelled + (ratio - start_ratio) * segment_length;
+        if (distance_along_path > swept_maximum_path_distance_m_ + 1.0e-6) {break;}
+        result.push_back({
+          {first.x + ratio * dx, first.y + ratio * dy,
+            first.z + ratio * dz + center_height},
+          yaw, pitch,
+          distance_along_path});
+      }
+      travelled += remaining_length;
+    }
+    return result;
+  }
+
+  void publishSweptVolumeDebug(
+    const std::vector<SweptVolumePose> & trajectory,
+    const M20SweptVolumeResult & collision)
+  {
+    using visualization_msgs::msg::Marker;
+    visualization_msgs::msg::MarkerArray markers;
+    Marker clear;
+    clear.header.frame_id = frame_id_.empty() ? "camera_init" : frame_id_;
+    clear.header.stamp = elevation_map_stamp_;
+    clear.action = Marker::DELETEALL;
+    markers.markers.push_back(clear);
+    const auto & config = swept_checker_->config();
+    for (std::size_t index = 0U; index < trajectory.size(); ++index) {
+      const auto & pose = trajectory[index];
+      Marker box;
+      box.header = clear.header;
+      box.ns = "m20_swept_detection_box";
+      box.id = static_cast<int>(index);
+      box.type = Marker::LINE_LIST;
+      box.action = Marker::ADD;
+      const double local_z_center =
+        0.5 * (config.detection_min_z_m + config.detection_max_z_m);
+      box.pose.position.x = pose.center.x -
+        local_z_center * std::sin(pose.pitch) * std::cos(pose.yaw);
+      box.pose.position.y = pose.center.y -
+        local_z_center * std::sin(pose.pitch) * std::sin(pose.yaw);
+      box.pose.position.z = pose.center.z + local_z_center * std::cos(pose.pitch);
+      const double half_yaw = 0.5 * pose.yaw;
+      const double half_pitch = 0.5 * pose.pitch;
+      box.pose.orientation.x = -std::sin(half_yaw) * std::sin(half_pitch);
+      box.pose.orientation.y = std::cos(half_yaw) * std::sin(half_pitch);
+      box.pose.orientation.z = std::sin(half_yaw) * std::cos(half_pitch);
+      box.pose.orientation.w = std::cos(half_yaw) * std::cos(half_pitch);
+      box.scale.x = 0.035;
+      box.color.r = collision.collision() ? 1.0F : 0.0F;
+      box.color.g = collision.collision() ? 0.0F : 1.0F;
+      box.color.b = collision.collision() ? 0.0F : 0.1F;
+      box.color.a = 1.0F;
+
+      const double half_height =
+        0.5 * (config.detection_max_z_m - config.detection_min_z_m);
+      const auto point = [](const double x, const double y, const double z) {
+          geometry_msgs::msg::Point result;
+          result.x = x;
+          result.y = y;
+          result.z = z;
+          return result;
+        };
+      const std::array<geometry_msgs::msg::Point, 8U> corners{
+        point(-config.detection_half_length_m, -config.detection_half_width_m, -half_height),
+        point( config.detection_half_length_m, -config.detection_half_width_m, -half_height),
+        point( config.detection_half_length_m,  config.detection_half_width_m, -half_height),
+        point(-config.detection_half_length_m,  config.detection_half_width_m, -half_height),
+        point(-config.detection_half_length_m, -config.detection_half_width_m,  half_height),
+        point( config.detection_half_length_m, -config.detection_half_width_m,  half_height),
+        point( config.detection_half_length_m,  config.detection_half_width_m,  half_height),
+        point(-config.detection_half_length_m,  config.detection_half_width_m,  half_height)};
+      constexpr std::array<std::pair<std::size_t, std::size_t>, 12U> edges{{
+        {0U, 1U}, {1U, 2U}, {2U, 3U}, {3U, 0U},
+        {4U, 5U}, {5U, 6U}, {6U, 7U}, {7U, 4U},
+        {0U, 4U}, {1U, 5U}, {2U, 6U}, {3U, 7U}}};
+      box.points.reserve(edges.size() * 2U);
+      for (const auto & edge : edges) {
+        box.points.push_back(corners[edge.first]);
+        box.points.push_back(corners[edge.second]);
+      }
+      markers.markers.push_back(std::move(box));
+    }
+    swept_volume_publisher_->publish(markers);
+    publishSweptCollisionCloud(collision.hits, clear.header);
+    std_msgs::msg::Float64 distance;
+    distance.data = std::isfinite(collision.nearest_hit_distance_m) ?
+      collision.nearest_hit_distance_m : -1.0;
+    nearest_hit_distance_publisher_->publish(distance);
+  }
+
+  void publishSweptCollisionCloud(
+    const std::vector<Point3d> & points, const std_msgs::msg::Header & header)
+  {
+    sensor_msgs::msg::PointCloud2 message;
+    message.header = header;
+    message.height = 1U;
+    message.width = static_cast<std::uint32_t>(points.size());
+    sensor_msgs::PointCloud2Modifier modifier(message);
+    modifier.setPointCloud2FieldsByString(1, "xyz");
+    modifier.resize(points.size());
+    sensor_msgs::PointCloud2Iterator<float> x(message, "x");
+    sensor_msgs::PointCloud2Iterator<float> y(message, "y");
+    sensor_msgs::PointCloud2Iterator<float> z(message, "z");
+    for (const auto & point : points) {
+      *x = static_cast<float>(point.x);
+      *y = static_cast<float>(point.y);
+      *z = static_cast<float>(point.z);
+      ++x;
+      ++y;
+      ++z;
+    }
+    swept_collision_cloud_publisher_->publish(message);
+  }
+
+  void appendSweptVolumeLog(const M20SweptVolumeResult & result)
+  {
+    if (swept_log_jsonl_path_.empty() ||
+      swept_last_logged_generation_ == swept_cloud_generation_)
+    {
+      return;
+    }
+    swept_last_logged_generation_ = swept_cloud_generation_;
+    nlohmann::json line = {
+      {"stamp", elevation_map_stamp_.seconds()},
+      {"route_sequence", route_.route_sequence},
+      {"task_index", active_task_index_},
+      {"obstacle_mode", route_.tasks[active_task_index_].obstacle_mode},
+      {"points_examined", result.points_examined},
+      {"trajectory_poses", result.poses_checked},
+      {"collision_points", result.collision_points},
+      {"surface_points_excluded", result.surface_points_excluded},
+      {"nearest_hit_distance_m", std::isfinite(result.nearest_hit_distance_m) ?
+        nlohmann::json(result.nearest_hit_distance_m) : nlohmann::json(nullptr)}};
+    std::ofstream stream(swept_log_jsonl_path_, std::ios::app);
+    if (stream) {
+      stream << line.dump() << '\n';
+    } else {
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Cannot append swept-volume JSONL: %s", swept_log_jsonl_path_.c_str());
+    }
+  }
+
+  bool sweptVolumeBlocked()
+  {
+    trajectory_collision_count_ = 0U;
+    checked_trajectory_poses_ = 0U;
+    elevation_replan_required_ = false;
+    if (!obstacleDetectionEnabledForTask() || !swept_cloud_ready_) {
+      return false;
+    }
+    const auto trajectory = sweptTrajectory();
+    last_swept_result_ = swept_checker_->check(swept_cloud_world_, trajectory);
+    trajectory_collision_count_ = last_swept_result_.collision_points;
+    checked_trajectory_poses_ = last_swept_result_.poses_checked;
+    publishSweptVolumeDebug(trajectory, last_swept_result_);
+    appendSweptVolumeLog(last_swept_result_);
+    return last_swept_result_.collision();
+  }
+
   bool elevationTrajectoryBlocked()
   {
     trajectory_collision_count_ = 0U;
@@ -1121,9 +1412,6 @@ private:
     dt = std::clamp(dt, 1.0e-4, 0.10);
     if (!active_ || paused_) {
       if ((++telemetry_tick_ % static_cast<std::size_t>(control_rate_hz_)) == 0U) {
-        if (waiting_for_gait_transition_) {
-          publishGaitTransition();
-        }
         publishStatus(state_detail_);
       }
       return;
@@ -1132,12 +1420,12 @@ private:
     const bool odometry_stale = !has_odometry_ ||
       (now() - last_odometry_time_).seconds() > odometry_timeout_s_;
     const bool obstacle_checks_enabled = obstacleDetectionEnabledForTask();
-    const bool cloud_stale = obstacle_checks_enabled && stop_on_cloud_timeout_ &&
+    const bool cloud_stale = obstacle_enabled_ && stop_on_cloud_timeout_ &&
       (!has_cloud_ || (now() - last_cloud_time_).seconds() > cloud_timeout_s_);
-    const bool elevation_map_missing = obstacle_checks_enabled && !elevation_checker_->ready();
+    const bool elevation_map_missing = obstacle_checks_enabled && !swept_cloud_ready_;
     const bool invalid_obstacle_cloud = obstacle_checks_enabled && cloud_parse_error_;
     const bool trajectory_obstacle = obstacle_checks_enabled &&
-      !cloud_parse_error_ && elevationTrajectoryBlocked();
+      !cloud_parse_error_ && sweptVolumeBlocked();
     const bool obstacle_stop = invalid_obstacle_cloud || trajectory_obstacle;
     if (debug_visualization_generation_ != elevation_map_generation_) {
       publishElevationDebug();
@@ -1147,7 +1435,7 @@ private:
       collision_level_ >= emergency_collision_level_threshold_;
     const bool hard_stop = external_safety_stop_ || emergency_collision || odometry_stale ||
       cloud_stale || elevation_map_missing || invalid_obstacle_cloud;
-    const bool preserve_gait_for_stop = trajectory_obstacle &&
+    const bool preserve_controller_for_stop = trajectory_obstacle &&
       !hard_stop && !obstacle_stop_uses_stop_move_;
     const bool must_stop = hard_stop || obstacle_stop;
     publishSafetyFlags(must_stop, elevation_replan_required_);
@@ -1158,21 +1446,21 @@ private:
       if (!safety_stopped_) {
         tracker_->stopAndResetControllers();
         safety_stopped_ = true;
-        safety_stop_preserves_gait_ = preserve_gait_for_stop;
-        publishControllerSelection(preserve_gait_for_stop ? "safety_hold" : "none");
+        safety_stop_preserves_controller_ = preserve_controller_for_stop;
+        publishControllerSelection(preserve_controller_for_stop ? "safety_hold" : "none");
         std::string reason = external_safety_stop_ ? "external safety stop" :
           (emergency_collision ? "emergency collision level" :
           (odometry_stale ? "odometry timeout" :
           (cloud_stale ? "obstacle cloud timeout" :
           (elevation_map_missing ? "elevation map unavailable" :
           (cloud_parse_error_ ? "invalid obstacle cloud" :
-          "elevation-map trajectory collision")))));
+          "M20 3D swept-volume trajectory collision")))));
         publishStatus(reason);
         RCLCPP_WARN(get_logger(), "PID safety stop: %s", reason.c_str());
-      } else if (safety_stop_preserves_gait_ && !preserve_gait_for_stop) {
+      } else if (safety_stop_preserves_controller_ && !preserve_controller_for_stop) {
         // Escalate a soft obstacle hold immediately if an emergency or sensor
         // failure appears while the robot is already stopped.
-        safety_stop_preserves_gait_ = false;
+        safety_stop_preserves_controller_ = false;
         publishControllerSelection("none");
         RCLCPP_WARN(get_logger(), "PID safety stop escalated to StopMove");
       }
@@ -1184,42 +1472,54 @@ private:
         safety_clear_waiting_logged_ = true;
         RCLCPP_INFO(
           get_logger(),
-          "Safety condition is clear; holding stop for %.2f s before restoring gait",
+          "Safety condition is clear; holding stop for %.2f s before resuming control",
           safety_clear_hold_s_);
-        publishStatus("safety clear hold before gait restore");
+        publishStatus("safety clear hold before controller resume");
       }
       if (!safety_clear_gate_->ready(steady_now)) {
         return;
       }
-      const bool resume_preserved_gait = safety_stop_preserves_gait_;
       safety_stopped_ = false;
-      safety_stop_preserves_gait_ = false;
+      safety_stop_preserves_controller_ = false;
       safety_clear_waiting_logged_ = false;
       safety_clear_gate_->reset();
-      if (resume_preserved_gait) {
-        publishControllerSelection(task_controller_);
-        setState(ControllerState::kTracking, "safety hold cleared; preserved gait resumed");
-        return;
-      }
-      // active_source=none makes the Go2 adapter call StopMove so a human can
-      // take over with the remote.  StopMove also exits StaticWalk/SwitchGait
-      // on the deployed firmware.  Never resume velocity directly: restore
-      // the current task gait and wait for its acknowledgement first.
-      const auto & task = route_.tasks[active_task_index_];
-      RCLCPP_INFO(
-        get_logger(), "Safety condition cleared; restoring gait '%s' before tracking resumes",
-        task.gait_command.c_str());
-      enterGaitTransition(task, true);
+      publishControllerSelection(task_controller_);
+      setState(ControllerState::kTracking, "safety hold cleared; controller resumed");
       return;
     }
 
     try {
       const auto output = tracker_->update(robot_pose_, dt);
       last_tracking_output_ = output;
+      publishAlignmentActive(task_controller_ == "pid" && output.adjusting);
       publishLookahead(output.lookahead);
       const bool efficient_endpoint_reached = efficientTaskEndpointReached();
       const bool pid_endpoint_reached = task_controller_ == "pid" && output.reached;
+      if (task_controller_ == "pid" && output.adjusting &&
+        route_.tasks[active_task_index_].is_route_goal)
+      {
+        const auto & goal = route_.tasks[active_task_index_].waypoints.back();
+        const double error_x = goal.position.x - robot_pose_.x;
+        const double error_y = goal.position.y - robot_pose_.y;
+        const double yaw_error_deg =
+          normalizeAngle(goal.rpy.z - robot_pose_.yaw) * 180.0 / 3.14159265358979323846;
+        RCLCPP_INFO_THROTTLE(
+          get_logger(), *get_clock(), 1000,
+          "Final adjustment error: planar=%.3f m yaw=%.2f deg dx=%.3f m dy=%.3f m",
+          std::hypot(error_x, error_y), yaw_error_deg, error_x, error_y);
+      }
       if (pid_endpoint_reached || efficient_endpoint_reached) {
+        if (pid_endpoint_reached) {
+          const auto & goal = route_.tasks[active_task_index_].waypoints.back();
+          const double error_x = goal.position.x - robot_pose_.x;
+          const double error_y = goal.position.y - robot_pose_.y;
+          const double yaw_error_deg =
+            normalizeAngle(goal.rpy.z - robot_pose_.yaw) * 180.0 / 3.14159265358979323846;
+          RCLCPP_INFO(
+            get_logger(),
+            "PID task endpoint reached: planar=%.3f m yaw=%.2f deg dx=%.3f m dy=%.3f m",
+            std::hypot(error_x, error_y), yaw_error_deg, error_x, error_y);
+        }
         if (efficient_endpoint_reached) {
           RCLCPP_INFO(
             get_logger(),
@@ -1430,9 +1730,21 @@ private:
 
   void publishZero()
   {
+    publishAlignmentActive(false);
     if (command_publisher_) {
       command_publisher_->publish(geometry_msgs::msg::Twist{});
     }
+  }
+
+  void publishAlignmentActive(const bool active)
+  {
+    if (!alignment_active_publisher_ || alignment_active_published_ == active) {
+      return;
+    }
+    alignment_active_published_ = active;
+    std_msgs::msg::Bool message;
+    message.data = active;
+    alignment_active_publisher_->publish(message);
   }
 
   std::vector<ElevationPoint> filterElevationPoints(const std::vector<ElevationPoint> & points) const
@@ -1657,37 +1969,6 @@ private:
     replan_publisher_->publish(replan);
   }
 
-  void enterGaitTransition(
-    const RouteTask & task, const bool resume_existing_task = false)
-  {
-    active_ = false;
-    paused_ = false;
-    waiting_for_gait_transition_ = true;
-    resume_existing_task_after_gait_ = resume_existing_task;
-    publishZero();
-    publishControllerSelection("none");
-    setState(
-      ControllerState::kWaitingTransition,
-      "waiting for gait command '" + task.gait_command + "'");
-    publishGaitTransition();
-  }
-
-  void publishGaitTransition()
-  {
-    if (!waiting_for_gait_transition_ || !has_route_ ||
-      active_task_index_ >= route_.tasks.size())
-    {
-      return;
-    }
-    const auto & task = route_.tasks[active_task_index_];
-    GaitTransition message;
-    message.route_sequence = route_.route_sequence;
-    message.task_index = static_cast<std::uint32_t>(active_task_index_);
-    message.gait_command = task.gait_command;
-    message.locomotion_mode = task.locomotion_mode;
-    gait_transition_publisher_->publish(message);
-  }
-
   void setState(const ControllerState state, const std::string & detail)
   {
     state_ = state;
@@ -1707,15 +1988,19 @@ private:
       {"active", active_},
       {"active_controller", selected_controller_},
       {"paused", paused_},
-      {"resume_existing_task_after_gait", resume_existing_task_after_gait_},
-      {"transition_kind", waiting_for_gait_transition_ ? "gait" :
-        (state_ == ControllerState::kApplyingEfficientProfile ? "efficient_profile" :
-        (state_ == ControllerState::kWaitingTransition ? "manual" : ""))},
+      {"transition_kind", state_ == ControllerState::kApplyingEfficientProfile ? "efficient_profile" :
+        (state_ == ControllerState::kWaitingTransition ? "manual" : "")},
       {"safety_stopped", safety_stopped_},
       {"safety_clear_hold_s", safety_clear_hold_s_},
       {"safety_clear_waiting", safety_clear_waiting_logged_},
       {"cloud_obstacle", trajectory_collision_count_ > 0U},
       {"obstacle_point_count", trajectory_collision_count_},
+      {"swept_volume_ready", swept_cloud_ready_},
+      {"swept_volume_collision_points", last_swept_result_.collision_points},
+      {"swept_volume_surface_points_excluded", last_swept_result_.surface_points_excluded},
+      {"swept_volume_nearest_hit_distance_m",
+        std::isfinite(last_swept_result_.nearest_hit_distance_m) ?
+        nlohmann::json(last_swept_result_.nearest_hit_distance_m) : nlohmann::json(nullptr)},
       {"elevation_map_ready", elevation_checker_ && elevation_checker_->ready()},
       {"elevation_observed_cells", elevation_checker_ ? elevation_checker_->occupiedCells() : 0U},
       {"elevation_rough_cells", elevation_checker_ ? elevation_checker_->roughCells() : 0U},
@@ -1751,7 +2036,6 @@ private:
     if (has_task) {
       const auto & task = route_.tasks[active_task_index_];
       status["controller_mode"] = task.resolved_controller_mode;
-      status["gait_command"] = task.gait_command;
       status["obstacle_mode"] = task.obstacle_mode;
       const bool efficient_controller =
         task.resolved_controller_mode == "efficient_3d_local_planner";
@@ -1797,7 +2081,7 @@ private:
       return;
     }
     active_task_index_ = 0U;
-    const bool started = activateTask(false);
+    const bool started = activateTask();
     response->success = started || state_ == ControllerState::kWaitingTransition ||
       state_ == ControllerState::kApplyingEfficientProfile;
     response->message = state_detail_;
@@ -1812,122 +2096,14 @@ private:
       response->message = "controller is not waiting for a transition acknowledgement";
       return;
     }
-    waiting_for_gait_transition_ = false;
-    resume_existing_task_after_gait_ = false;
-    pending_gait_resume_task_after_confirmation_ = 2;
-    scheduleGaitResume();
+    const bool started = activateTask();
+    if (!started && state_ != ControllerState::kApplyingEfficientProfile) {
+      response->success = false;
+      response->message = state_detail_;
+      return;
+    }
     response->success = true;
     response->message = state_detail_;
-  }
-
-  void acknowledgeGaitCallback(
-    const AcknowledgeGaitTransition::Request::SharedPtr request,
-    AcknowledgeGaitTransition::Response::SharedPtr response)
-  {
-    response->success = acceptGaitAcknowledgement(
-      request->route_sequence, request->task_index, request->gait_command,
-      response->message);
-  }
-
-  void gaitAcknowledgedCallback(const GaitTransition::ConstSharedPtr message)
-  {
-    std::string detail;
-    if (!acceptGaitAcknowledgement(
-        message->route_sequence, message->task_index, message->gait_command, detail))
-    {
-      RCLCPP_DEBUG(get_logger(), "Ignored gait acknowledgement: %s", detail.c_str());
-    }
-  }
-
-  bool acceptGaitAcknowledgement(
-    const std::uint64_t route_sequence, const std::uint32_t task_index,
-    const std::string & gait_command, std::string & detail)
-  {
-    if (state_ != ControllerState::kWaitingTransition || !waiting_for_gait_transition_ ||
-      !has_route_ || active_task_index_ >= route_.tasks.size())
-    {
-      detail = "no gait transition is pending";
-      return false;
-    }
-    const auto & task = route_.tasks[active_task_index_];
-    if (route_sequence != route_.route_sequence || task_index != active_task_index_ ||
-      gait_command != task.gait_command)
-    {
-      detail = "gait acknowledgement does not match the active route task";
-      return false;
-    }
-    waiting_for_gait_transition_ = false;
-    const bool resume_existing_task = resume_existing_task_after_gait_;
-    resume_existing_task_after_gait_ = false;
-    if (resume_existing_task) {
-      pending_gait_resume_task_after_confirmation_ = 1;
-    } else {
-      pending_gait_resume_task_after_confirmation_ = 2;
-    }
-    scheduleGaitResume();
-    detail = state_detail_;
-    return true;
-  }
-
-  void scheduleGaitResume()
-  {
-    if (gait_transition_delay_timer_) {
-      gait_transition_delay_timer_->cancel();
-      gait_transition_delay_timer_.reset();
-    }
-    if (gait_transition_ack_delay_s_ <= 0.0) {
-      executePendingGaitResume();
-      return;
-    }
-    RCLCPP_INFO(
-      get_logger(), "gait transition confirmed; waiting %.2f s before resume",
-      gait_transition_ack_delay_s_);
-    gait_transition_delay_timer_ = create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::duration<double>(gait_transition_ack_delay_s_)),
-      [this]() {
-        executePendingGaitResume();
-      });
-  }
-
-  void clearPendingGaitResume()
-  {
-    if (gait_transition_delay_timer_) {
-      gait_transition_delay_timer_->cancel();
-      gait_transition_delay_timer_.reset();
-    }
-    pending_gait_resume_task_after_confirmation_.reset();
-  }
-
-  void executePendingGaitResume()
-  {
-    if (gait_transition_delay_timer_) {
-      gait_transition_delay_timer_->cancel();
-      gait_transition_delay_timer_.reset();
-    }
-    if (!pending_gait_resume_task_after_confirmation_.has_value()) {
-      return;
-    }
-    const int mode = *pending_gait_resume_task_after_confirmation_;
-    pending_gait_resume_task_after_confirmation_.reset();
-    if (mode == 1) {
-      if (!has_route_ || active_task_index_ >= route_.tasks.size()) {
-        setState(ControllerState::kError, "route disappeared while resuming gait");
-        return;
-      }
-      active_ = true;
-      paused_ = false;
-      safety_stopped_ = false;
-      safety_clear_waiting_logged_ = false;
-      rotation_footprint_active_ = false;
-      safety_clear_gate_->reset();
-      publishControllerSelection(task_controller_);
-      setState(
-        ControllerState::kTracking,
-        task_controller_ + " task resumed after gait restore");
-      return;
-    }
-    (void)activateTask(true);
   }
 
   void pauseCallback(
@@ -1958,10 +2134,9 @@ private:
       response->message = "controller is not paused";
       return;
     }
-    // Pausing releases SDK control through StopMove for remote operation.  As
-    // with obstacle recovery, restore the task gait before autonomous output.
-    const auto & task = route_.tasks[active_task_index_];
-    enterGaitTransition(task, true);
+    paused_ = false;
+    publishControllerSelection(task_controller_);
+    setState(ControllerState::kTracking, "operator resume");
     response->success = true;
     response->message = state_detail_;
   }
@@ -1970,12 +2145,9 @@ private:
     const std_srvs::srv::Trigger::Request::SharedPtr,
     std_srvs::srv::Trigger::Response::SharedPtr response)
   {
-    clearPendingGaitResume();
     cancelEfficientProfileTransition();
     active_ = false;
     paused_ = false;
-    waiting_for_gait_transition_ = false;
-    resume_existing_task_after_gait_ = false;
     rotation_footprint_active_ = false;
     if (tracker_) {
       tracker_->stopAndResetControllers();
@@ -1995,6 +2167,7 @@ private:
   bool obstacle_stop_uses_stop_move_{true};
   bool obstacle_enabled_{true};
   std::int64_t emergency_collision_level_threshold_{100};
+  double swept_maximum_path_distance_m_{1.0};
   bool stop_on_cloud_timeout_{true};
   double cloud_timeout_s_{0.50};
   double cloud_pose_sync_tolerance_s_{0.15};
@@ -2015,10 +2188,6 @@ private:
   std::size_t active_task_index_{0U};
   bool active_{false};
   bool paused_{false};
-  bool waiting_for_gait_transition_{false};
-  bool resume_existing_task_after_gait_{false};
-  double gait_transition_ack_delay_s_{1.0};
-  std::optional<int> pending_gait_resume_task_after_confirmation_;
   std::string task_controller_{"none"};
   std::string selected_controller_{"none"};
   bool has_odometry_{false};
@@ -2028,30 +2197,38 @@ private:
   bool external_safety_stop_{false};
   std::int32_t collision_level_{0};
   bool safety_stopped_{false};
-  bool safety_stop_preserves_gait_{false};
+  bool safety_stop_preserves_controller_{false};
   bool safety_clear_waiting_logged_{false};
   bool rotation_footprint_active_{false};
+  bool alignment_active_published_{true};
   std::size_t trajectory_collision_count_{0U};
   std::size_t checked_trajectory_poses_{0U};
   std::size_t telemetry_tick_{0U};
   std::uint64_t elevation_map_generation_{0U};
   std::uint64_t debug_visualization_generation_{0U};
+  std::uint64_t swept_cloud_generation_{0U};
+  std::uint64_t swept_last_logged_generation_{std::numeric_limits<std::uint64_t>::max()};
   std::string frame_id_;
   std::string cloud_frame_id_{"base_link"};
   std::vector<Pose2d> debug_local_trajectory_;
   Pose2d robot_pose_;
   double robot_z_{0.0};
+  Pose3d robot_pose_3d_;
+  std::vector<Point3d> swept_cloud_world_;
+  bool swept_cloud_ready_{false};
+  M20SweptVolumeResult last_swept_result_;
+  std::string swept_log_jsonl_path_;
   Pose2d elevation_map_pose_;
   bool has_elevation_map_pose_{false};
   TrackingOutput last_tracking_output_;
   double pid_route_goal_position_tolerance_m_{0.10};
-  double pid_route_goal_yaw_tolerance_rad_{0.15};
+  double pid_route_goal_yaw_tolerance_rad_{0.08726646259971647};
   double efficient_route_goal_position_tolerance_m_{0.20};
   double efficient_route_goal_yaw_tolerance_rad_{0.25};
   bool efficient_use_planar_distance_{true};
   bool efficient_profile_switching_enabled_{true};
   EfficientPlanningProfile efficient_normal_profile_{"normal", 0.10, true, 0.60};
-  EfficientPlanningProfile efficient_slope_profile_{"slope", 0.40, false, 0.20};
+  EfficientPlanningProfile efficient_slope_profile_{"slope", 0.57, false, 0.20};
   std::string efficient_planner_node_name_{"/corridor_astar_planner"};
   std::string efficient_mapper_node_name_{"/local_voxel_mapper"};
   std::string efficient_extension_node_name_{"/obstacle_occlusion_extension"};
@@ -2064,7 +2241,9 @@ private:
   std::chrono::steady_clock::time_point last_control_time_;
   std::unique_ptr<SafetyClearGate> safety_clear_gate_;
   std::unique_ptr<TimestampedPoseBuffer> odometry_pose_buffer_;
+  std::unique_ptr<TimestampedPose3dBuffer> odometry_pose_3d_buffer_;
   std::unique_ptr<ElevationCollisionChecker> elevation_checker_;
+  std::unique_ptr<M20SweptVolumeChecker> swept_checker_;
   std::unique_ptr<RouteTracker> tracker_;
   std::shared_ptr<rclcpp::AsyncParametersClient> efficient_planner_parameter_client_;
   std::shared_ptr<rclcpp::AsyncParametersClient> efficient_mapper_parameter_client_;
@@ -2075,10 +2254,10 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_subscription_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr external_stop_subscription_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr collision_level_subscription_;
-  rclcpp::Subscription<GaitTransition>::SharedPtr gait_acknowledged_subscription_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_publisher_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr efficient_path_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr active_controller_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr alignment_active_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_publisher_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostic_publisher_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr lookahead_publisher_;
@@ -2089,17 +2268,19 @@ private:
     elevation_range_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
     used_cloud_publisher_;
-  rclcpp::Publisher<GaitTransition>::SharedPtr gait_transition_publisher_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+    swept_volume_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
+    swept_collision_cloud_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr nearest_hit_distance_publisher_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     elevation_debug_publisher_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_service_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr continue_service_;
-  rclcpp::Service<AcknowledgeGaitTransition>::SharedPtr acknowledge_gait_service_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr pause_service_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr resume_service_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_service_;
   rclcpp::TimerBase::SharedPtr control_timer_;
-  rclcpp::TimerBase::SharedPtr gait_transition_delay_timer_;
 };
 
 }  // namespace route3d_pid_controller

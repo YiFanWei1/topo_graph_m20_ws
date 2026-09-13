@@ -52,8 +52,8 @@ http://机器人IP:8080
 
 ```yaml
 maps.allowed_roots:
-  - /home/langyi/workspace/map
-  - /home/langyi/workspace/wyf/topo_graph_ws/data
+  - /home/wei
+  - /home/wei/github_code/topo_graph_m20_ws/data
 resources.scan_max_files: 1000
 resources.scan_max_depth: 6
 ```
@@ -68,8 +68,8 @@ resources.scan_max_depth: 6
 
 The current UI does not require a control lease. Local resources are deliberately independent:
 
-- PCD maps are discovered only as `/home/langyi/workspace/map/<name>/map/<name>.pcd` (or the only `.pcd` in that `map/` directory as a compatibility fallback). The selector shows `<name>`.
-- Topology maps are discovered only as `/home/langyi/workspace/wyf/topo_graph_ws/data/<name>/topoGraph_data.json`. The selector shows `<name>` and ignores `events.jsonl`, `route3d_graph.json`, `topoSingle_data.json`, etc.
+- PCD maps are discovered under `resources.pcd_root` as `<name>/map/<name>.pcd` (or the only `.pcd` in that `map/` directory as a compatibility fallback). The selector shows `<name>`.
+- Topology maps are discovered as `/home/wei/github_code/topo_graph_m20_ws/data/<name>/topoGraph_data.json`. The selector shows `<name>` and ignores `events.jsonl`, `route3d_graph.json`, `topoSingle_data.json`, etc.
 - The PCD voxel/downsampling size is editable directly in the page and only affects the browser static-map visualization.
 
 ## 运行状态探测
@@ -77,7 +77,7 @@ The current UI does not require a control lease. Local resources are deliberatel
 网页每 500 ms 同时检查由 Web Console 管理的进程状态以及 ROS 实际通信状态。即使功能是从 SSH/其它终端启动，页面也能显示 ROS 在线状态：
 
 - 雷达：`topics.raw_cloud` 是否有 publisher。
-- 建图：`/save_pcd_service`、`topics.mapping_odometry`、`topics.mapping_cloud`。
+- 建图：Web 管理的建图进程，或 `topics.mapping_odometry` 与 `topics.mapping_cloud` 同时有 publisher。
 - 定位：`topics.odometry` 是否有 publisher。
 - 规控：Route3D planner/slicer/controller/adapter 节点是否存在。
 - 自动打点：在线 skeleton / recorder 节点是否存在。
@@ -102,15 +102,15 @@ mapping.save_resolution_tag: "0.1"
 输入 `510` 后会调用等价于：
 
 ```bash
-mkdir -p /home/langyi/workspace/map/510/map
+mkdir -p /home/wei/510/map
 ros2 service call /save_pcd_service moveit_msgs/srv/SaveMap \
-  "{filename: '/home/langyi/workspace/map/510/map/510-0.1'}"
+  "{filename: '/home/wei/510/map/510-0.1'}"
 ```
 
 服务成功且生成 `510-0.1.pcd` 后，自动创建/更新：
 
 ```text
-/home/langyi/workspace/map/510/map/510.pcd -> 510-0.1.pcd
+/home/wei/510/map/510.pcd -> 510-0.1.pcd
 ```
 
 因此保存完成后刷新资源列表即可直接按目录名 `510` 选择该地图。

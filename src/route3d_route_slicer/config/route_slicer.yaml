@@ -2,22 +2,6 @@ route3d_route_slicer:
   ros__parameters:
     strict_schema_v2: true
 
-    slope:
-      enable_gait_switch: true
-      # Auto-mode slope edges are executed by the resident 3-D local planner.
-      controller_mode: efficient_3d_local_planner
-      # Match the reference stair task (obs=3): terrain points do not trigger
-      # an ordinary obstacle stop while the separate emergency stop remains active.
-      ignore_ordinary_obstacles: true
-      normal_locomotion_mode: 0
-      slope_locomotion_mode: 2
-
-    gait:
-      # Verified on this Go2 firmware: normal uses StaticWalk(); legacy
-      # SwitchGait(1) unexpectedly selects the stair gait, while 3 is stair.
-      normal_command: static_walk
-      slope_command: switch_gait_3
-
     waypoint:
       # Corners are hard via-points, not semantic task boundaries by default.
       corner_pass_radius_m: 0.20
@@ -30,8 +14,10 @@ route3d_route_slicer:
       attribute_epsilon: 1.0e-6
 
     controller:
+      # M20 selection is driven only by edge attributes. obstacleMode=1 forces
+      # Efficient, mode 2 forces PID, and mode 4 requests external handover.
       auto_default: pid
-      auto_grid: local_planner
+      auto_grid: external_grid
 
     topics:
       dijkstra_status: /route3d_dijkstra/status

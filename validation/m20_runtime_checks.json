@@ -1,0 +1,33 @@
+{
+  "adapter": {
+    "not_ready_zero": true,
+    "normal_limits": {
+      "vx": 0.8,
+      "vy": 0.0,
+      "wz": 0.5
+    },
+    "alignment_limits": {
+      "vx": 0.2,
+      "vy": 0.3,
+      "wz": 0.5
+    },
+    "efficient_selected": {
+      "vx": -0.8,
+      "vy": 0.0,
+      "wz": -0.5
+    },
+    "unknown_source_zero": true,
+    "command_timeout_zero": true,
+    "state_timeout_zero": true,
+    "enable_motion_false_zero": true
+  },
+  "preparation": {
+    "normal_mode_retries_before_ack": 3,
+    "stand_requested": true,
+    "rl_17_requested": true,
+    "ready_after_feedback": true,
+    "state_loss_revokes_ready": true,
+    "gait_control_publishers": 0
+  },
+  "passed": true
+}

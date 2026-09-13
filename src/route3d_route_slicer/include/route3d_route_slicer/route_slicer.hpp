@@ -13,19 +13,12 @@ namespace route3d_route_slicer
 
 struct SliceOptions
 {
-  bool enable_slope_gait{true};
-  bool slope_ignore_ordinary_obstacles{true};
-  int normal_locomotion_mode{0};
-  int slope_locomotion_mode{2};
   double attribute_epsilon{1.0e-6};
   bool split_at_corners{true};
   double default_corner_pass_radius_m{0.20};
   double default_normal_pass_radius_m{0.45};
   std::string auto_default_controller{"pid"};
-  std::string auto_grid_controller{"local_planner"};
-  std::string auto_slope_controller{"efficient_3d_local_planner"};
-  std::string normal_gait_command{"static_walk"};
-  std::string slope_gait_command{"switch_gait_3"};
+  std::string auto_grid_controller{"external_grid"};
 };
 
 struct WaypointConstraint
@@ -43,7 +36,7 @@ struct WaypointConstraint
   bool must_pass_through{false};
   double pass_radius_m{0.45};
   double goal_tolerance_m{0.5};
-  bool align_final_yaw{true};
+  bool align_final_yaw{false};
   bool turnable{true};
   std::string pcd_name;
 };
@@ -61,16 +54,12 @@ struct RouteTask
   std::string task_mode{"normal"};
   std::string configured_controller_mode{"auto"};
   std::string resolved_controller_mode{"pid"};
-  std::string gait_command{"static_walk"};
   CompletionPolicy completion_policy{CompletionPolicy::kTransition};
   bool is_route_goal{false};
   bool requires_stop_at_end{false};
-  bool requires_gait_switch_at_start{false};
   bool contains_slope{false};
-  bool reverse_motion{false};
   bool align_goal_yaw{false};
   double endpoint_tolerance_m{0.5};
-  int locomotion_mode{0};
   double linear_speed_mps{1.0};
   double angular_speed_radps{0.0};
   double height_offset_m{0.0};

@@ -704,7 +704,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -731,7 +730,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -758,7 +756,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -785,7 +782,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -812,7 +808,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -839,7 +834,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -866,7 +860,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -893,7 +886,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -920,7 +912,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -947,7 +938,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -974,7 +964,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1001,7 +990,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1028,7 +1016,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1055,7 +1042,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1082,7 +1068,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1109,7 +1094,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1136,7 +1120,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1163,7 +1146,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1190,7 +1172,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1217,7 +1198,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1244,7 +1224,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1271,7 +1250,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1298,7 +1276,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1325,7 +1302,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1352,7 +1328,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1379,7 +1354,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1406,7 +1380,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1433,7 +1406,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1460,7 +1432,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1487,7 +1458,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1514,7 +1484,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1541,7 +1510,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1568,7 +1536,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1595,7 +1562,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1622,7 +1588,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1649,7 +1614,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1676,7 +1640,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1703,7 +1666,6 @@
       "meta": {
         "dir": 1,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1730,7 +1692,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.4,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,
@@ -1757,7 +1718,6 @@
       "meta": {
         "dir": 0,
         "source": "complex_schema_v2_test",
-        "locomotionMode": 0,
         "linearSpeedMps": 0.6,
         "angularSpeedRadps": 0,
         "heightOffsetM": 0,

@@ -54,7 +54,7 @@
 ros2 launch route3d_product_demo live_route_product.launch.py
         |
         +-- 可选静态 TF：map -> camera_init
-        +-- 可选静态 TF：body -> base_link
+        +-- 可选静态 TF：base_link -> body
         +-- route3d_live_keyboard
                   |
                   +-- 启动 RViz
@@ -88,7 +88,7 @@ ros2 launch route3d_product_demo live_route_product.launch.py
 [timestamp, x, y, z, qx, qy, qz, qw]
 ```
 
-其中 `z` 是机身/定位位姿高度。写入拓扑 JSON 时统一减去 `body_height=0.40 m`，得到当前
+其中 `z` 是机身/定位位姿高度。M20 写入拓扑 JSON 时统一减去 `body_height=0.57 m`，得到当前
 业务使用的地面高度。几何判定本身使用未减机身高度的原始位姿。
 
 ## 4. 为什么同时存在两个实时 JSON
@@ -640,4 +640,3 @@ PCD 存在且重合率不足会拒绝；但 PCD 不可用时默认允许几何�
 7. 上下层 XY 重合但 Z 差超过 `0.20 m`，不判定为同一路线。
 8. 定位跳变产生新 component，跳变两端不连边。
 9. 同一 pose/PCD 序列在线与离线结构哈希一致。
-

@@ -2,7 +2,7 @@
 <package format="3">
   <name>efficient_3d_local_planner</name>
   <version>0.1.0</version>
-  <description>High-rate rolling voxel mapping and path-guided dynamic 3-D local planning for Go2.</description>
+  <description>High-rate rolling voxel mapping and path-guided dynamic 3-D local planning for Route3D.</description>
   <maintainer email="wei@example.com">wei</maintainer>
   <license>Apache-2.0</license>
 

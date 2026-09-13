@@ -1,0 +1,19 @@
+m20_velocity_control:
+  ros__parameters:
+    enable_motion: false
+    control_rate_hz: 50.0
+    command_timeout_s: 0.30
+    state_timeout_s: 1.00
+    allow_lateral_motion: false
+
+    topics.input_command: /m20/manual/cmd_vel
+    topics.output_command: /m20/manual/cmd_vel_safe
+    topics.selected_command: /m20/manual/selected_command
+    topics.m20_ready: /m20/control/ready
+    topics.m20_motion_state: /m20/state/motion_state
+    topics.emergency_stop: /m20/manual/emergency_stop
+    topics.status: /m20/manual/status
+
+    limits.maximum_vx_mps: 0.80
+    limits.maximum_vy_mps: 0.30
+    limits.maximum_wz_radps: 0.50

@@ -97,7 +97,7 @@ public:
     if (!std::isfinite(start_snap_radius_m_) || start_snap_radius_m_ < 0.0) {
       throw std::runtime_error("request.start_snap_radius_m must be finite and non-negative");
     }
-    odometry_body_height_m_ = declare_parameter<double>("request.odometry_body_height_m", 0.40);
+    odometry_body_height_m_ = declare_parameter<double>("request.odometry_body_height_m", 0.57);
     if (!std::isfinite(odometry_body_height_m_) || odometry_body_height_m_ < 0.0) {
       throw std::runtime_error(
               "request.odometry_body_height_m must be finite and non-negative");
@@ -517,7 +517,7 @@ private:
   std::string goal_request_topic_;
   TopologyGraph graph_;
   double start_snap_radius_m_{1.0};
-  double odometry_body_height_m_{0.40};
+  double odometry_body_height_m_{0.57};
   bool has_odometry_{false};
   Point3 current_ground_position_{};
   std::string request_mode_{"start_goal"};

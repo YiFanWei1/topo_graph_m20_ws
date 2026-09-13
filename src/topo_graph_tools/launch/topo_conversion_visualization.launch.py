@@ -1,8 +1,9 @@
 """Run the complete offline target, topoSingle conversion, and RViz flow."""
 
 import os
+from pathlib import Path
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -22,7 +23,9 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    workspace = "/home/langyi/workspace/wyf/topo_graph_ws"
+    prefix = Path(get_package_prefix("topo_graph_tools"))
+    install_root = prefix.parent if prefix.name == "topo_graph_tools" else prefix
+    workspace = str(install_root.parent)
     data_root = os.path.join(workspace, "data", "regu")
     tools_share = get_package_share_directory("route3d_bag_tools")
     route_share = get_package_share_directory("nav2_route3d")
@@ -128,7 +131,7 @@ def generate_launch_description():
         DeclareLaunchArgument("target_file", default_value=os.path.join(data_root, "route_targets_with_corners.txt")),
         DeclareLaunchArgument("topo_output", default_value=os.path.join(data_root, "topoSingle_data.json")),
         DeclareLaunchArgument("reduced_graph_output", default_value=os.path.join(data_root, "selected_route3d_graph.json")),
-        DeclareLaunchArgument("body_height", default_value="0.40"),
+        DeclareLaunchArgument("body_height", default_value="0.57"),
         DeclareLaunchArgument("target_spacing", default_value="1.0"),
         DeclareLaunchArgument("launch_rviz", default_value="true"),
         DeclareLaunchArgument(

@@ -114,7 +114,7 @@ json vertexJson(const VertexId id, const std::int32_t width)
         {"state", "confirmed"}, {"source", "dijkstra_stress_benchmark"},
         {"sourceStamp", static_cast<double>(id)}, {"component", 0},
         {"turnDeg", 0.0}, {"chargingMode", 0}}},
-    {"pcd", ""}, {"acc", 0.5}, {"turnable", true}, {"alignFinalYaw", true}};
+    {"pcd", ""}, {"acc", 0.5}, {"turnable", true}, {"alignFinalYaw", false}};
 }
 
 json edgeJson(
@@ -127,9 +127,9 @@ json edgeJson(
     {"v", {first, second}}, {"weight", weight}, {"rotationAllowed", true},
     {"meta", {
         {"dir", direction}, {"source", "dijkstra_stress_benchmark"},
-        {"locomotionMode", 0}, {"linearSpeedMps", 0.6},
+        {"linearSpeedMps", 0.6},
         {"angularSpeedRadps", 0.0}, {"heightOffsetM", 0.0},
-        {"obstacleMode", 0}, {"travelMode", travel_mode},
+        {"obstacleMode", 1}, {"travelMode", travel_mode},
         {"headingAngleRad", 0.0}, {"obstacleBoxM", {0.0, 0.0, 0.0, 0.0}},
         {"gridMapName", ""}, {"controllerMode", controller_mode}}}};
 }

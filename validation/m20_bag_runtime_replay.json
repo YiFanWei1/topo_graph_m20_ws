@@ -1,0 +1,58 @@
+{
+  "use_sim_time": true,
+  "enable_motion": false,
+  "recording_platform": "Go2",
+  "recording_body_height_m": 0.4,
+  "m20_body_height_m": 0.57,
+  "bags": {
+    "regu": {
+      "bag": "/home/wei/bag/regu",
+      "graph": "data/m20_validation/regu/topoGraph_data.json",
+      "playback_rate": 20.0,
+      "cloud_messages_observed": 2179,
+      "odometry_messages_observed": 2179,
+      "zero_commands_observed": 608,
+      "maximum_absolute_command": 0.0,
+      "motion_disabled_statuses": 608,
+      "debug_publishers": {
+        "swept_volume": 1,
+        "collision_cloud": 1,
+        "nearest_hit_distance": 1
+      },
+      "stack_alive_after_replay": true
+    },
+    "xili": {
+      "bag": "/home/wei/bag/xili/test_0911",
+      "graph": "data/m20_validation/xili/topoGraph_data.json",
+      "playback_rate": 20.0,
+      "cloud_messages_observed": 3931,
+      "odometry_messages_observed": 3931,
+      "zero_commands_observed": 1029,
+      "maximum_absolute_command": 0.0,
+      "motion_disabled_statuses": 1028,
+      "debug_publishers": {
+        "swept_volume": 1,
+        "collision_cloud": 1,
+        "nearest_hit_distance": 1
+      },
+      "stack_alive_after_replay": true
+    },
+    "full_nav_replay_with_plan": {
+      "bag": "/home/wei/bag/full_nav_replay_with_plan",
+      "graph": "data/m20_validation/full_nav_replay_with_plan/topoGraph_data.json",
+      "playback_rate": 20.0,
+      "cloud_messages_observed": 3603,
+      "odometry_messages_observed": 3603,
+      "zero_commands_observed": 965,
+      "maximum_absolute_command": 0.0,
+      "motion_disabled_statuses": 966,
+      "debug_publishers": {
+        "swept_volume": 1,
+        "collision_cloud": 1,
+        "nearest_hit_distance": 1
+      },
+      "stack_alive_after_replay": true
+    }
+  },
+  "passed": true
+}

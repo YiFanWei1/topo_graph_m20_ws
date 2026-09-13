@@ -712,7 +712,7 @@ def _yaml_defaults(config_path: Optional[str]) -> dict:
         "expected_cloud_frame": recorder.get("expected_cloud_frame", ""),
         "target_spacing": skeleton.get("target_spacing", 1.0),
         "dedup_distance": skeleton.get("dedup_distance", 0.05),
-        "body_height": skeleton.get("body_height", 0.40),
+        "body_height": skeleton.get("body_height", 0.57),
         "corner_xy_radius": skeleton.get("corner_xy_radius", 0.50),
         "corner_yaw_degrees": skeleton.get("corner_yaw_degrees", 90.0),
         "corner_min_duration": skeleton.get("corner_min_duration", 0.50),
@@ -806,7 +806,7 @@ def parse_args() -> argparse.Namespace:
         "target_spacing", 1.0))
     parser.add_argument("--dedup-distance", type=float, default=defaults.get(
         "dedup_distance", 0.05))
-    parser.add_argument("--body-height", type=float, default=defaults.get("body_height", 0.40))
+    parser.add_argument("--body-height", type=float, default=defaults.get("body_height", 0.57))
     parser.add_argument("--corner-xy-radius", type=float, default=defaults.get(
         "corner_xy_radius", 0.50))
     parser.add_argument("--corner-yaw-degrees", type=float, default=defaults.get(

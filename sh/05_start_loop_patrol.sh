@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly WORKSPACE="/home/langyi/workspace/wyf/topo_graph_ws"
+readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly DEFAULT_CONFIG="${WORKSPACE}/sh/loop_patrol.yaml"
 readonly CONFIG_FILE="${1:-${DEFAULT_CONFIG}}"
 

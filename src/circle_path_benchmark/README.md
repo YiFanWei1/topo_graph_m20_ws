@@ -8,8 +8,8 @@
 
 ```bash
 ros2 run circle_path_benchmark generate_circle_path \
-  --pcd /home/langyi/workspace/map/510/map/510.pcd \
-  --output /home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/circle_510.yaml \
+  --pcd /home/wei/510/map/510.pcd \
+  --output /home/wei/github_code/topo_graph_m20_ws/data/circle_benchmark/circle_510.yaml \
   --center-x 0.0 --center-y -2.0 --path-z 0.0 \
   --radius 0.8 --spacing 0.05 --start-angle-deg 0 --direction ccw
 ```
@@ -21,14 +21,14 @@ ros2 run circle_path_benchmark generate_circle_path \
 
 ```bash
 ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
-  path_file:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/circle_510.yaml \
-  pcd_file:=/home/langyi/workspace/map/510/map/510.pcd \
-  output_root:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/runs \
+  path_file:=/home/wei/github_code/topo_graph_m20_ws/data/circle_benchmark/circle_510.yaml \
+  pcd_file:=/home/wei/510/map/510.pcd \
+  output_root:=/home/wei/github_code/topo_graph_m20_ws/data/circle_benchmark/runs \
   enable_motion:=false
 ```
 
 默认 `center_from_initial_odometry:=true`。节点收到第一帧 `/lio_odom_hf` 后，将该帧
-`x/y` 永久锁定为圆心，路径 Z 使用该帧 Z 加 `path_height_offset=0.40m`，并使用该帧
+`x/y` 永久锁定为圆心，路径 Z 使用该帧 Z 加 `path_height_offset=0.57m`，并使用该帧
 yaw 确定圆周起点切向；之后机器人移动不会改变圆心。为了只测试控制器，默认关闭
 PCD 净空和圆周起点距离检查，使能后控制器会从圆心直接接入固定圆路径。
 
@@ -42,9 +42,9 @@ RViz 使用固定 `camera_init` 下的正交俯视视角，不跟随机器人位
 
 ```bash
 ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
-  path_file:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/circle_510.yaml \
-  pcd_file:=/home/langyi/workspace/map/510/map/510.pcd \
-  output_root:=/home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/runs \
+  path_file:=/home/wei/github_code/topo_graph_m20_ws/data/circle_benchmark/circle_510.yaml \
+  pcd_file:=/home/wei/510/map/510.pcd \
+  output_root:=/home/wei/github_code/topo_graph_m20_ws/data/circle_benchmark/runs \
   enable_motion:=true
 ```
 
@@ -57,7 +57,7 @@ ros2 launch circle_path_benchmark circle_tracking_benchmark.launch.py \
 
 ```bash
 ros2 run circle_path_benchmark plot_circle_result \
-  --session /home/langyi/workspace/wyf/topo_graph_ws/data/circle_benchmark/runs/<本次目录>
+  --session /home/wei/github_code/topo_graph_m20_ws/data/circle_benchmark/runs/<本次目录>
 ```
 
 输出 `comparison.png`。左图叠加固定圆和里程计轨迹，右图显示有符号径向误差；负值

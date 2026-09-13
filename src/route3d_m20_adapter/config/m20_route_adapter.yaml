@@ -1,0 +1,26 @@
+route3d_m20_adapter:
+  ros__parameters:
+    use_sim_time: false
+    enable_motion: false
+    control_rate_hz: 50.0
+    command_timeout_s: 0.30
+    state_timeout_s: 1.00
+
+    topics.pid_command: /cmd_vel_pid
+    topics.efficient_command: /cmd_vel_effi
+    topics.controller_source: /route3d_controller/active_source
+    topics.alignment_active: /route3d_pid_controller/alignment_active
+    topics.m20_ready: /m20/control/ready
+    topics.m20_motion_state: /m20/state/motion_state
+    topics.output_command: /cmd_vel_smoothed
+    topics.selected_command: /route3d_m20_adapter/selected_command
+    topics.status: /route3d_m20_adapter/status
+
+    limits.normal.maximum_vx_mps: 0.80
+    limits.normal.maximum_vy_mps: 0.0
+    limits.normal.maximum_wz_radps: 0.50
+    limits.alignment.maximum_vx_mps: 0.20
+    limits.alignment.maximum_vy_mps: 0.30
+    limits.alignment.maximum_wz_radps: 0.50
+    limits.minimum_linear_speed_mps: 0.20
+    limits.minimum_yaw_speed_radps: 0.25

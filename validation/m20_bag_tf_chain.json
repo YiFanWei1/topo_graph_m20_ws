@@ -1,0 +1,35 @@
+{
+  "test_date": "2026-09-13",
+  "passed": true,
+  "bag": "/home/wei/bag/regu",
+  "diagnosis": {
+    "odometry_frames": "camera_init -> base_link",
+    "recorded_dynamic_tf": "camera_init -> body",
+    "conflict": "The recorded dynamic body transform conflicted with the M20 static base_link -> body transform, while no dynamic camera_init -> base_link transform existed."
+  },
+  "fix": {
+    "bag_tf_replayed": false,
+    "odometry_tf_source": "/lio_odom_hf",
+    "dynamic_tf": "camera_init -> base_link",
+    "static_tf": [
+      "map -> camera_init",
+      "base_link -> body"
+    ],
+    "scope": "Bag launch only; real-robot launch keeps publish_odometry_tf=false by default."
+  },
+  "runtime_probe": {
+    "ros_domain_id": 84,
+    "duration_s": 2.5,
+    "dynamic_tf_messages": 491,
+    "dynamic_tf_pairs": ["camera_init -> base_link"],
+    "static_tf_pairs": ["map -> camera_init", "base_link -> body"],
+    "map_to_base_link_samples": 552,
+    "base_link_movement_m": 0.9230633948213769,
+    "body_dynamic_parent_conflict": false
+  },
+  "tests": {
+    "build_passed": true,
+    "ament_lint_tests": 6,
+    "ament_lint_failures": 0
+  }
+}

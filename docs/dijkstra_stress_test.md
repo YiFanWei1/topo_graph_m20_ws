@@ -21,7 +21,7 @@
 复现命令：
 
 ```bash
-cd /home/wei/github_code/topo_graph_ws_
+cd /home/wei/github_code/topo_graph_m20_ws
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 

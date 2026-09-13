@@ -94,12 +94,18 @@ RouteTracker::RouteTracker(TrackerConfig config)
 : config_(std::move(config)),
   longitudinal_pid_(config_.longitudinal_pid),
   lateral_pid_(config_.lateral_pid),
-  yaw_pid_(config_.yaw_pid)
+  yaw_pid_(config_.yaw_pid),
+  adjustment_longitudinal_pid_(config_.adjustment_longitudinal_pid),
+  adjustment_lateral_pid_(config_.adjustment_lateral_pid),
+  adjustment_yaw_pid_(config_.adjustment_yaw_pid)
 {
   if (config_.lookahead_distance_m <= 0.0 || config_.goal_yaw_tolerance_rad < 0.0 ||
     config_.corner_slowdown_distance_m < 0.0 || config_.corner_speed_mps < 0.0 ||
     config_.braking_deceleration_mps2 <= 0.0 || config_.maximum_vx_mps < 0.0 ||
     config_.maximum_vy_mps < 0.0 || config_.maximum_wz_radps < 0.0 ||
+    config_.minimum_linear_speed_mps < 0.0 || config_.minimum_yaw_speed_radps < 0.0 ||
+    config_.minimum_linear_speed_mps > config_.maximum_vx_mps ||
+    config_.minimum_yaw_speed_radps > config_.maximum_wz_radps ||
     config_.maximum_linear_acceleration_mps2 <= 0.0 ||
     config_.maximum_yaw_acceleration_radps2 <= 0.0 ||
     config_.projection_backtrack_m < 0.0 ||
@@ -229,8 +235,7 @@ bool RouteTracker::requiresInPlaceRotation(const Pose2d & robot) const
     const double yaw_tolerance = task_.is_route_goal ?
       config_.adjustment_route_goal_yaw_tolerance_rad :
       std::min(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.21);
-    return std::abs(local_x) <= position_tolerance &&
-           std::abs(local_y) <= position_tolerance &&
+    return std::hypot(local_x, local_y) <= position_tolerance &&
            std::abs(normalizeAngle(goal.yaw - robot.yaw)) > yaw_tolerance;
   }
 
@@ -324,6 +329,29 @@ VelocityCommand RouteTracker::limitAcceleration(
     desired.vy, previous_command_.vy - linear_delta, previous_command_.vy + linear_delta);
   limited.wz = std::clamp(
     desired.wz, previous_command_.wz - yaw_delta, previous_command_.wz + yaw_delta);
+
+  const double desired_planar = std::hypot(desired.vx, desired.vy);
+  const double limited_planar = std::hypot(limited.vx, limited.vy);
+  if (desired_planar <= kMinimumSegmentLength) {
+    limited.vx = 0.0;
+    limited.vy = 0.0;
+  } else if (limited_planar <= kMinimumSegmentLength ||
+    limited.vx * desired.vx + limited.vy * desired.vy <= 0.0)
+  {
+    limited.vx = config_.minimum_linear_speed_mps * desired.vx / desired_planar;
+    limited.vy = config_.minimum_linear_speed_mps * desired.vy / desired_planar;
+  } else if (limited_planar < config_.minimum_linear_speed_mps) {
+    const double scale = config_.minimum_linear_speed_mps / limited_planar;
+    limited.vx *= scale;
+    limited.vy *= scale;
+  }
+  if (std::abs(desired.wz) <= kMinimumSegmentLength) {
+    limited.wz = 0.0;
+  } else if (limited.wz * desired.wz <= 0.0 ||
+    std::abs(limited.wz) < config_.minimum_yaw_speed_radps)
+  {
+    limited.wz = std::copysign(config_.minimum_yaw_speed_radps, desired.wz);
+  }
   previous_command_ = limited;
   return limited;
 }
@@ -368,9 +396,9 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
     output.goal_distance_m <= config_.adjustment_entry_distance_m)
   {
     adjusting_ = true;
-    longitudinal_pid_.reset();
-    lateral_pid_.reset();
-    yaw_pid_.reset();
+    adjustment_longitudinal_pid_.reset();
+    adjustment_lateral_pid_.reset();
+    adjustment_yaw_pid_.reset();
     previous_command_ = {};
   }
   if (adjusting_) {
@@ -389,7 +417,8 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
     const double yaw_tolerance = task_.is_route_goal ?
       config_.adjustment_route_goal_yaw_tolerance_rad :
       std::min(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.21);
-    if (std::abs(local_x) <= position_tolerance && std::abs(local_y) <= position_tolerance &&
+    const double position_error = std::hypot(local_x, local_y);
+    if (position_error <= position_tolerance &&
       (!task_.align_goal_yaw || std::abs(final_yaw_error) <= yaw_tolerance))
     {
       output.reached = true;
@@ -397,13 +426,13 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
       return output;
     }
     VelocityCommand adjustment;
-    adjustment.vx = std::abs(local_x) <= position_tolerance ? 0.0 : clamp(
-      longitudinal_pid_.update(local_x, dt), config_.adjustment_maximum_vx_mps);
-    adjustment.vy = std::abs(local_y) <= position_tolerance ? 0.0 : clamp(
-      lateral_pid_.update(local_y, dt), config_.adjustment_maximum_vy_mps);
+    adjustment.vx = position_error <= position_tolerance ? 0.0 : clamp(
+      adjustment_longitudinal_pid_.update(local_x, dt), config_.adjustment_maximum_vx_mps);
+    adjustment.vy = position_error <= position_tolerance ? 0.0 : clamp(
+      adjustment_lateral_pid_.update(local_y, dt), config_.adjustment_maximum_vy_mps);
     if (task_.align_goal_yaw) {
-      adjustment.wz = clamp(
-        yaw_pid_.update(final_yaw_error, dt), config_.adjustment_maximum_wz_radps);
+      adjustment.wz = std::abs(final_yaw_error) <= yaw_tolerance ? 0.0 : clamp(
+        adjustment_yaw_pid_.update(final_yaw_error, dt), config_.adjustment_maximum_wz_radps);
     }
     output.command = limitAcceleration(adjustment, dt);
     return output;
@@ -427,12 +456,13 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
   const double local_x = cosine * target_dx + sine * target_dy;
   VelocityCommand desired;
   desired.vx = longitudinal_pid_.update(local_x, dt);
-  // During ordinary route tracking the Go2 should steer into the path with
+  // During ordinary route tracking the robot should steer into the path with
   // yaw instead of translating sideways.  Lateral motion is intentionally
   // reserved for the low-speed final adjustment branch above, where it is
   // needed to converge precisely to the route goal without another approach.
   desired.vy = 0.0;
-  desired.wz = yaw_pid_.update(output.yaw_error_rad, dt);
+  desired.wz = std::abs(output.yaw_error_rad) <= config_.goal_yaw_tolerance_rad ? 0.0 :
+    yaw_pid_.update(output.yaw_error_rad, dt);
 
   const double yaw_abs = std::abs(output.yaw_error_rad);
   const double translation_scale = yaw_abs <= config_.full_speed_yaw_error_rad ? 1.0 :
@@ -443,13 +473,14 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
   desired.vy *= translation_scale;
 
   double speed_limit = std::min(config_.maximum_vx_mps, task_.maximum_speed_mps);
-  // A route goal is completed by the low-speed adjustment phase, whose
-  // position tolerance is deliberately tighter than the topology vertex's
-  // coarse arrival radius.  Braking against the coarse radius can reduce the
-  // tracking speed to zero before the robot reaches the adjustment entry
-  // distance (for example, 0.50 m endpoint tolerance versus 0.30 m entry).
+  // Route goals and controller-switch boundaries both enter a low-speed
+  // adjustment phase. Never brake to zero against a coarse topology radius
+  // before that phase can start (for example, passRadiusM=0.45 m versus a
+  // 0.30 m adjustment entry distance), otherwise the robot can wait forever
+  // just outside the transition point.
   const double braking_tolerance = task_.is_route_goal ?
-    config_.adjustment_route_goal_position_tolerance_m : task_.endpoint_tolerance_m;
+    config_.adjustment_route_goal_position_tolerance_m :
+    std::min(task_.endpoint_tolerance_m, config_.adjustment_entry_distance_m);
   speed_limit = std::min(
     speed_limit,
     std::sqrt(2.0 * config_.braking_deceleration_mps2 *
@@ -477,6 +508,9 @@ void RouteTracker::stopAndResetControllers()
   longitudinal_pid_.reset();
   lateral_pid_.reset();
   yaw_pid_.reset();
+  adjustment_longitudinal_pid_.reset();
+  adjustment_lateral_pid_.reset();
+  adjustment_yaw_pid_.reset();
   previous_command_ = {};
 }
 

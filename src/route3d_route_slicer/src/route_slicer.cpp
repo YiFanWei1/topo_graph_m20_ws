@@ -22,8 +22,6 @@ struct EffectiveAttributes
 {
   std::string configured_controller_mode;
   std::string resolved_controller_mode;
-  std::string gait_command;
-  int locomotion_mode{0};
   double linear_speed_mps{0.0};
   double angular_speed_radps{0.0};
   double height_offset_m{0.0};
@@ -68,17 +66,19 @@ std::string businessMode(const int current_type, const int next_type)
   return "normal";
 }
 
-std::string resolveController(
-  const TopologyEdge & edge, const bool contains_slope, const SliceOptions & options)
+std::string resolveController(const TopologyEdge & edge, const SliceOptions & options)
 {
+  if (edge.obstacle_mode == 1) {
+    return "efficient_3d_local_planner";
+  }
+  if (edge.obstacle_mode == 2) {
+    return "pid";
+  }
+  if (edge.obstacle_mode == 4) {
+    return options.auto_grid_controller;
+  }
   if (edge.controller_mode != "auto") {
     return edge.controller_mode;
-  }
-  if (contains_slope) {
-    return options.auto_slope_controller;
-  }
-  if (edge.obstacle_mode == 4 || !edge.grid_map_name.empty()) {
-    return options.auto_grid_controller;
   }
   return options.auto_default_controller;
 }
@@ -88,33 +88,12 @@ EffectiveAttributes effectiveAttributes(
 {
   EffectiveAttributes result;
   result.configured_controller_mode = edge.controller_mode;
-  // TopologyGraph performs one-pass point/edge synchronization when it is
-  // constructed.  Use that frozen edge result here instead of re-deriving it
-  // from promoted boundary vertices, which would spread a slope recursively.
   result.contains_slope = edge.is_slope;
-  result.resolved_controller_mode = resolveController(edge, result.contains_slope, options);
-  result.locomotion_mode = edge.locomotion_mode;
-  if (options.enable_slope_gait && result.contains_slope &&
-    result.locomotion_mode == options.normal_locomotion_mode)
-  {
-    result.locomotion_mode = options.slope_locomotion_mode;
-  }
-  result.gait_command =
-    result.locomotion_mode == options.slope_locomotion_mode ?
-    options.slope_gait_command : options.normal_gait_command;
+  result.resolved_controller_mode = resolveController(edge, options);
   result.linear_speed_mps = edge.linear_speed_mps;
   result.angular_speed_radps = edge.angular_speed_radps;
   result.height_offset_m = edge.height_offset_m;
   result.obstacle_mode = edge.obstacle_mode;
-  // The reference controller enters its stair/climbing tasks with obs=3.  A
-  // generated graph only knows that the end vertices are slope vertices, so
-  // reproduce that effective task attribute here.  Explicit non-default
-  // obstacle policies (replan/grid navigation) remain authoritative.
-  if (options.slope_ignore_ordinary_obstacles && result.contains_slope &&
-    result.obstacle_mode == 0)
-  {
-    result.obstacle_mode = 3;
-  }
   result.obstacle_box_m = edge.obstacle_box_m;
   result.grid_map_name = edge.grid_map_name;
   result.rotation_allowed = edge.rotation_allowed;
@@ -130,11 +109,6 @@ std::vector<std::string> differences(
     previous.resolved_controller_mode != current.resolved_controller_mode)
   {
     result.emplace_back("controller_mode_changed");
-  }
-  if (previous.locomotion_mode != current.locomotion_mode ||
-    previous.gait_command != current.gait_command)
-  {
-    result.emplace_back("locomotion_mode_changed");
   }
   if (!near(previous.linear_speed_mps, current.linear_speed_mps, epsilon)) {
     result.emplace_back("linear_speed_changed");
@@ -192,8 +166,6 @@ void assignAttributes(RouteTask & task, const EffectiveAttributes & attributes)
 {
   task.configured_controller_mode = attributes.configured_controller_mode;
   task.resolved_controller_mode = attributes.resolved_controller_mode;
-  task.gait_command = attributes.gait_command;
-  task.locomotion_mode = attributes.locomotion_mode;
   task.linear_speed_mps = attributes.linear_speed_mps;
   task.angular_speed_radps = attributes.angular_speed_radps;
   task.height_offset_m = attributes.height_offset_m;
@@ -202,12 +174,11 @@ void assignAttributes(RouteTask & task, const EffectiveAttributes & attributes)
   task.grid_map_name = attributes.grid_map_name;
   task.rotation_allowed = attributes.rotation_allowed;
   task.contains_slope = attributes.contains_slope;
-  task.reverse_motion = task.locomotion_mode == 1 || task.locomotion_mode == 3;
 }
 
 bool isObstacleSingleton(const EffectiveAttributes & attributes)
 {
-  return attributes.obstacle_mode == 1 || attributes.obstacle_mode == 4;
+  return attributes.obstacle_mode == 4;
 }
 
 bool isMandatoryCorner(const TopologyVertex & vertex)
@@ -245,11 +216,9 @@ RouteSlicer::RouteSlicer(SliceOptions options)
   {
     throw std::invalid_argument("route slicer tolerances must be non-negative");
   }
-  if (options_.auto_default_controller.empty() || options_.auto_grid_controller.empty() ||
-    options_.auto_slope_controller.empty() ||
-    options_.normal_gait_command.empty() || options_.slope_gait_command.empty())
+  if (options_.auto_default_controller.empty() || options_.auto_grid_controller.empty())
   {
-    throw std::invalid_argument("controller and gait command names must not be empty");
+    throw std::invalid_argument("controller names must not be empty");
   }
 }
 
@@ -270,26 +239,15 @@ SliceResult RouteSlicer::slice(
     task.task_index = 0U;
     task.task_mode = "normal";
     task.configured_controller_mode = "auto";
-    task.resolved_controller_mode = goal.configured_is_slope ?
-      options_.auto_slope_controller : options_.auto_default_controller;
-    task.gait_command = goal.configured_is_slope ?
-      options_.slope_gait_command : options_.normal_gait_command;
+    task.resolved_controller_mode = "pid";
     task.completion_policy = CompletionPolicy::kRouteGoal;
     task.is_route_goal = true;
     task.requires_stop_at_end = true;
     task.endpoint_tolerance_m = goal.goal_tolerance_m;
-    task.align_goal_yaw = goal.align_final_yaw && !goal.configured_is_slope;
-    task.locomotion_mode = goal.configured_is_slope ?
-      options_.slope_locomotion_mode : options_.normal_locomotion_mode;
+    task.align_goal_yaw = true;
     task.contains_slope = goal.configured_is_slope;
-    if (goal.configured_is_slope && options_.slope_ignore_ordinary_obstacles) {
-      task.obstacle_mode = 3;
-    }
     task.waypoints.push_back(waypoint(goal, options_));
     task.split_reasons.emplace_back("same_vertex_goal");
-    if (goal.align_final_yaw && goal.configured_is_slope) {
-      task.split_reasons.emplace_back("slope_goal_yaw_suppressed");
-    }
     result.tasks.push_back(std::move(task));
     return result;
   }
@@ -379,9 +337,12 @@ SliceResult RouteSlicer::slice(
     // must-pass metadata is otherwise lost. Make each intermediate corner a
     // task endpoint; the supervisor then applies that corner's pass radius
     // before publishing the following segment.
-    if (options_.split_at_corners && isMandatoryCorner(to) &&
+    if (((options_.split_at_corners && isMandatoryCorner(to)) || to.align_final_yaw) &&
       index + 1U < edge_ids.size())
     {
+      if (to.align_final_yaw && current_task.has_value()) {
+        current_task->split_reasons.emplace_back("waypoint_yaw_alignment");
+      }
       finish_current();
     }
   }
@@ -391,28 +352,37 @@ SliceResult RouteSlicer::slice(
     throw std::logic_error("slicer produced no tasks");
   }
 
-  // A flat route goal that is approached by the efficient controller still
-  // needs the normal PID terminal-adjustment phase.  Keep the efficient task
-  // responsible only for reaching the endpoint; the appended single-point
-  // task stops the robot, restores the normal gait when necessary, and lets
-  // PID converge to the requested final position and yaw.
-  const auto & route_goal = graph.vertex(result.route_goal_id);
-  const bool requires_flat_pid_alignment =
-    route_goal.align_final_yaw && !route_goal.configured_is_slope &&
-    result.tasks.back().resolved_controller_mode == "efficient_3d_local_planner";
-  if (requires_flat_pid_alignment) {
-    RouteTask alignment_task;
-    alignment_task.task_mode = "normal";
-    alignment_task.configured_controller_mode = "pid";
-    alignment_task.resolved_controller_mode = "pid";
-    alignment_task.gait_command = options_.normal_gait_command;
-    alignment_task.locomotion_mode = options_.normal_locomotion_mode;
-    alignment_task.linear_speed_mps = result.tasks.back().linear_speed_mps;
-    alignment_task.rotation_allowed = route_goal.turnable;
-    alignment_task.waypoints.push_back(waypoint(route_goal, options_));
-    alignment_task.split_reasons.emplace_back("flat_goal_pid_alignment");
-    result.tasks.push_back(std::move(alignment_task));
+  // Every navigation goal must align. Explicitly marked intermediate vertices
+  // align as well. Efficient reaches the position; a one-point PID task then
+  // performs pose alignment without changing any robot mode.
+  std::vector<RouteTask> expanded_tasks;
+  expanded_tasks.reserve(result.tasks.size() * 2U);
+  for (auto & task : result.tasks) {
+    const auto endpoint_id = task.waypoints.back().vertex_id;
+    const auto & endpoint = graph.vertex(endpoint_id);
+    const bool route_goal = endpoint_id == result.route_goal_id;
+    const bool needs_alignment = route_goal || endpoint.align_final_yaw;
+    const bool needs_pid_alignment =
+      task.resolved_controller_mode != "pid" && needs_alignment;
+    if (needs_pid_alignment) {
+      task.waypoints.back().align_final_yaw = false;
+    }
+    expanded_tasks.push_back(std::move(task));
+    if (needs_pid_alignment) {
+      RouteTask alignment_task;
+      alignment_task.task_mode = "normal";
+      alignment_task.configured_controller_mode = "pid";
+      alignment_task.resolved_controller_mode = "pid";
+      alignment_task.linear_speed_mps = 0.20;
+      alignment_task.obstacle_mode = 0;
+      alignment_task.rotation_allowed = endpoint.turnable;
+      alignment_task.waypoints.push_back(waypoint(endpoint, options_));
+      alignment_task.split_reasons.emplace_back(
+        route_goal ? "route_goal_pid_alignment" : "waypoint_pid_alignment");
+      expanded_tasks.push_back(std::move(alignment_task));
+    }
   }
+  result.tasks = std::move(expanded_tasks);
 
   for (std::size_t index = 0; index < result.tasks.size(); ++index) {
     auto & task = result.tasks[index];
@@ -423,25 +393,11 @@ SliceResult RouteSlicer::slice(
       (task.is_route_goal ? CompletionPolicy::kRouteGoal : CompletionPolicy::kTransition);
     task.endpoint_tolerance_m = task.is_route_goal || business_task ?
       task.waypoints.back().goal_tolerance_m : task.waypoints.back().pass_radius_m;
-    const auto & endpoint = graph.vertex(task.waypoints.back().vertex_id);
-    task.align_goal_yaw = (task.is_route_goal || business_task) &&
-      task.waypoints.back().align_final_yaw && !endpoint.configured_is_slope;
-    if ((task.is_route_goal || business_task) && task.waypoints.back().align_final_yaw &&
-      endpoint.configured_is_slope)
-    {
-      task.split_reasons.emplace_back("slope_goal_yaw_suppressed");
-    }
-    // The robot's gait before a new route is unknown.  Always establish the
-    // first task's requested gait explicitly; later tasks only switch when the
-    // locomotion mode changes.
-    const bool gait_changed = index == 0U ||
-      result.tasks[index - 1U].locomotion_mode != task.locomotion_mode;
-    task.requires_gait_switch_at_start = gait_changed;
+    task.align_goal_yaw = task.is_route_goal || task.waypoints.back().align_final_yaw;
     bool next_requires_hard_switch = false;
     if (index + 1U < result.tasks.size()) {
       const auto & next = result.tasks[index + 1U];
       next_requires_hard_switch =
-        task.locomotion_mode != next.locomotion_mode ||
         task.resolved_controller_mode != next.resolved_controller_mode ||
         next.task_mode != "normal";
     }

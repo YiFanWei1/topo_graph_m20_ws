@@ -75,7 +75,7 @@ public:
     odom_topic_ = declare_parameter<std::string>("input.odometry_topic", "/lio_odom_hf");
     goal_topic_ = declare_parameter<std::string>(
       "input.goal_id_topic", "/recorded_waypoint_route/goal_id");
-    body_height_ = declare_parameter<double>("route.body_height", 0.40);
+    body_height_ = declare_parameter<double>("route.body_height", 0.57);
     route_spacing_ = declare_parameter<double>("route.spacing", 0.10);
     const double legacy_arrival_tolerance =
       declare_parameter<double>("route.arrival_tolerance", 2.80);
@@ -94,7 +94,7 @@ public:
       declare_parameter<double>("profile.normal.soft_radius", 0.60)};
     const PlanningProfile slope_profile{
       "slope",
-      declare_parameter<double>("profile.slope.path_height", 0.40),
+      declare_parameter<double>("profile.slope.path_height", 0.57),
       declare_parameter<bool>("profile.slope.extension_enabled", false),
       declare_parameter<double>("profile.slope.soft_radius", 0.20)};
     profile_resolver_ = std::make_unique<PlanningProfileResolver>(
@@ -916,7 +916,7 @@ private:
 
   std::string odom_topic_;
   std::string goal_topic_;
-  double body_height_{0.40};
+  double body_height_{0.57};
   double route_spacing_{0.10};
   double normal_arrival_tolerance_{2.80};
   double corner_arrival_tolerance_{0.20};

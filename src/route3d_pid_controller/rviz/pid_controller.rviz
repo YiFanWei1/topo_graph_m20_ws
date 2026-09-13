@@ -5,10 +5,11 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Elevation Collision Debug1/Namespaces1
-        - /PointCloud22
+        - /M20 3D Stop Swept Volume (mode 0 PID)1/Topic1
+        - /M20 3D Stop Swept Volume (mode 0 PID)1/Namespaces1
         - /PointCloud22/Topic1
       Splitter Ratio: 0.5
-    Tree Height: 334
+    Tree Height: 191
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -124,6 +125,136 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /route3d_pid_controller/elevation_debug
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: PID Cloud Input Range
+      Namespaces:
+        accepted_cloud_range: true
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /route3d_pid_controller/elevation_detection_range
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: M20 3D Stop Swept Volume (mode 0 PID)
+      Namespaces:
+        {}
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /route3d_pid_controller/swept_volume
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 25; 25
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 1
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: M20 Swept Collision Points (mode 0 PID)
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 8
+      Size (m): 0.07999999821186066
+      Style: Spheres
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /route3d_pid_controller/swept_collision_points
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Efficient 3D Search Corridor (mode 1)
+      Namespaces:
+        {}
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_planner/search_corridor
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 255; 70; 220
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.05999999865889549
+      Name: Efficient 3D Optimized Local Path (mode 1)
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_planner/optimized_path
+      Value: true
+    - Alpha: 0.8999999761581421
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 80; 25
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 1
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: Efficient 3D Hard Obstacles (mode 1)
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 4
+      Size (m): 0.05999999865889549
+      Style: Boxes
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /local_voxel_map/hard_with_occlusion
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
       Filter (blacklist): ""
@@ -148,8 +279,7 @@ Visualization Manager:
         map:
           camera_init:
             body:
-              base_link:
-                {}
+              {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -277,25 +407,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 8.479199409484863
+      Distance: 10.01701831817627
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.08114366233348846
-        Y: -1.8834357261657715
-        Z: -0.03208095207810402
+        X: -6.824192523956299
+        Y: 2.5093605518341064
+        Z: -1.8692799806594849
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.5697963237762451
+      Pitch: 1.3997968435287476
       Target Frame: base_link
       Value: Orbit (rviz_default_plugins)
-      Yaw: 1.465394139289856
+      Yaw: 5.8585710525512695
     Saved: ~
 Window Geometry:
   Displays:
@@ -303,7 +433,7 @@ Window Geometry:
   Height: 750
   Hide Left Dock: true
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000023800000290fc0200000002fb000000100044006900730070006c006100790073000000003f000001d4000000cc00fffffffb0000000a005600690065007700730000000219000000b6000000a900ffffff000003dd0000029000000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000023800000290fc0200000002fb000000100044006900730070006c006100790073000000003f00000145000000cc00fffffffb0000000a00560069006500770073000000018a00000145000000a900ffffff000003dd0000029000000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: true
   Width: 989

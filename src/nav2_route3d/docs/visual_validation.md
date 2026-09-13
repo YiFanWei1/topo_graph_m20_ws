@@ -4,8 +4,8 @@
 
 ```bash
 source install/setup.bash
-ros2 launch nav2_route3d route3d_visualization.launch.py   graph_filepath:=/home/langyi/shenzhen/map/slam_data/trajectory/route3d_graph.geojson
-ros2 launch nav2_route3d route3d_visualization.launch.py   graph_filepath:=/home/langyi/silou/map/slam_data/route3d_graph.geojson
+ros2 launch nav2_route3d route3d_visualization.launch.py   graph_filepath:=/home/wei/shenzhen/map/slam_data/trajectory/route3d_graph.geojson
+ros2 launch nav2_route3d route3d_visualization.launch.py   graph_filepath:=/home/wei/silou/map/slam_data/route3d_graph.geojson
 ```
 
 This launch enables visualization and autostarts the lifecycle node. The normal
@@ -77,7 +77,7 @@ same `/route_markers` and `/plan` displays.
 ## Route Graph Reload Service
 
 ```bash
-ros2 service call /route_server/set_route_graph nav2_msgs/srv/SetRouteGraph   "{graph_filepath: /home/langyi/silou/map/slam_data/trajectory/route3d_graph.geojson}"
+ros2 service call /route_server/set_route_graph nav2_msgs/srv/SetRouteGraph   "{graph_filepath: /home/wei/silou/map/slam_data/trajectory/route3d_graph.geojson}"
 ```
 
 Expected: response `success: true`; `/route_graph_markers` refreshes. Use a different
@@ -112,7 +112,7 @@ After running `route_graph_builder_3d`, launch the generated graph with RViz and
 ## Performance Mode
 
 ```bash
-ros2 launch nav2_route3d route_server_3d.launch.py   graph_filepath:=/home/langyi/silou/map/slam_data/trajectory/route3d_graph.geojson   visualization_enabled:=false
+ros2 launch nav2_route3d route_server_3d.launch.py   graph_filepath:=/home/wei/silou/map/slam_data/trajectory/route3d_graph.geojson   visualization_enabled:=false
 ```
 
 Expected: no `/route_graph_markers`, `/route_markers`, or `/route_event_markers` topics

@@ -151,6 +151,42 @@ TEST(RouteTracker, UsesReferenceStyleLowSpeedFinalAdjustmentWithLateralMotion)
   EXPECT_TRUE(reached.reached);
 }
 
+TEST(RouteTracker, FinalPoseUsesTenCentimetresFiveDegreesAndMinimumEffectiveSpeeds)
+{
+  auto config = fastTestConfig();
+  config.adjustment_entry_distance_m = 0.30;
+  config.adjustment_route_goal_position_tolerance_m = 0.10;
+  config.adjustment_route_goal_yaw_tolerance_rad = 0.08726646259971647;
+  RouteTracker tracker(config);
+  TrackingTask task;
+  task.endpoint_tolerance_m = 0.50;
+  task.maximum_speed_mps = 0.80;
+  task.align_goal_yaw = true;
+  task.is_route_goal = true;
+  task.waypoints = {
+    Waypoint{1, 0.0, 0.0, 0.0, false, 0.45},
+    Waypoint{2, 1.0, 0.0, 0.0, false, 0.45}};
+  tracker.setTask(task);
+
+  const auto outside_position = tracker.update(Pose2d{0.91, -0.09, 0.0}, 0.02);
+  EXPECT_TRUE(outside_position.adjusting);
+  EXPECT_FALSE(outside_position.reached);
+  EXPECT_GE(std::hypot(outside_position.command.vx, outside_position.command.vy), 0.20);
+
+  constexpr double six_degrees = 0.10471975511965977;
+  const auto outside_yaw = tracker.update(Pose2d{1.0, 0.0, -six_degrees}, 0.02);
+  EXPECT_TRUE(outside_yaw.adjusting);
+  EXPECT_FALSE(outside_yaw.reached);
+  EXPECT_DOUBLE_EQ(std::hypot(outside_yaw.command.vx, outside_yaw.command.vy), 0.0);
+  EXPECT_GE(std::abs(outside_yaw.command.wz), 0.25);
+
+  const auto inside = tracker.update(Pose2d{0.94, -0.06, -0.06981317007977318}, 0.02);
+  EXPECT_TRUE(inside.adjusting);
+  EXPECT_TRUE(inside.reached);
+  EXPECT_DOUBLE_EQ(std::hypot(inside.command.vx, inside.command.vy), 0.0);
+  EXPECT_DOUBLE_EQ(inside.command.wz, 0.0);
+}
+
 TEST(RouteTracker, RouteGoalDoesNotStopBetweenCoarseToleranceAndAdjustmentEntry)
 {
   auto config = fastTestConfig();
@@ -167,6 +203,28 @@ TEST(RouteTracker, RouteGoalDoesNotStopBetweenCoarseToleranceAndAdjustmentEntry)
   tracker.setTask(task);
 
   const auto tracking = tracker.update(Pose2d{0.60, 0.0, 0.0}, 0.02);
+  EXPECT_FALSE(tracking.adjusting);
+  EXPECT_FALSE(tracking.reached);
+  EXPECT_GT(tracking.command.vx, 0.0);
+}
+
+TEST(RouteTracker, ControllerSwitchBoundaryDoesNotStopBeforeAdjustmentEntry)
+{
+  auto config = fastTestConfig();
+  config.adjustment_entry_distance_m = 0.30;
+  RouteTracker tracker(config);
+  TrackingTask task;
+  task.endpoint_tolerance_m = 0.45;
+  task.maximum_speed_mps = 0.80;
+  task.is_route_goal = false;
+  task.align_goal_yaw = false;
+  task.waypoints = {
+    Waypoint{1, 0.0, 0.0, 0.0, false, 0.45},
+    Waypoint{4, 1.0, 0.0, 0.0, false, 0.45}};
+  tracker.setTask(task);
+
+  const auto tracking = tracker.update(Pose2d{0.675, 0.0, 0.0}, 0.02);
+  EXPECT_NEAR(tracking.goal_distance_m, 0.325, 1.0e-9);
   EXPECT_FALSE(tracking.adjusting);
   EXPECT_FALSE(tracking.reached);
   EXPECT_GT(tracking.command.vx, 0.0);

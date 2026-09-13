@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly WORKSPACE="/home/langyi/workspace/wyf/topo_graph_ws"
-readonly DEFAULT_GRAPH="${WORKSPACE}/data/ceshi_1/topoGraph_data.json"
+readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly DEFAULT_GRAPH="${WORKSPACE}/data/full_2/topoGraph_data.json"
 readonly GRAPH_FILE="${1:-${DEFAULT_GRAPH}}"
-readonly NETWORK_INTERFACE="${2:-enp2s0}"
-readonly ENABLE_MOTION="${3:-true}"
-readonly LAUNCH_RVIZ="${4:-true}"
+readonly ENABLE_MOTION="${2:-true}"
+readonly LAUNCH_RVIZ="${3:-true}"
 
 if [[ ! -f "${GRAPH_FILE}" ]]; then
   echo "错误：拓扑图不存在：${GRAPH_FILE}" >&2
@@ -26,12 +25,10 @@ set -u
 
 echo "启动规控："
 echo "  graph=${GRAPH_FILE}"
-echo "  network_interface=${NETWORK_INTERFACE}"
 echo "  enable_motion=${ENABLE_MOTION}"
 echo "  launch_rviz=${LAUNCH_RVIZ}"
-exec ros2 launch route3d_go2_adapter go2_pid_route.launch.xml \
+exec ros2 launch route3d_m20_adapter m20_pid_route.launch.xml \
   graph_file:="${GRAPH_FILE}" \
-  network_interface:="${NETWORK_INTERFACE}" \
   enable_motion:="${ENABLE_MOTION}" \
   use_sim_time:=false \
   launch_rviz:="${LAUNCH_RVIZ}"

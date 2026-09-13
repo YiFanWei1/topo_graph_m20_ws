@@ -2,6 +2,8 @@
 /install/
 /log/
 /data/
+/bags/
+/validation/bags/
 __pycache__/
 *.py[cod]
 7

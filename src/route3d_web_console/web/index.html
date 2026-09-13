@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Route3D 机器人控制台</title>
   <style>.step-help{margin:0 0 8px;color:#78929e;font-size:11px;line-height:1.55}.file-path{display:block;color:#66818c;font:10px/1.35 monospace;word-break:break-all;margin-top:5px}</style>
-  <script type="module" crossorigin src="/assets/index-CXp0rSSB.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-ztmSOuRE.css">
+  <script type="module" crossorigin src="/assets/index-jVoXHvXf.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CSJd7j9d.css">
 </head>
 <body>
   <header>
@@ -24,22 +24,22 @@
         <button type="button" class="module-tab" data-module-tab="topology"><span>拓扑</span><em id="topologyModuleState">未加载</em></button>
         <button type="button" class="module-tab" data-module-tab="navigation"><span>规控</span><em id="navigationModuleState">未运行</em></button>
       </div>
-      <section class="step module-detail active-module" data-step="1" data-module="radar"><div class="step-title"><b>01</b> 雷达服务</div><p class="step-help">状态直接检测当前 ROS 图中的 /livox/lidar。网页启动/停止操作统一控制系统 driver.service，不再另起第二套雷达驱动。</p><div class="row"><button data-start="radar">启动/重启 driver.service</button><button class="secondary" data-stop="radar">停止 driver.service</button><span id="radarState" class="badge">未运行</span></div></section>
+      <section class="step module-detail active-module" data-step="1" data-module="radar"><div class="step-title"><b>01</b> 雷达服务</div><p class="step-help">状态直接检测当前 ROS 图中的 /rslidar_points。网页启动/停止操作统一控制系统 driver.service，不再另起第二套雷达驱动。</p><div class="row"><button data-start="radar">启动/重启 driver.service</button><button class="secondary" data-stop="radar">停止 driver.service</button><span id="radarState" class="badge">未运行</span></div></section>
 
       <section class="step module-detail" data-step="2" data-module="mapping">
         <div class="step-title"><b>02</b> 建图与保存地图</div>
-        <p class="step-help">启动命令：/opt/mapping_ws/run_mapping_nodes.sh mode:=mapping。建图与自动打点互不排斥，可以同时运行。</p>
+        <p class="step-help">启动命令：/opt/mapping_ws/run_mapping_nodes_2.sh mode:=mapping（不额外发布静态 TF）。建图与自动打点互不排斥，可以同时运行。</p>
         <div class="row"><button data-start="mapping">开始建图</button><button class="secondary" data-stop="mapping">关闭建图节点</button><span id="mappingState" class="badge">未运行</span></div>
         <div class="row compact-status"><span>保存服务</span><span id="mapSaveServiceState" class="badge">离线</span><span>保存任务</span><span id="mapSaveState" class="badge">空闲</span></div>
         <label>保存地图名称<input id="mappingMapName" maxlength="80" placeholder="例如 510、floor_a" /></label>
         <label class="toggle"><input id="mappingOverwrite" type="checkbox" />允许覆盖同名地图</label>
         <button id="saveMappingMap" class="wide">保存地图</button>
-        <small class="file-path">输入名称后自动保存到 /home/langyi/workspace/map/&lt;地图名&gt;/map/&lt;地图名&gt;-0.1.pcd，并建立 &lt;地图名&gt;.pcd 供网页加载。0.1 由 YAML 的 mapping.save_resolution_tag 配置。</small>
+        <small class="file-path">输入名称后自动保存到 resources.pcd_root/&lt;地图名&gt;/map/&lt;地图名&gt;-0.1.pcd，并建立 &lt;地图名&gt;.pcd 供网页加载。0.1 由 YAML 的 mapping.save_resolution_tag 配置。</small>
       </section>
 
       <section class="step module-detail" data-step="3" data-module="localization">
         <div class="step-title"><b>03</b> PCD 地图与定位</div>
-        <p class="step-help">PCD 与拓扑完全独立。地图列表来自 /home/langyi/workspace/map/&lt;地图名&gt;/map/&lt;地图名&gt;.pcd，下拉框只显示地图文件夹名。</p>
+        <p class="step-help">PCD 与拓扑完全独立。地图列表来自 resources.pcd_root/&lt;地图名&gt;/map/&lt;地图名&gt;.pcd，下拉框只显示地图文件夹名。</p>
         <label>本地 PCD 地图<select id="pcdSelect"><option value="">请选择地图</option></select></label>
         <label>PCD 加载降采样（voxel，m）<input id="mapVoxelSize" type="number" min="0.01" max="2.0" step="0.01" value="0.20" /></label>
         <div class="row"><button id="selectPcd">加载 PCD</button><button id="applyMapVoxel" class="secondary">应用降采样</button><button id="refreshResources" class="secondary">刷新列表</button></div>
@@ -53,7 +53,7 @@
 
       <section class="step module-detail" data-step="5" data-module="topology">
         <div class="step-title"><b>05</b> 本地拓扑选择与编辑</div>
-        <p class="step-help">拓扑列表只读取 /home/langyi/workspace/wyf/topo_graph_ws/data/&lt;拓扑名&gt;/topoGraph_data.json。下拉框显示对应文件夹名；保存会直接写回这个文件。</p>
+        <p class="step-help">拓扑列表只读取 M20 工作空间 data/&lt;拓扑名&gt;/topoGraph_data.json。下拉框显示对应文件夹名；保存会直接写回这个文件。</p>
         <label>本地拓扑地图<select id="topologySelect"><option value="">请选择拓扑地图</option></select></label>
         <button id="selectTopology" class="wide">加载拓扑</button>
         <small id="selectedTopologyPath" class="file-path">未选择拓扑</small>
@@ -72,6 +72,18 @@
         <div class="goal-only-box"><label>直接发送目标点<input id="goalOnlyId" type="number" min="0" placeholder="例如 11" /></label><button id="sendGoalOnly" class="wide">当前位置 → 目标点</button><small class="file-path">等价于 06_send_goal_only.sh：发布 /route3d_dijkstra/goal_request，起点由机器人当前位置自动匹配最近拓扑点。</small><small id="quickActionStatus" class="file-path"></small></div>
         <div class="route-ids"><label>指定起点<input id="startId" type="number" min="0" /></label><span>→</span><label>指定终点<input id="goalId" type="number" min="0" /></label></div>
         <button id="planRoute" class="wide secondary">指定起终点规划</button>
+        <div class="goal-accuracy">
+          <h3>目标点与到点精度 <span id="accuracyTargetId">未选择</span></h3>
+          <div class="accuracy-grid">
+            <div><span>目标 XYZ</span><b id="accuracyTargetXYZ">--</b></div>
+            <div><span>目标 Yaw</span><b id="accuracyTargetYaw">--</b></div>
+            <div><span>当前 XYZ</span><b id="accuracyCurrentXYZ">--</b></div>
+            <div><span>当前 Yaw</span><b id="accuracyCurrentYaw">--</b></div>
+            <div><span>位置误差</span><b id="accuracyPositionError">--</b></div>
+            <div><span>Yaw 误差</span><b id="accuracyYawError">--</b></div>
+          </div>
+          <small id="accuracyDetail" class="file-path">发送目标后实时计算，位置误差为目标减当前。</small>
+        </div>
         <div class="loop-box">
           <h3>两点往返循环</h3>
           <div class="route-ids"><label>点 A<input id="loopStartId" type="number" min="0" /></label><span>↔</span><label>点 B<input id="loopGoalId" type="number" min="0" /></label></div>
@@ -113,7 +125,7 @@
         <label>方向<select name="dir"><option value="0">双向</option><option value="1">A → B</option><option value="2">B → A</option></select></label>
         <label>控制器<select name="controllerMode"><option value="auto">自动</option><option value="pid">PID</option><option value="local_planner">Local Planner</option><option value="efficient_3d_local_planner">Efficient 3D</option></select></label>
         <div class="two"><label>线速度 m/s<input name="linearSpeedMps" type="number" step="any" min="0" /></label><label>角速度 rad/s<input name="angularSpeedRadps" type="number" step="any" min="0" /></label></div>
-        <div class="two"><label>步态编号<input name="locomotionMode" type="number" /></label><label>障碍模式<input name="obstacleMode" type="number" /></label></div>
+        <label>障碍模式<select name="obstacleMode"><option value="0">0 · PID 三维扫掠停障（控制器服从边属性）</option><option value="1" selected>1 · Efficient 3D 整边主动绕障（默认）</option><option value="2">2 · 强制 PID，关闭普通点云停障</option><option value="3">3 · 兼容忽略普通障碍，控制器服从边属性</option><option value="4">4 · 外部栅格控制交接（必须填写 gridMapName）</option></select></label>
         <div class="two"><label>车身高度补偿 m<input name="heightOffsetM" type="number" step="any" /></label><label>headingAngleRad<input name="headingAngleRad" type="number" step="any" /></label></div>
         <label>gridMapName<input name="gridMapName" type="text" /></label>
         <div class="two"><label>障碍框前<input name="box0" type="number" step="any" /></label><label>障碍框后<input name="box1" type="number" step="any" /></label></div>

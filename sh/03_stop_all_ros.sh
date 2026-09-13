@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly WORKSPACE="/home/langyi/workspace/wyf/topo_graph_ws"
+readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ROS_PROCESS_PATTERN='(/opt/ros/[^/]+/(bin/ros2|lib/)|/install/[^ ]+/lib/[^ ]+)'
 
 set +u

@@ -80,18 +80,23 @@ struct TrackerConfig
   double maximum_vx_mps{0.80};
   double maximum_vy_mps{0.25};
   double maximum_wz_radps{0.80};
+  double minimum_linear_speed_mps{0.20};
+  double minimum_yaw_speed_radps{0.25};
   double maximum_linear_acceleration_mps2{0.50};
   double maximum_yaw_acceleration_radps2{1.20};
   double projection_backtrack_m{0.10};
   double adjustment_entry_distance_m{0.30};
   double adjustment_route_goal_position_tolerance_m{0.10};
-  double adjustment_route_goal_yaw_tolerance_rad{0.15};
+  double adjustment_route_goal_yaw_tolerance_rad{0.08726646259971647};
   double adjustment_maximum_vx_mps{0.20};
   double adjustment_maximum_vy_mps{0.20};
   double adjustment_maximum_wz_radps{0.90};
   PidAxisConfig longitudinal_pid{1.2, 0.0, 0.05, 0.20, 0.80, 1.3, 0.04};
   PidAxisConfig lateral_pid{1.5, 0.0, 0.04, 0.20, 0.25, 1.3, 0.04};
   PidAxisConfig yaw_pid{2.0, 0.0, 0.05, 0.20, 0.80, 1.3, 0.04};
+  PidAxisConfig adjustment_longitudinal_pid{1.2, 0.0, 0.05, 0.20, 0.20, 1.3, 0.04};
+  PidAxisConfig adjustment_lateral_pid{1.5, 0.0, 0.04, 0.20, 0.30, 1.3, 0.04};
+  PidAxisConfig adjustment_yaw_pid{2.0, 0.0, 0.05, 0.20, 0.50, 1.3, 0.04};
 };
 
 struct TrackingOutput
@@ -137,6 +142,9 @@ private:
   PidAxis longitudinal_pid_;
   PidAxis lateral_pid_;
   PidAxis yaw_pid_;
+  PidAxis adjustment_longitudinal_pid_;
+  PidAxis adjustment_lateral_pid_;
+  PidAxis adjustment_yaw_pid_;
   VelocityCommand previous_command_;
 };
 

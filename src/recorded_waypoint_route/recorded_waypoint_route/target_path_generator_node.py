@@ -57,7 +57,7 @@ class TargetPathGeneratorNode(Node):
         fallback_frame = str(self.declare_parameter(
             "frames.fallback", "camera_init").value)
         spacing = float(self.declare_parameter("route.spacing", 0.10).value)
-        body_height = float(self.declare_parameter("route.body_height", 0.40).value)
+        body_height = float(self.declare_parameter("route.body_height", 0.57).value)
         normal_marker_diameter = float(self.declare_parameter(
             "visualization.normal_marker_diameter", 0.45).value)
         corner_marker_diameter = float(self.declare_parameter(

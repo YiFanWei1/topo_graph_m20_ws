@@ -69,7 +69,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "target_file",
             default_value=os.path.join(data_root, "route_targets_with_corners.txt")),
-        DeclareLaunchArgument("body_height", default_value="0.40"),
+        DeclareLaunchArgument("body_height", default_value="0.57"),
         DeclareLaunchArgument("route_spacing", default_value="0.10"),
         DeclareLaunchArgument(
             "use_sim_time", default_value="false",

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly WORKSPACE="/home/langyi/workspace/wyf/topo_graph_ws"
+readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if (($# != 2)); then
   echo "用法：$0 <起点编号> <终点编号>" >&2

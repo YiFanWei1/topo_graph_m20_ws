@@ -27,6 +27,8 @@ let pcdChoiceDirty=false, topologyChoiceDirty=false;
 let mapVoxelMin=0.01,mapVoxelMax=2.0;
 let selected:Selection|null=null, tool='select', edgeStart:string|null=null;
 let currentPose:any=null; const undoStack:string[]=[], redoStack:string[]=[];
+let navigationTarget:any=null,lastTrajectorySignature='',lastStatusRender=0;
+let lastSelectedPcd='',lastSelectedTopology='';
 let lastRecordingState='idle';
 const mapChunks=new Map<number,Float32Array[]>();
 
@@ -68,6 +70,7 @@ function handle(m:J){
   if(m.type==='topology.preview.clear'){clearGroup(previewGroup);return}
   if(m.type==='topology.record.saved'){toast(`拓扑 ${m.name} 已保存并加载`);log(`新拓扑文件：${m.path}`);clearGroup(previewGroup);send('resource.list');return}
   if(m.type==='pose'){currentPose=m;renderPose();return}
+  if(m.type==='navigation.target'){navigationTarget=m;renderGoalAccuracy();return}
   if(m.type==='velocity'){$('velocity').textContent=`${Number(m.vx).toFixed(2)} / ${Number(m.wz).toFixed(2)}`;return}
   if(m.type==='ros.status'){
     if(m.source==='active_controller')$('controller').textContent=typeof m.data==='string'?m.data:(m.data?.data||'none');
@@ -87,10 +90,12 @@ function handle(m:J){
     const saveState=$('mapSaveState');const saving=!!m.processes?.map_save?.running;saveState.textContent=saving?'保存中':'空闲';saveState.classList.toggle('running',saving);
     updateRecording(m.topology_recording_state,!!f.topology_recording?.online);
     if(m.selected_pcd)selectedPcd=m.selected_pcd;if(m.selected_topology)selectedTopology=m.selected_topology;
+    if(m.navigation_target){navigationTarget=m.navigation_target;renderGoalAccuracy()}
     if(m.pose){currentPose=m.pose;renderPose()}if(m.trajectory)renderTrajectory(m.trajectory);
     const voxelInput=$<HTMLInputElement>('mapVoxelSize');
     if(document.activeElement!==voxelInput&&Number.isFinite(Number(m.map_voxel_m)))voxelInput.value=Number(m.map_voxel_m).toFixed(2);
-    renderResourceCatalog();$('statusJson').textContent=JSON.stringify({features:m.features,processes:m.processes,topics:m.topics,ros:m.ros,selectedPcd,selectedTopology,mapVoxelM:Number(voxelInput.value)},null,2);return;
+    if(selectedPcd!==lastSelectedPcd||selectedTopology!==lastSelectedTopology){lastSelectedPcd=selectedPcd;lastSelectedTopology=selectedTopology;renderResourceCatalog()}
+    const now=performance.now();if(now-lastStatusRender>=1000){lastStatusRender=now;$('statusJson').textContent=JSON.stringify({features:m.features,processes:m.processes,topics:m.topics,ros:m.ros,selectedPcd,selectedTopology,mapVoxelM:Number(voxelInput.value)},null,2)}return;
   }
   if(m.type==='map.cloud_ready'){log(`地图点云已加载：${m.points} 点，体素 ${m.voxel_m}m`)}
 }
@@ -133,7 +138,7 @@ function updateRecording(state='idle',running=false){
 
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x050b0f);scene.fog=new THREE.FogExp2(0x050b0f,0.012);
 const camera=new THREE.PerspectiveCamera(55,1,.05,1000);camera.position.set(8,-10,9);camera.up.set(0,0,1);
-const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));$('viewport').append(renderer.domElement);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));$('viewport').append(renderer.domElement);
 const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,0,0);controls.enableDamping=true;
 scene.add(new THREE.GridHelper(100,100,0x23515d,0x122b34).rotateX(Math.PI/2));scene.add(new THREE.AxesHelper(1.5));
 const mapGroup=new THREE.Group(),liveGroup=new THREE.Group(),topoGroup=new THREE.Group(),previewGroup=new THREE.Group(),trackGroup=new THREE.Group();scene.add(mapGroup,liveGroup,topoGroup,previewGroup,trackGroup);
@@ -145,7 +150,8 @@ let followRobot=false,followPosition:THREE.Vector3|null=null;
 function setRobotFollow(enabled:boolean){if(enabled&&!currentPose){toast('尚无机器人位置，无法开启跟随',true);return}followRobot=enabled;controls.enablePan=!enabled;followPosition=null;const button=$<HTMLButtonElement>('followRobot');button.textContent=enabled?'停止跟随':'跟随机器人';button.classList.toggle('active',enabled);button.setAttribute('aria-pressed',String(enabled));if(enabled){updateFollowCamera(currentPose.position);toast('已跟随机器人中心，可旋转和缩放视角')}}
 function updateFollowCamera(position:number[]){if(!followRobot)return;const next=new THREE.Vector3(position[0],position[1],position[2]);if(followPosition){const delta=next.clone().sub(followPosition);camera.position.add(delta);controls.target.add(delta)}else{const offset=camera.position.clone().sub(controls.target);controls.target.copy(next);camera.position.copy(next).add(offset)}followPosition=next;controls.update()}
 function resize(){const box=$('viewport').getBoundingClientRect();camera.aspect=box.width/box.height;camera.updateProjectionMatrix();renderer.setSize(box.width,box.height,false)}new ResizeObserver(resize).observe($('viewport'));
-function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}animate();
+let lastRenderAt=0;
+function animate(now=0){requestAnimationFrame(animate);if(now-lastRenderAt<33)return;lastRenderAt=now;controls.update();renderer.render(scene,camera)}animate();
 function clearGroup(g:THREE.Group){for(const o of [...g.children]){g.remove(o);const x=o as any;x.geometry?.dispose();const disposeMaterial=(m:any)=>{m?.map?.dispose?.();m?.dispose?.()};if(Array.isArray(x.material))x.material.forEach(disposeMaterial);else disposeMaterial(x.material)}}
 
 function handleCloud(buffer:ArrayBuffer){
@@ -155,9 +161,30 @@ function handleCloud(buffer:ArrayBuffer){
   if(stream===1){if(!mapChunks.has(seq))mapChunks.set(seq,[]);mapChunks.get(seq)![chunk]=xyz;if(mapChunks.get(seq)!.filter(Boolean).length===chunks){const arrays=mapChunks.get(seq)!;const total=arrays.reduce((n,a)=>n+a.length,0);const all=new Float32Array(total);let p=0;arrays.forEach(a=>{all.set(a,p);p+=a.length});mapChunks.clear();setPoints(mapGroup,all,0xd6f3ff,.025)}}
   else setPoints(liveGroup,xyz,stream===2?0x43f1c6:0xf2b84b,.045);
 }
-function setPoints(group:THREE.Group,positions:Float32Array,color:number,size:number){clearGroup(group);const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(positions,3));geo.computeBoundingSphere();const pts=new THREE.Points(geo,new THREE.PointsMaterial({color,size,sizeAttenuation:true,transparent:true,opacity:.9}));group.add(pts)}
-function renderPose(){if(!currentPose)return;const p=currentPose.position,q=currentPose.orientation;robot.position.set(p[0],p[1],p[2]);robot.quaternion.set(q[0],q[1],q[2],q[3]);updateFollowCamera(p);$('poseX').textContent=p[0].toFixed(2);$('poseY').textContent=p[1].toFixed(2);const yaw=Math.atan2(2*(q[3]*q[2]+q[0]*q[1]),1-2*(q[1]*q[1]+q[2]*q[2]));$('poseYaw').textContent=`${(yaw*180/Math.PI).toFixed(1)}°`}
-function renderTrajectory(points:number[][]){clearGroup(trackGroup);if(points.length<2)return;const geo=new THREE.BufferGeometry().setFromPoints(points.map(p=>new THREE.Vector3(...p)));trackGroup.add(new THREE.Line(geo,new THREE.LineBasicMaterial({color:0x4ad7ff})))}
+function setPoints(group:THREE.Group,positions:Float32Array,color:number,size:number){
+  let pts=group.children[0] as THREE.Points|undefined;
+  if(!pts?.isPoints){clearGroup(group);const geo=new THREE.BufferGeometry();pts=new THREE.Points(geo,new THREE.PointsMaterial({color,size,sizeAttenuation:true,transparent:true,opacity:.9}));pts.frustumCulled=group===mapGroup;group.add(pts)}
+  const geo=pts.geometry,old=geo.getAttribute('position') as THREE.BufferAttribute|undefined;
+  if(old&&old.array.length===positions.length){(old.array as Float32Array).set(positions);old.needsUpdate=true}else geo.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  if(group===mapGroup)geo.computeBoundingSphere();
+}
+function yawFromQuaternion(q:number[]){return Math.atan2(2*(q[3]*q[2]+q[0]*q[1]),1-2*(q[1]*q[1]+q[2]*q[2]))}
+function wrappedAngle(value:number){return Math.atan2(Math.sin(value),Math.cos(value))}
+function chooseNavigationTarget(vertexId:number){
+  const vertex=topology?.vertices?.[String(vertexId)];if(!vertex)return false;
+  navigationTarget={vertex_id:vertexId,position:[...vertex.pos],yaw:Number(vertex.rpy?.[2]||0),frame_id:topology.frame_id||'map'};renderGoalAccuracy();return true;
+}
+function sendGoal(vertexId:number){chooseNavigationTarget(vertexId);send('navigation.goal',{goal_id:vertexId})}
+function renderGoalAccuracy(){
+  const position=navigationTarget?.position,yaw=Number(navigationTarget?.yaw);
+  if(!Array.isArray(position)||position.length<3||!Number.isFinite(yaw)){$('accuracyTargetId').textContent='未选择';$('accuracyTargetXYZ').textContent='--';$('accuracyTargetYaw').textContent='--';$('accuracyCurrentXYZ').textContent='--';$('accuracyCurrentYaw').textContent='--';$('accuracyPositionError').textContent='--';$('accuracyYawError').textContent='--';$('accuracyDetail').textContent='发送目标后实时计算，位置误差为目标减当前。';return}
+  $('accuracyTargetId').textContent=`点 ${navigationTarget.vertex_id}`;$('accuracyTargetXYZ').textContent=position.map((v:number)=>Number(v).toFixed(3)).join(' / ');$('accuracyTargetYaw').textContent=`${(yaw*180/Math.PI).toFixed(2)}°`;
+  if(!currentPose?.position||!currentPose?.orientation){$('accuracyCurrentXYZ').textContent='等待定位';$('accuracyCurrentYaw').textContent='等待定位';$('accuracyPositionError').textContent='--';$('accuracyYawError').textContent='--';return}
+  const current=currentPose.position,currentYaw=yawFromQuaternion(currentPose.orientation),dx=position[0]-current[0],dy=position[1]-current[1],dz=position[2]-current[2],xy=Math.hypot(dx,dy),xyz=Math.hypot(dx,dy,dz),yawError=wrappedAngle(yaw-currentYaw);
+  $('accuracyCurrentXYZ').textContent=current.map((v:number)=>Number(v).toFixed(3)).join(' / ');$('accuracyCurrentYaw').textContent=`${(currentYaw*180/Math.PI).toFixed(2)}°`;$('accuracyPositionError').textContent=`3D ${xyz.toFixed(3)} m / XY ${xy.toFixed(3)} m`;$('accuracyYawError').textContent=`${(yawError*180/Math.PI).toFixed(2)}°`;$('accuracyDetail').textContent=`目标−当前：dx ${dx.toFixed(3)} m，dy ${dy.toFixed(3)} m，dz ${dz.toFixed(3)} m；Yaw 误差已归一化到 ±180°。`;
+}
+function renderPose(){if(!currentPose)return;const p=currentPose.position,q=currentPose.orientation;robot.position.set(p[0],p[1],p[2]);robot.quaternion.set(q[0],q[1],q[2],q[3]);updateFollowCamera(p);$('poseX').textContent=p[0].toFixed(2);$('poseY').textContent=p[1].toFixed(2);const yaw=yawFromQuaternion(q);$('poseYaw').textContent=`${(yaw*180/Math.PI).toFixed(1)}°`;renderGoalAccuracy()}
+function renderTrajectory(points:number[][]){const last=points.at(-1),first=points[0],signature=points.length<2?'empty':`${points.length}:${first?.join(',')}:${last?.join(',')}`;if(signature===lastTrajectorySignature)return;lastTrajectorySignature=signature;clearGroup(trackGroup);if(points.length<2)return;const geo=new THREE.BufferGeometry().setFromPoints(points.map(p=>new THREE.Vector3(...p)));trackGroup.add(new THREE.Line(geo,new THREE.LineBasicMaterial({color:0x4ad7ff})))}
 
 function edgeObject(a:number[],b:number[],id:string){
   const va=new THREE.Vector3(...a),vb=new THREE.Vector3(...b),delta=vb.clone().sub(va),len=delta.length();
@@ -189,7 +216,7 @@ function renderInspector(){
     setForm(vf,{x:v.pos[0],y:v.pos[1],z:v.pos[2],roll:v.rpy[0],pitch:v.rpy[1],yaw:v.rpy[2],acc:v.acc,passRadiusM:v.passRadiusM,type:m.type??0,typeId:m.typeId??0,chargingMode:m.chargingMode??0,component:m.component??0,turnDeg:m.turnDeg??0,state:m.state??'confirmed',isCorner:m.isCorner,isSlope:m.isSlope,isJunction:m.isJunction,mustPassThrough:v.mustPassThrough,alignFinalYaw:v.alignFinalYaw,turnable:v.turnable});
   }else{
     const e=topology.edges[selected.id],m=e.meta||{},box=m.obstacleBoxM||[0,0,0,0];$('edgeId').textContent=selected.id;
-    setForm(ef,{v0:e.v[0],v1:e.v[1],dir:m.dir??0,controllerMode:m.controllerMode??'auto',linearSpeedMps:m.linearSpeedMps??.8,angularSpeedRadps:m.angularSpeedRadps??0,locomotionMode:m.locomotionMode??0,obstacleMode:m.obstacleMode??0,heightOffsetM:m.heightOffsetM??0,headingAngleRad:m.headingAngleRad??0,gridMapName:m.gridMapName??'',box0:box[0]??0,box1:box[1]??0,box2:box[2]??0,box3:box[3]??0,rotationAllowed:e.rotationAllowed});
+    setForm(ef,{v0:e.v[0],v1:e.v[1],dir:m.dir??0,controllerMode:m.controllerMode??'auto',linearSpeedMps:m.linearSpeedMps??.8,angularSpeedRadps:m.angularSpeedRadps??0,obstacleMode:m.obstacleMode??1,heightOffsetM:m.heightOffsetM??0,headingAngleRad:m.headingAngleRad??0,gridMapName:m.gridMapName??'',box0:box[0]??0,box1:box[1]??0,box2:box[2]??0,box3:box[3]??0,rotationAllowed:e.rotationAllowed});
   }
 }
 function compactNumber(v:any,maxDecimals=6){const n=Number(v);if(!Number.isFinite(n))return String(v??'');if(Number.isInteger(n))return String(n);return Number(n.toFixed(maxDecimals)).toString()}
@@ -198,12 +225,12 @@ function formValues(form:HTMLFormElement){const o:J={};new FormData(form).forEac
 function checkpoint(){if(topology)undoStack.push(JSON.stringify(topology));if(undoStack.length>50)undoStack.shift();redoStack.length=0;dirty=true;setDirty()}
 function setDirty(){$('dirtyState').textContent=dirty?'有未保存修改':'已保存';$('dirtyState').style.color=dirty?'#f2b84b':'#6f8b97'}
 function nextId(collection:J){return String(Math.max(0,...Object.keys(collection).map(Number).filter(Number.isFinite))+1)}
-function defaultVertex(pos:number[]){return{pos,rpy:[0,0,0],meta:{type:0,typeId:0,isCorner:false,isSlope:false,isJunction:false,chargingMode:0,source:'web_console',sourceStamp:Date.now()/1000,component:0,turnDeg:0,state:'confirmed'},pcd:'',acc:.5,turnable:true,alignFinalYaw:true,mustPassThrough:false,passRadiusM:.45}}
+function defaultVertex(pos:number[]){return{pos,rpy:[0,0,0],meta:{type:0,typeId:0,isCorner:false,isSlope:false,isJunction:false,chargingMode:0,source:'web_console',sourceStamp:Date.now()/1000,component:0,turnDeg:0,state:'confirmed'},pcd:'',acc:.5,turnable:true,alignFinalYaw:false,mustPassThrough:false,passRadiusM:.45}}
 function recomputeIncidentEdgeWeights(vertexId:string){if(!topology)return;for(const e of Object.values<any>(topology.edges||{})){if(!e.v.map(String).includes(vertexId))continue;const a=topology.vertices[String(e.v[0])]?.pos,b=topology.vertices[String(e.v[1])]?.pos;if(a&&b)e.weight=Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])}}
 function addVertex(pos:number[]){if(!topology)return;checkpoint();const id=nextId(topology.vertices);topology.vertices[id]=defaultVertex(pos);selected={kind:'vertex',id};renderTopology()}
 function addEdge(a:string,b:string){
   if(!topology||a===b)return;if(Object.values<any>(topology.edges).some(e=>{const v=e.v.map(String);return v.includes(a)&&v.includes(b)})){toast('两点之间已经存在边',true);return}
-  checkpoint();const id=nextId(topology.edges),pa=topology.vertices[a].pos,pb=topology.vertices[b].pos;topology.edges[id]={v:[Number(a),Number(b)],weight:Math.hypot(pa[0]-pb[0],pa[1]-pb[1],pa[2]-pb[2]),rotationAllowed:true,meta:{dir:0,source:'web_console',locomotionMode:0,linearSpeedMps:.8,angularSpeedRadps:0,heightOffsetM:0,obstacleMode:0,travelMode:'bidirectional',headingAngleRad:0,obstacleBoxM:[0,0,0,0],gridMapName:'',controllerMode:'auto'}};
+  checkpoint();const id=nextId(topology.edges),pa=topology.vertices[a].pos,pb=topology.vertices[b].pos;topology.edges[id]={v:[Number(a),Number(b)],weight:Math.hypot(pa[0]-pb[0],pa[1]-pb[1],pa[2]-pb[2]),rotationAllowed:true,meta:{dir:0,source:'web_console',linearSpeedMps:.8,angularSpeedRadps:0,heightOffsetM:0,obstacleMode:1,travelMode:'bidirectional',headingAngleRad:0,obstacleBoxM:[0,0,0,0],gridMapName:'',controllerMode:'auto'}};
   edgeStart=null;selected={kind:'edge',id};renderTopology();toast(`已创建边 ${id}: ${a} ↔ ${b}`);
 }
 
@@ -216,7 +243,7 @@ renderer.domElement.addEventListener('pointerdown',e=>{
   if(hits.length){const u=hits[0].object.userData as any;
     if(tool==='navigate'&&u.kind==='vertex'){
       selected={kind:'vertex',id:u.id};refreshTopologySelectionStyles();renderInspector();
-      send('navigation.goal',{goal_id:+u.id});
+      sendGoal(+u.id);
       $('quickActionStatus').textContent=`已点选导航到顶点 ${u.id}`;
       return;
     }
@@ -253,11 +280,11 @@ $<HTMLFormElement>('vertexForm').onsubmit=e=>{
 };
 $<HTMLFormElement>('edgeForm').onsubmit=e=>{
   e.preventDefault();if(!selected||selected.kind!=='edge')return;checkpoint();const f=formValues(e.currentTarget as HTMLFormElement),x=topology.edges[selected.id];x.meta=x.meta||{};
-  x.meta.dir=+f.dir;x.meta.travelMode=['bidirectional','first_to_second','second_to_first'][+f.dir];x.meta.controllerMode=f.controllerMode;x.meta.linearSpeedMps=+f.linearSpeedMps;x.meta.angularSpeedRadps=+f.angularSpeedRadps;x.meta.locomotionMode=+f.locomotionMode;x.meta.obstacleMode=+f.obstacleMode;x.meta.heightOffsetM=+f.heightOffsetM;x.meta.headingAngleRad=+f.headingAngleRad;x.meta.gridMapName=String(f.gridMapName||'');x.meta.obstacleBoxM=[+f.box0,+f.box1,+f.box2,+f.box3];x.rotationAllowed=f.rotationAllowed;
+  x.meta.dir=+f.dir;x.meta.travelMode=['bidirectional','first_to_second','second_to_first'][+f.dir];x.meta.controllerMode=f.controllerMode;x.meta.linearSpeedMps=+f.linearSpeedMps;x.meta.angularSpeedRadps=+f.angularSpeedRadps;delete x.meta.locomotionMode;x.meta.obstacleMode=+f.obstacleMode;x.meta.heightOffsetM=+f.heightOffsetM;x.meta.headingAngleRad=+f.headingAngleRad;x.meta.gridMapName=String(f.gridMapName||'');x.meta.obstacleBoxM=[+f.box0,+f.box1,+f.box2,+f.box3];x.rotationAllowed=f.rotationAllowed;
   renderTopology();toast('边属性已应用；点击“保存拓扑”写回本地 JSON');
 };
 $('vertexInitialPose').onclick=()=>{if(!selected||selected.kind!=='vertex')return;if(dirty&&!confirm('当前顶点有未保存修改。定位初值将按网页当前选中拓扑文件中已保存的数据发送。是否继续？'))return;send('localization.set_initial_pose_vertex',{vertex_id:+selected.id})};
-$('vertexNavigate').onclick=()=>{if(!selected||selected.kind!=='vertex')return;send('navigation.goal',{goal_id:+selected.id})};
+$('vertexNavigate').onclick=()=>{if(!selected||selected.kind!=='vertex')return;sendGoal(+selected.id)};
 $('deleteVertex').onclick=()=>{if(!selected||selected.kind!=='vertex'||!confirm(`删除顶点 ${selected.id} 及其所有关联边？`))return;checkpoint();const id=selected.id;delete topology.vertices[id];for(const [eid,e] of Object.entries<any>(topology.edges))if(e.v.map(String).includes(id))delete topology.edges[eid];selected=null;renderTopology()};
 $('deleteEdge').onclick=()=>{if(!selected||selected.kind!=='edge'||!confirm(`删除边 ${selected.id}？`))return;checkpoint();delete topology.edges[selected.id];selected=null;renderTopology()};
 
@@ -280,9 +307,9 @@ $('startRecording').onclick=()=>send('topology.record.start');
 $('stopRecording').onclick=()=>{const name=$<HTMLInputElement>('recordingName').value.trim();if(!name){toast('请输入保存名称',true);return}send('topology.record.stop',{name})};
 $('abortRecording').onclick=()=>{if(confirm('放弃本次自动打点？临时数据不会保存为正式拓扑。'))send('topology.record.abort')};
 $('saveTopology').onclick=()=>{if(!topology)return;if(!selectedTopology){toast('请先加载本地拓扑 JSON',true);return}send('topology.save',{data:topology,revision})};
-$('sendGoalOnly').onclick=()=>{const goal=+$<HTMLInputElement>('goalOnlyId').value;if(!Number.isInteger(goal)||goal<0){toast('请输入有效目标点编号',true);return}send('navigation.goal',{goal_id:goal})};
-$('planRoute').onclick=()=>send('navigation.plan',{start_id:+$<HTMLInputElement>('startId').value,goal_id:+$<HTMLInputElement>('goalId').value});
-function startLoop(mode:'fixed'|'goal_only'){const start=+$<HTMLInputElement>('loopStartId').value,goal=+$<HTMLInputElement>('loopGoalId').value,dwell=+$<HTMLInputElement>('loopDwell').value,rounds=+$<HTMLInputElement>('loopRounds').value;if(!Number.isInteger(start)||start<0||!Number.isInteger(goal)||goal<0||start===goal){toast('循环需要两个不同的有效点位',true);return}if(!Number.isFinite(dwell)||dwell<0){toast('端点停留时间无效',true);return}if(!Number.isInteger(rounds)||rounds<0){toast('往返次数必须是非负整数',true);return}send('navigation.loop.start',{mode,start_id:start,goal_id:goal,dwell_time_s:dwell,max_round_trips:rounds})}
+$('sendGoalOnly').onclick=()=>{const goal=+$<HTMLInputElement>('goalOnlyId').value;if(!Number.isInteger(goal)||goal<0){toast('请输入有效目标点编号',true);return}sendGoal(goal)};
+$('planRoute').onclick=()=>{const start=+$<HTMLInputElement>('startId').value,goal=+$<HTMLInputElement>('goalId').value;chooseNavigationTarget(goal);send('navigation.plan',{start_id:start,goal_id:goal})};
+function startLoop(mode:'fixed'|'goal_only'){const start=+$<HTMLInputElement>('loopStartId').value,goal=+$<HTMLInputElement>('loopGoalId').value,dwell=+$<HTMLInputElement>('loopDwell').value,rounds=+$<HTMLInputElement>('loopRounds').value;if(!Number.isInteger(start)||start<0||!Number.isInteger(goal)||goal<0||start===goal){toast('循环需要两个不同的有效点位',true);return}if(!Number.isFinite(dwell)||dwell<0){toast('端点停留时间无效',true);return}if(!Number.isInteger(rounds)||rounds<0){toast('往返次数必须是非负整数',true);return}chooseNavigationTarget(goal);send('navigation.loop.start',{mode,start_id:start,goal_id:goal,dwell_time_s:dwell,max_round_trips:rounds})}
 $('startFixedLoop').onclick=()=>startLoop('fixed');
 $('startGoalOnlyLoop').onclick=()=>startLoop('goal_only');
 $('stopLoop').onclick=()=>send('navigation.loop.stop');

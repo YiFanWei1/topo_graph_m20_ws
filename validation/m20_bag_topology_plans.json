@@ -1,0 +1,90 @@
+{
+  "recording_platform": "Go2",
+  "recording_body_height_m": 0.4,
+  "target_platform": "M20",
+  "m20_body_height_m": 0.57,
+  "bags": {
+    "regu": {
+      "vertices": 109,
+      "edges": 108,
+      "obstacle_modes": [
+        1
+      ],
+      "align_final_yaw_values": [
+        false
+      ],
+      "locomotion_mode_fields": 0,
+      "forward": {
+        "start": 1,
+        "goal": 109,
+        "path_vertices": 108,
+        "path_edges": 107,
+        "cost": 93.70230640802107,
+        "planning_time_ms": 0.010389
+      },
+      "reverse": {
+        "start": 109,
+        "goal": 1,
+        "path_vertices": 108,
+        "path_edges": 107,
+        "cost": 93.70230640802104,
+        "planning_time_ms": 0.005829
+      }
+    },
+    "xili": {
+      "vertices": 280,
+      "edges": 279,
+      "obstacle_modes": [
+        1
+      ],
+      "align_final_yaw_values": [
+        false
+      ],
+      "locomotion_mode_fields": 0,
+      "forward": {
+        "start": 1,
+        "goal": 280,
+        "path_vertices": 280,
+        "path_edges": 279,
+        "cost": 275.23665726571176,
+        "planning_time_ms": 0.021778
+      },
+      "reverse": {
+        "start": 280,
+        "goal": 1,
+        "path_vertices": 280,
+        "path_edges": 279,
+        "cost": 275.2366572657118,
+        "planning_time_ms": 0.017879
+      }
+    },
+    "full_nav_replay_with_plan": {
+      "vertices": 91,
+      "edges": 90,
+      "obstacle_modes": [
+        1
+      ],
+      "align_final_yaw_values": [
+        false
+      ],
+      "locomotion_mode_fields": 0,
+      "forward": {
+        "start": 1,
+        "goal": 91,
+        "path_vertices": 56,
+        "path_edges": 55,
+        "cost": 52.75310050433019,
+        "planning_time_ms": 0.009083
+      },
+      "reverse": {
+        "start": 91,
+        "goal": 1,
+        "path_vertices": 56,
+        "path_edges": 55,
+        "cost": 52.75310050433021,
+        "planning_time_ms": 0.004819
+      }
+    }
+  },
+  "passed": true
+}

@@ -1,7 +1,6 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -11,7 +10,7 @@ import os
 
 def generate_launch_description():
     planner_share = get_package_share_directory("efficient_3d_local_planner")
-    adapter_share = get_package_share_directory("robot_control_adapter")
+    adapter_share = get_package_share_directory("route3d_m20_adapter")
     config = os.path.join(planner_share, "config", "up_and_down.yaml")
     return LaunchDescription([
         DeclareLaunchArgument("trajectory", default_value="straight"),
@@ -22,7 +21,6 @@ def generate_launch_description():
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("cmd_vel_topic", default_value="/cmd_vel_smoothed"),
         DeclareLaunchArgument("enable_robot_adapter", default_value="false"),
-        DeclareLaunchArgument("network_interface", default_value="eth0"),
         Node(
             package="efficient_3d_local_planner",
             executable="local_path_follower_node",
@@ -46,13 +44,15 @@ def generate_launch_description():
             }],
             output="screen",
         ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(adapter_share, "launch", "cmd_vel_adapter.launch.py")),
-            launch_arguments={
-                "network_interface": LaunchConfiguration("network_interface"),
-                "cmd_vel_topic": LaunchConfiguration("cmd_vel_topic"),
-            }.items(),
+        Node(
+            package="route3d_m20_adapter",
+            executable="m20_route_adapter_node",
+            name="route3d_m20_adapter",
+            parameters=[
+                os.path.join(adapter_share, "config", "m20_route_adapter.yaml"),
+                {"enable_motion": True,
+                 "use_sim_time": LaunchConfiguration("use_sim_time")},
+            ],
             condition=IfCondition(LaunchConfiguration("enable_robot_adapter")),
         ),
     ])

@@ -517,7 +517,7 @@ private:
     array.header.stamp = now();
     diagnostic_msgs::msg::DiagnosticStatus status;
     status.name = "path_tracking_benchmark/fixed_path";
-    status.hardware_id = "go2";
+    status.hardware_id = "m20";
     status.level = state_ == State::Completed ? diagnostic_msgs::msg::DiagnosticStatus::OK :
       diagnostic_msgs::msg::DiagnosticStatus::WARN;
     status.message = result_reason_;

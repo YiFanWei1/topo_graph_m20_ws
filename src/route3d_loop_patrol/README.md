@@ -20,7 +20,7 @@
 
 ## 使用
 
-先启动正常的 `go2_pid_route.launch.xml`，再启动：
+先启动正常的 `m20_pid_route.launch.xml`，再启动：
 
 ```bash
 source install/setup.bash

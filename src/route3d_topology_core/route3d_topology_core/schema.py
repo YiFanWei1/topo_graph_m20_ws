@@ -52,7 +52,10 @@ def apply_topology_schema(document: Dict[str, Any]) -> Dict[str, Any]:
         meta = vertex.setdefault("meta", {})
         meta = _object(meta, f"vertices.{vertex_id}.meta")
         meta.setdefault("chargingMode", 0)
-        vertex.setdefault("alignFinalYaw", True)
+        # M20 only stops to align at explicitly marked intermediate vertices.
+        # The mission goal is forced to align by the route slicer regardless of
+        # this authoring default.
+        vertex.setdefault("alignFinalYaw", False)
         is_corner = bool(meta.get("isCorner", False))
         # Intermediate traversal semantics are independent from mission-goal
         # semantics. A normal vertex can therefore be made a mandatory stop/
@@ -70,11 +73,11 @@ def apply_topology_schema(document: Dict[str, Any]) -> Dict[str, Any]:
             direction = 0
 
         edge.setdefault("rotationAllowed", True)
-        meta.setdefault("locomotionMode", 0)
         meta.setdefault("linearSpeedMps", 1.0)
         meta.setdefault("angularSpeedRadps", 0.0)
         meta.setdefault("heightOffsetM", 0.0)
-        meta.setdefault("obstacleMode", 0)
+        # New M20 edges use Efficient 3D avoidance by default.
+        meta.setdefault("obstacleMode", 1)
         meta.setdefault("travelMode", travel_mode_from_direction(direction))
         meta.setdefault("headingAngleRad", 0.0)
         meta.setdefault("obstacleBoxM", [0.0, 0.0, 0.0, 0.0])

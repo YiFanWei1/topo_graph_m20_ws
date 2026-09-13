@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -37,14 +36,6 @@ using WaypointMessage = route3d_route_slicer::msg::RouteWaypoint;
 rclcpp::QoS latchedQos()
 {
   return rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
-}
-
-int checkedIntParameter(const std::int64_t value, const char * name)
-{
-  if (value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
-    throw std::out_of_range(std::string("parameter '") + name + "' is outside int range");
-  }
-  return static_cast<int>(value);
 }
 
 std::vector<std::int32_t> integerArray(const json & document, const char * key)
@@ -97,16 +88,12 @@ TaskMessage toMessage(const RouteTask & source)
   message.task_mode = source.task_mode;
   message.configured_controller_mode = source.configured_controller_mode;
   message.resolved_controller_mode = source.resolved_controller_mode;
-  message.gait_command = source.gait_command;
   message.completion_policy = static_cast<std::uint8_t>(source.completion_policy);
   message.is_route_goal = source.is_route_goal;
   message.requires_stop_at_end = source.requires_stop_at_end;
-  message.requires_gait_switch_at_start = source.requires_gait_switch_at_start;
   message.contains_slope = source.contains_slope;
-  message.reverse_motion = source.reverse_motion;
   message.align_goal_yaw = source.align_goal_yaw;
   message.endpoint_tolerance_m = source.endpoint_tolerance_m;
-  message.locomotion_mode = source.locomotion_mode;
   message.linear_speed_mps = source.linear_speed_mps;
   message.angular_speed_radps = source.angular_speed_radps;
   message.height_offset_m = source.height_offset_m;
@@ -155,16 +142,12 @@ json taskJson(const RouteTask & task)
     {"task_mode", task.task_mode},
     {"configured_controller_mode", task.configured_controller_mode},
     {"resolved_controller_mode", task.resolved_controller_mode},
-    {"gait_command", task.gait_command},
     {"completion_policy", static_cast<std::uint8_t>(task.completion_policy)},
     {"is_route_goal", task.is_route_goal},
     {"requires_stop_at_end", task.requires_stop_at_end},
-    {"requires_gait_switch_at_start", task.requires_gait_switch_at_start},
     {"contains_slope", task.contains_slope},
-    {"reverse_motion", task.reverse_motion},
     {"align_goal_yaw", task.align_goal_yaw},
     {"endpoint_tolerance_m", task.endpoint_tolerance_m},
-    {"locomotion_mode", task.locomotion_mode},
     {"linear_speed_mps", task.linear_speed_mps},
     {"angular_speed_radps", task.angular_speed_radps},
     {"height_offset_m", task.height_offset_m},
@@ -204,15 +187,6 @@ public:
     }
     const bool strict_schema = declare_parameter<bool>("strict_schema_v2", true);
     SliceOptions options;
-    options.enable_slope_gait = declare_parameter<bool>("slope.enable_gait_switch", true);
-    options.slope_ignore_ordinary_obstacles = declare_parameter<bool>(
-      "slope.ignore_ordinary_obstacles", true);
-    options.normal_locomotion_mode = checkedIntParameter(
-      declare_parameter<std::int64_t>("slope.normal_locomotion_mode", 0),
-      "slope.normal_locomotion_mode");
-    options.slope_locomotion_mode = checkedIntParameter(
-      declare_parameter<std::int64_t>("slope.slope_locomotion_mode", 2),
-      "slope.slope_locomotion_mode");
     options.default_corner_pass_radius_m =
       declare_parameter<double>("waypoint.corner_pass_radius_m", 0.20);
     options.default_normal_pass_radius_m =
@@ -222,13 +196,7 @@ public:
     options.auto_default_controller =
       declare_parameter<std::string>("controller.auto_default", "pid");
     options.auto_grid_controller =
-      declare_parameter<std::string>("controller.auto_grid", "local_planner");
-    options.auto_slope_controller = declare_parameter<std::string>(
-      "slope.controller_mode", "efficient_3d_local_planner");
-    options.normal_gait_command =
-      declare_parameter<std::string>("gait.normal_command", "static_walk");
-    options.slope_gait_command =
-      declare_parameter<std::string>("gait.slope_command", "switch_gait_3");
+      declare_parameter<std::string>("controller.auto_grid", "external_grid");
 
     graph_ = std::make_unique<route3d_dijkstra_planner::TopologyGraph>(
       route3d_dijkstra_planner::TopologyGraph::load(graph_file_, strict_schema));
@@ -287,10 +255,10 @@ private:
       for (const auto & task : result.tasks) {
         RCLCPP_INFO(
           get_logger(),
-          "  task[%zu] %d->%d mode=%s controller=%s gait=%s edges=%zu slope=%s "
+          "  task[%zu] %d->%d mode=%s controller=%s edges=%zu slope=%s "
           "goal=%s stop=%s reasons=%s",
           task.task_index, task.waypoints.front().vertex_id, task.waypoints.back().vertex_id,
-          task.task_mode.c_str(), task.resolved_controller_mode.c_str(), task.gait_command.c_str(),
+          task.task_mode.c_str(), task.resolved_controller_mode.c_str(),
           task.edge_ids.size(), task.contains_slope ? "true" : "false",
           task.is_route_goal ? "true" : "false", task.requires_stop_at_end ? "true" : "false",
           task.split_reasons.empty() ? "none" : task.split_reasons.front().c_str());
@@ -386,7 +354,7 @@ private:
       label.scale.z = 0.30;
       label.color = taskColor(task.task_index);
       label.text = "T" + std::to_string(task.task_index) + " " +
-        task.resolved_controller_mode + " / " + task.gait_command;
+        task.resolved_controller_mode + " / obstacle=" + std::to_string(task.obstacle_mode);
       markers.markers.push_back(std::move(label));
 
       for (std::size_t waypoint_index = 0; waypoint_index < task.waypoints.size();

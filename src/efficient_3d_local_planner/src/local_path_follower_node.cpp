@@ -363,7 +363,7 @@ private:
     status.level = state == "active" ? diagnostic_msgs::msg::DiagnosticStatus::OK :
       diagnostic_msgs::msg::DiagnosticStatus::WARN;
     status.name = "efficient_3d_local_planner/local_path_follower";
-    status.hardware_id = "go2";
+    status.hardware_id = "m20";
     status.message = state;
     auto add = [&](const std::string & key, const auto value) {
         diagnostic_msgs::msg::KeyValue pair;

@@ -136,8 +136,6 @@ void synchronizeSlopeAnnotationsOnePass(
   std::unordered_map<VertexId, TopologyVertex> & vertices,
   std::unordered_map<EdgeId, TopologyEdge> & edges)
 {
-  constexpr int kSlopeLocomotionMode = 2;
-
   // Snapshot the author-provided point annotations first.  Newly promoted
   // endpoint vertices must not promote their other incident edges, otherwise
   // one slope seed would recursively spread through the whole component.
@@ -156,12 +154,10 @@ void synchronizeSlopeAnnotationsOnePass(
   std::unordered_set<EdgeId> synchronized_slope_edges;
   synchronized_slope_edges.reserve(edges.size());
   for (const auto & [edge_id, edge] : edges) {
-    const bool edge_requests_slope_gait =
-      edge.is_slope || edge.locomotion_mode == kSlopeLocomotionMode;
     const bool touches_configured_slope_vertex =
       configured_slope_vertices.count(edge.first) != 0U ||
       configured_slope_vertices.count(edge.second) != 0U;
-    if (edge_requests_slope_gait || touches_configured_slope_vertex) {
+    if (edge.is_slope || touches_configured_slope_vertex) {
       synchronized_slope_edges.insert(edge_id);
     }
   }
@@ -340,14 +336,14 @@ TopologyGraph TopologyGraph::load(const std::filesystem::path & path, const bool
       throw std::runtime_error(path_prefix + ".passRadiusM must be non-negative");
     }
     vertex.turnable = booleanMember(raw_vertex, "turnable", true, path_prefix + ".turnable");
-    vertex.align_final_yaw = align_iterator == raw_vertex.end() ? true : align_iterator->get<bool>();
+    vertex.align_final_yaw = align_iterator == raw_vertex.end() ? false : align_iterator->get<bool>();
     vertex.charging_mode = charging_iterator == meta.end() ? 0 : charging_iterator->get<int>();
     vertex.pcd_name = stringMember(raw_vertex, "pcd", "", path_prefix + ".pcd");
     vertices.emplace(id, vertex);
   }
 
-  static const std::array<const char *, 10> required_v2_fields = {
-    "locomotionMode", "linearSpeedMps", "angularSpeedRadps", "heightOffsetM",
+  static const std::array<const char *, 9> required_v2_fields = {
+    "linearSpeedMps", "angularSpeedRadps", "heightOffsetM",
     "obstacleMode", "travelMode", "headingAngleRad", "obstacleBoxM", "gridMapName",
     "controllerMode"};
   std::unordered_map<EdgeId, TopologyEdge> edges;
@@ -407,8 +403,6 @@ TopologyGraph TopologyGraph::load(const std::filesystem::path & path, const bool
     }
     edge.rotation_allowed =
       rotation_iterator == raw_edge.end() ? true : rotation_iterator->get<bool>();
-    edge.locomotion_mode = integerMember(
-      meta, "locomotionMode", 0, path_prefix + ".meta.locomotionMode");
     edge.linear_speed_mps = numberMember(
       meta, "linearSpeedMps", 1.0, path_prefix + ".meta.linearSpeedMps");
     if (edge.linear_speed_mps < 0.0) {
@@ -419,7 +413,7 @@ TopologyGraph TopologyGraph::load(const std::filesystem::path & path, const bool
     edge.height_offset_m = numberMember(
       meta, "heightOffsetM", 0.0, path_prefix + ".meta.heightOffsetM");
     edge.obstacle_mode = integerMember(
-      meta, "obstacleMode", 0, path_prefix + ".meta.obstacleMode");
+      meta, "obstacleMode", 1, path_prefix + ".meta.obstacleMode");
     edge.heading_angle_rad = numberMember(
       meta, "headingAngleRad", 0.0, path_prefix + ".meta.headingAngleRad");
     const auto obstacle_iterator = meta.find("obstacleBoxM");

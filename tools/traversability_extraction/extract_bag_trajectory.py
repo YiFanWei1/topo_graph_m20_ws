@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bag", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--topic", default="/lio_odom")
-    parser.add_argument("--body-height", type=float, default=0.40)
+    parser.add_argument("--body-height", type=float, default=0.57)
     parser.add_argument("--min-spacing", type=float, default=0.04)
     return parser.parse_args()
 

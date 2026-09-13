@@ -15,7 +15,7 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>pcl_conversions</depend>
-  <depend>route3d_go2_adapter</depend>
+  <depend>route3d_m20_adapter</depend>
   <depend>route3d_dijkstra_planner</depend>
   <depend>route3d_pid_controller</depend>
   <exec_depend>route3d_product_demo</exec_depend>

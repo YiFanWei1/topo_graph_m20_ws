@@ -9,7 +9,7 @@ route3d_web_console:
     runtime.log_lines: 300
     maps.allowed_roots:
       - "/home/langyi/workspace/map"
-      - "/home/langyi/workspace/wyf/topo_graph_ws/data"
+      - "/home/langyi/workspace/wyf/topo_graph_m20_ws/data"
     maps.allowed_localization_roots:
       - "/opt/mapping_ws/glio_mapping"
 
@@ -18,7 +18,7 @@ route3d_web_console:
     # Topology: <topology_root>/<拓扑名>/topoGraph_data.json
     # 网页下拉框显示“地图名/拓扑名”（也就是对应文件夹名）。
     resources.pcd_root: "/home/langyi/workspace/map"
-    resources.topology_root: "/home/langyi/workspace/wyf/topo_graph_ws/data"
+    resources.topology_root: "/home/langyi/workspace/wyf/topo_graph_m20_ws/data"
     resources.scan_max_files: 1000
     resources.scan_max_depth: 6
 
@@ -27,7 +27,7 @@ route3d_web_console:
     vertex_initializer.graph_file_topic: "/route3d_initial_pose/graph_file"
     vertex_initializer.vertex_id_topic: "/route3d_initial_pose/vertex_id"
 
-    topics.raw_cloud: "/livox/lidar"
+    topics.raw_cloud: "/rslidar_points"
     topics.registered_cloud: "/cloud_registered_body"
     # 建图流程用于自动打点/运行状态探测。
     topics.mapping_cloud: "/cloud_registered_body"
@@ -43,8 +43,8 @@ route3d_web_console:
     topics.slicer_status: "/route3d_route_slicer/status"
     topics.pid_status: "/route3d_pid_controller/status"
     topics.active_controller: "/route3d_controller/active_source"
-    topics.adapter_status: "/route3d_go2_adapter/status"
-    topics.selected_command: "/route3d_go2_adapter/selected_command"
+    topics.adapter_status: "/route3d_m20_adapter/status"
+    topics.selected_command: "/route3d_m20_adapter/selected_command"
 
     services.pause: "/route3d_pid_controller/pause"
     services.resume: "/route3d_pid_controller/resume"
@@ -53,8 +53,8 @@ route3d_web_console:
 
     cloud.voxel_size_m: 0.12
     cloud.maximum_range_m: 20.0
-    cloud.maximum_points: 20000
-    cloud.maximum_rate_hz: 5.0
+    cloud.maximum_points: 12000
+    cloud.maximum_rate_hz: 3.0
     # /cloud_registered_body is expressed in the robot/body frame in the deployed GLIO.
     # The web backend transforms it by the freshest /lio_odom_hf pose (or /lio_odom during mapping)
     # before streaming, so the live cloud moves together with the localized robot.
@@ -76,9 +76,9 @@ route3d_web_console:
     localization.yaw_variance: 0.0685
 
     process.ros_setup: "/opt/ros/jazzy/setup.bash"
-    process.workspace_setup: "/home/langyi/workspace/wyf/topo_graph_ws/install/setup.bash"
-    # 建图启动严格按现场命令：cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping
-    process.mapping_command: "cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping"
+    process.workspace_setup: "/home/langyi/workspace/wyf/topo_graph_m20_ws/install/setup.bash"
+    # 实机为 Robosense；使用现场已经验证的 run_mapping_nodes_2.sh。
+    process.mapping_command: "cd /opt/mapping_ws && ./run_mapping_nodes_2.sh mode:=mapping config:=robosense_glio"
     process.mapping_setup: "/opt/mapping_ws/install/setup.bash"
     # 保存地图默认生成 <地图名>-0.1.pcd，并自动建立 <地图名>.pcd 软链接供网页加载。
     mapping.save_resolution_tag: "0.1"
@@ -88,22 +88,21 @@ route3d_web_console:
     process.radar_stop_command: "sudo -n systemctl stop driver.service"
     # 网页不再要求手动选择“定位配置模板”。如果 catalog 中有与当前 PCD 精确匹配的
     # 旧配置则自动复用；否则使用这个默认模板，并只替换 global_map_path。
-    localization.config_template: "/opt/mapping_ws/glio_mapping/mid360_loc.yaml"
+    localization.config_template: "/opt/mapping_ws/glio_mapping/robosense_loc_2.yaml"
     # Load the mapping overlay and the directory containing the localization binary's
     # private libglio_mapping_localization.so before starting localization.
     process.localization_command: "source /opt/mapping_ws/install/setup.bash; export LD_LIBRARY_PATH=/opt/mapping_ws/glio_mapping:$LD_LIBRARY_PATH; tf_pid=''; cleanup_tf() { if [ -n \"$tf_pid\" ]; then kill \"$tf_pid\" 2>/dev/null || true; wait \"$tf_pid\" 2>/dev/null || true; fi; }; trap 'cleanup_tf; exit 130' INT TERM; trap cleanup_tf EXIT; ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 map camera_init & tf_pid=$!; /opt/mapping_ws/glio_mapping/localization_node {localization_config}"
-    process.planner_command: "ros2 launch route3d_go2_adapter go2_pid_route.launch.xml graph_file:={graph_file} network_interface:={network_interface} enable_motion:={enable_motion} use_sim_time:=false launch_rviz:=false"
+    process.planner_command: "ros2 launch route3d_m20_adapter m20_pid_route.launch.xml graph_file:={graph_file} enable_motion:={enable_motion} use_sim_time:=false launch_rviz:=false"
     # 两种循环入口分别复用现有 05/07 脚本；网页会为所选两个点生成临时 YAML。
-    process.loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_ws/sh/05_start_loop_patrol.sh"
-    process.goal_only_loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_ws/sh/07_start_goal_only_loop.sh"
+    process.loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_m20_ws/sh/05_start_loop_patrol.sh"
+    process.goal_only_loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_m20_ws/sh/07_start_goal_only_loop.sh"
     # Keep the established two-key product workflow. `script` allocates the terminal that
     # route3d_live_keyboard requires; the web backend writes the same 1/2/name/q inputs.
     process.topology_record_command: "script -q -e -c 'ros2 launch route3d_product_demo live_route_product.launch.py config_file:={record_config}' /dev/null"
-    topology.record_config_template: "/home/langyi/workspace/wyf/topo_graph_ws/src/route3d_product_demo/config/live_route_product.yaml"
+    topology.record_config_template: "/home/langyi/workspace/wyf/topo_graph_m20_ws/src/route3d_product_demo/config/live_route_product.yaml"
     # Current GLIO publishes /lio_odom about 0.10 s before /cloud_registered_body.
     # The original 0.05 s approximate-sync window retained only one frame in the failed run.
     topology.record_sync_slop_s: 0.15
-    topology.record_results_root: "/home/langyi/workspace/wyf/topo_graph_ws/data"
-    process.network_interface: "enp2s0"
-    process.ros_domain_id: 42
+    topology.record_results_root: "/home/langyi/workspace/wyf/topo_graph_m20_ws/data"
+    process.ros_domain_id: 10
     process.stop_timeout_s: 5.0

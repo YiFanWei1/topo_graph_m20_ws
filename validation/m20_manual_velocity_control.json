@@ -1,0 +1,55 @@
+{
+  "test_date": "2026-09-13",
+  "package": "m20_velocity_control",
+  "passed": true,
+  "build": {
+    "command": "colcon build --packages-up-to m20_velocity_control --symlink-install",
+    "passed": true
+  },
+  "unit_tests": {
+    "test_cases": 7,
+    "failures": 0,
+    "covered": [
+      "fresh ready RL command",
+      "motion disabled",
+      "emergency stop",
+      "not ready",
+      "non-RL or stale M20 state",
+      "command timeout",
+      "velocity clamping and lateral-motion policy",
+      "non-finite command rejection"
+    ]
+  },
+  "isolated_runtime_test": {
+    "ros_domain_id": 80,
+    "bridge_started": false,
+    "robot_connection_attempted": false,
+    "input": {
+      "vx": 1.2,
+      "vy": 0.2,
+      "wz": -0.8
+    },
+    "fresh_ready_rl_output": {
+      "vx": 0.8,
+      "vy": 0.0,
+      "wz": -0.5
+    },
+    "command_timeout_output_zero": true,
+    "emergency_stop_output_zero": true,
+    "not_ready_output_zero": true
+  },
+  "offline_launch_test": {
+    "arguments": "start_bridge:=false enable_motion:=false",
+    "only_node": "/m20_velocity_control",
+    "bridge_started": false,
+    "status_block_reason": "motion_disabled",
+    "safe_output_publisher_count": 1,
+    "passed": true
+  },
+  "topics": {
+    "user_input": "/m20/manual/cmd_vel",
+    "safe_bridge_input": "/m20/manual/cmd_vel_safe",
+    "status": "/m20/manual/status",
+    "emergency_stop": "/m20/manual/emergency_stop"
+  }
+}

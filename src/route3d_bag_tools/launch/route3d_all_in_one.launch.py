@@ -130,7 +130,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "launch_rviz", default_value="true",
             description="launch the combined Route3D and planner RViz view"),
-        DeclareLaunchArgument("body_height", default_value="0.40"),
+        DeclareLaunchArgument("body_height", default_value="0.57"),
         DeclareLaunchArgument(
             "target_spacing", default_value="1.0",
             description="ordinary skeleton target spacing in metres"),

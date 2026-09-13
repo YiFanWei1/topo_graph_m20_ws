@@ -8,7 +8,7 @@
   <arg name="demo_interval" default="4.0"/>
   <arg name="use_sim_time" default="false"/>
   <arg name="start_snap_radius_m" default="1.0"/>
-  <arg name="odometry_body_height_m" default="0.40"/>
+  <arg name="odometry_body_height_m" default="0.57"/>
   <arg name="rviz_config"
        default="$(find-pkg-share route3d_dijkstra_planner)/rviz/dijkstra_demo.rviz"/>
 

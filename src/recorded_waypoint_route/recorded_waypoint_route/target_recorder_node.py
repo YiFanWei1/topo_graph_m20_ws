@@ -34,7 +34,7 @@ class TargetRecorderNode(Node):
         self.planning_frame = str(self.declare_parameter(
             "frames.planning", "camera_init").value)
         self.body_height = float(self.declare_parameter(
-            "recording.body_height", 0.40).value)
+            "recording.body_height", 0.57).value)
         self.minimum_spacing = float(self.declare_parameter(
             "recording.minimum_target_spacing", 0.05).value)
         self.output_file = str(self.declare_parameter(

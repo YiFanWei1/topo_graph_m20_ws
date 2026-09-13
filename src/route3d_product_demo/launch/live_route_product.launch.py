@@ -66,7 +66,7 @@ def _launch_from_yaml(context):
         raise RuntimeError("static_tf must be a mapping")
 
     actions = [LogInfo(msg=f"Route3D product config: {config_path}")]
-    for name in ("map_to_camera_init", "body_to_base_link"):
+    for name, entry in static_config.items():
         entry = static_config.get(name, {})
         if not isinstance(entry, dict):
             raise RuntimeError(f"static_tf.{name} must be a mapping")

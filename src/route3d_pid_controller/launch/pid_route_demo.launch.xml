@@ -3,14 +3,14 @@
   <arg name="graph_file"
        default="$(find-pkg-share route3d_dijkstra_planner)/config/complex_topology_v2.json"/>
   <arg name="pid_config"
-       default="$(find-pkg-share route3d_pid_controller)/config/go2_pid.yaml"/>
+       default="$(find-pkg-share route3d_pid_controller)/config/m20_pid.yaml"/>
   <arg name="rviz_config"
        default="$(find-pkg-share route3d_pid_controller)/rviz/pid_controller.rviz"/>
   <arg name="start_planner" default="true"/>
   <arg name="launch_rviz" default="true"/>
   <arg name="use_sim_time" default="false"/>
   <arg name="start_snap_radius_m" default="1.0"/>
-  <arg name="odometry_body_height_m" default="0.40"/>
+  <arg name="odometry_body_height_m" default="0.57"/>
 
   <include file="$(find-pkg-share route3d_route_slicer)/launch/route_slicer_demo.launch.xml">
     <arg name="graph_file" value="$(var graph_file)"/>

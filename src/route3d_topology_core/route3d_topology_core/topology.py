@@ -172,7 +172,7 @@ class LoopClosureConfig:
 class TopologyConfig:
     target_spacing: float = 1.0
     dedup_distance: float = 0.05
-    body_height: float = 0.40
+    body_height: float = 0.57
     relocation_distance: float = 0.50
     topo_type: int = 0
     topo_pcd: str = ""

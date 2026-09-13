@@ -256,18 +256,19 @@ class ProductDemo:
 
 
 def parse_args() -> argparse.Namespace:
+    workspace_default = Path(__file__).resolve().parents[3]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--workspace", default="/home/langyi/workspace/wyf/topo_graph_ws",
+        "--workspace", default=str(workspace_default),
         help="ROS 2 工作空间路径")
     parser.add_argument(
-        "--results-root", default="/home/langyi/workspace/wyf/topo_graph_ws/data",
+        "--results-root", default=str(workspace_default / "data"),
         help="处理结果的根目录，最终保存到 <root>/<name>")
     parser.add_argument("--odom-topic", default="/lio_odom")
     parser.add_argument("--cloud-topic", default="/cloud_registered_body")
     parser.add_argument("--sync-slop", type=float, default=0.05)
     parser.add_argument("--target-spacing", type=float, default=1.0)
-    parser.add_argument("--body-height", type=float, default=0.40)
+    parser.add_argument("--body-height", type=float, default=0.57)
     parser.add_argument("--topo-pcd", default="")
     parser.add_argument("--topo-acc", type=float, default=0.5)
     parser.add_argument("--no-rviz", action="store_true")

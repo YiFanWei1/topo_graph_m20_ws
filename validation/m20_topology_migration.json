@@ -1,0 +1,122 @@
+{
+  "data_root": "/home/wei/github_code/topo_graph_m20_ws/data",
+  "applied": true,
+  "backup_root": "/home/wei/github_code/topo_graph_m20_ws/data/.m20_migration_backup",
+  "files_scanned": 12,
+  "files_changed": 12,
+  "totals": {
+    "obstacle_mode_changed": 1631,
+    "align_final_yaw_changed": 1631,
+    "locomotion_mode_removed": 1631
+  },
+  "files": [
+    {
+      "vertices": 138,
+      "edges": 137,
+      "obstacle_mode_changed": 137,
+      "align_final_yaw_changed": 138,
+      "locomotion_mode_removed": 137,
+      "changed": true,
+      "file": "711/topoGraph_data.json"
+    },
+    {
+      "vertices": 241,
+      "edges": 241,
+      "obstacle_mode_changed": 241,
+      "align_final_yaw_changed": 241,
+      "locomotion_mode_removed": 241,
+      "changed": true,
+      "file": "79792/topoGraph_data.json"
+    },
+    {
+      "vertices": 4,
+      "edges": 3,
+      "obstacle_mode_changed": 3,
+      "align_final_yaw_changed": 4,
+      "locomotion_mode_removed": 3,
+      "changed": true,
+      "file": "building_a_v1/topoGraph_data.json"
+    },
+    {
+      "vertices": 11,
+      "edges": 10,
+      "obstacle_mode_changed": 10,
+      "align_final_yaw_changed": 0,
+      "locomotion_mode_removed": 10,
+      "changed": true,
+      "file": "ceshi_1/topoGraph_data.json"
+    },
+    {
+      "vertices": 6,
+      "edges": 5,
+      "obstacle_mode_changed": 5,
+      "align_final_yaw_changed": 6,
+      "locomotion_mode_removed": 5,
+      "changed": true,
+      "file": "ceshi_2/topoGraph_data.json"
+    },
+    {
+      "vertices": 109,
+      "edges": 108,
+      "obstacle_mode_changed": 108,
+      "align_final_yaw_changed": 109,
+      "locomotion_mode_removed": 108,
+      "changed": true,
+      "file": "regu/topoGraph_data.json"
+    },
+    {
+      "vertices": 106,
+      "edges": 105,
+      "obstacle_mode_changed": 105,
+      "align_final_yaw_changed": 106,
+      "locomotion_mode_removed": 105,
+      "changed": true,
+      "file": "regu_2/topoGraph_data.json"
+    },
+    {
+      "vertices": 9,
+      "edges": 8,
+      "obstacle_mode_changed": 8,
+      "align_final_yaw_changed": 9,
+      "locomotion_mode_removed": 8,
+      "changed": true,
+      "file": "test_2/topoGraph_data.json"
+    },
+    {
+      "vertices": 4,
+      "edges": 3,
+      "obstacle_mode_changed": 3,
+      "align_final_yaw_changed": 4,
+      "locomotion_mode_removed": 3,
+      "changed": true,
+      "file": "test_3/topoGraph_data.json"
+    },
+    {
+      "vertices": 378,
+      "edges": 377,
+      "obstacle_mode_changed": 377,
+      "align_final_yaw_changed": 378,
+      "locomotion_mode_removed": 377,
+      "changed": true,
+      "file": "xili/xili/topoGraph_data.json"
+    },
+    {
+      "vertices": 356,
+      "edges": 355,
+      "obstacle_mode_changed": 355,
+      "align_final_yaw_changed": 356,
+      "locomotion_mode_removed": 355,
+      "changed": true,
+      "file": "xili/xili_2/topoGraph_data.json"
+    },
+    {
+      "vertices": 280,
+      "edges": 279,
+      "obstacle_mode_changed": 279,
+      "align_final_yaw_changed": 280,
+      "locomotion_mode_removed": 279,
+      "changed": true,
+      "file": "xili/xili_3/topoGraph_data.json"
+    }
+  ]
+}

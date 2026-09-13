@@ -461,9 +461,9 @@ private:
       "resources.scan_max_files", 1000));
     resource_scan_max_depth_ = declare_parameter<int>("resources.scan_max_depth", 6);
     pcd_root_ = expandUser(declare_parameter<std::string>(
-      "resources.pcd_root", "/home/langyi/workspace/map"));
+      "resources.pcd_root", "/home/wei"));
     topology_root_ = expandUser(declare_parameter<std::string>(
-      "resources.topology_root", "/home/langyi/workspace/wyf/topo_graph_ws/data"));
+      "resources.topology_root", "data"));
     initializer_graph_topic_ = declare_parameter<std::string>(
       "vertex_initializer.graph_file_topic", "/route3d_initial_pose/graph_file");
     initializer_vertex_topic_ = declare_parameter<std::string>(
@@ -527,11 +527,9 @@ private:
       "cloud.registered_body_transform_with_odometry", true);
     planner_command_ = declare_parameter<std::string>("process.planner_command", "");
     loop_patrol_script_ = expandUser(declare_parameter<std::string>(
-      "process.loop_patrol_script",
-      "/home/langyi/workspace/wyf/topo_graph_ws/sh/05_start_loop_patrol.sh"));
+      "process.loop_patrol_script", "sh/05_start_loop_patrol.sh"));
     goal_only_loop_patrol_script_ = expandUser(declare_parameter<std::string>(
-      "process.goal_only_loop_patrol_script",
-      "/home/langyi/workspace/wyf/topo_graph_ws/sh/07_start_goal_only_loop.sh"));
+      "process.goal_only_loop_patrol_script", "sh/07_start_goal_only_loop.sh"));
     mapping_command_ = declare_parameter<std::string>(
       "process.mapping_command", "cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping");
     mapping_setup_ = expandUser(declare_parameter<std::string>(
@@ -661,10 +659,10 @@ private:
     subscribeStatus("active_controller", declare_parameter<std::string>(
       "topics.active_controller", "/route3d_controller/active_source"));
     subscribeStatus("adapter", declare_parameter<std::string>(
-      "topics.adapter_status", "/route3d_go2_adapter/status"));
+      "topics.adapter_status", "/route3d_m20_adapter/status"));
     selected_command_subscription_ = create_subscription<geometry_msgs::msg::Twist>(
       declare_parameter<std::string>("topics.selected_command",
-      "/route3d_go2_adapter/selected_command"), rclcpp::QoS(10).reliable(),
+      "/route3d_m20_adapter/selected_command"), rclcpp::QoS(10).reliable(),
       [this](const geometry_msgs::msg::Twist::ConstSharedPtr message) {
         if (server_) {server_->broadcastText({{"type", "velocity"},
           {"vx", message->linear.x}, {"vy", message->linear.y}, {"wz", message->angular.z}});}
@@ -700,7 +698,10 @@ private:
       latest_localization_pose_ = message->pose.pose;
       latest_localization_frame_id_ = message->header.frame_id;
       has_localization_pose_ = true;
-      trajectory_.push_back({p.x, p.y, p.z});
+      const bool moved = trajectory_.empty() ||
+        std::pow(p.x - trajectory_.back()[0], 2) + std::pow(p.y - trajectory_.back()[1], 2) +
+        std::pow(p.z - trajectory_.back()[2], 2) >= 0.0025;
+      if (moved) {trajectory_.push_back({p.x, p.y, p.z});}
       if (trajectory_.size() > 2000U) {
         std::vector<std::array<double, 3>> compact;
         compact.reserve(1001U);
@@ -927,7 +928,7 @@ private:
     const bool mapping_cloud = count_publishers(mapping_cloud_topic_) > 0U;
     const bool planner_nodes = nodeMatches(nodes, {
       "route3d_dijkstra_planner", "route3d_route_slicer", "route3d_pid_controller",
-      "route3d_go2_adapter"});
+      "route3d_m20_adapter"});
     const bool recording_nodes = nodeMatches(nodes, {
       "route3d_online_skeleton", "route3d_data_recorder", "route3d_live"});
     const bool initializer_node = nodeMatches(nodes, {"route3d_vertex_initializer"}) ||
@@ -945,7 +946,7 @@ private:
     return {
       {"radar", {{"online", radar_proc || radar_topic}, {"managed", radar_proc},
         {"topic_publishers", count_publishers(raw_cloud_topic_)}}},
-      {"mapping", {{"online", mapping_proc || save_service || (mapping_odom && mapping_cloud)},
+      {"mapping", {{"online", mapping_proc || (mapping_odom && mapping_cloud)},
         {"managed", mapping_proc}, {"save_service", save_service},
         {"odom_publishers", count_publishers(mapping_odometry_topic_)},
         {"cloud_publishers", count_publishers(mapping_cloud_topic_)}}},
@@ -979,6 +980,7 @@ private:
       {"selected_pcd", selected_pcd_path_.string()},
       {"selected_topology", selected_topology_path_.string()},
       {"map_voxel_m", selected_map_voxel_},
+      {"navigation_target", navigation_target_},
       {"topology_recording_state", recording_state},
       {"features", detectFeatures()},
       {"control_owner", ""}, {"ros", ros_status_}, {"topics", topic_health_},
@@ -993,7 +995,7 @@ private:
     json topologies = json::array();
 
     // PCD maps follow the deployment layout:
-    //   /home/langyi/workspace/map/<map_name>/map/<map_name>.pcd
+    //   <pcd_root>/<map_name>/map/<map_name>.pcd
     // The UI label is <map_name>, never the raw filename/path.
     std::error_code error;
     if (fs::is_directory(pcd_root_, error)) {
@@ -1033,7 +1035,7 @@ private:
     }
 
     // Topology maps follow the deployment layout:
-    //   /home/langyi/workspace/wyf/topo_graph_ws/data/<name>/topoGraph_data.json
+    //   <M20 workspace>/data/<name>/topoGraph_data.json
     // Other JSON files in the directory are intentionally ignored.
     error.clear();
     if (fs::is_directory(topology_root_, error)) {
@@ -1405,6 +1407,13 @@ private:
   void saveMappingMap(
     const std::string & client, const json & request, const std::string & request_id)
   {
+    const auto mapping = detectFeatures().at("mapping");
+    if (!mapping.value("online", false) || mapping.value("odom_publishers", 0U) == 0U ||
+      mapping.value("cloud_publishers", 0U) == 0U)
+    {
+      throw std::runtime_error(
+              "mapping data is not online; start mapping (not localization) and move before saving");
+    }
     if (!serviceAvailable(save_map_service_)) {
       throw std::runtime_error("/save_pcd_service is not available; start mapping first");
     }
@@ -1431,13 +1440,19 @@ private:
     }
 
     const std::string yaml = "{filename: '" + filename.string() + "'}";
-    std::string command = "ros2 service call " + shellQuote(save_map_service_) +
+    const std::string service_call = "ros2 service call " + shellQuote(save_map_service_) +
       " moveit_msgs/srv/SaveMap " + shellQuote(yaml);
+    std::string command = "output=$(" + service_call + " 2>&1); rc=$?; ";
+    command += "printf '%s\\n' \"$output\"; ";
+    command += "if [ $rc -ne 0 ] || ! printf '%s\\n' \"$output\" | ";
+    command += "grep -Eq 'success[=:][[:space:]]*(true|True)'; then ";
+    command += "echo '[ERROR] save service returned failure; no PCD was generated' >&2; exit 4; fi; ";
     // Keep the user's requested filename (e.g. 510-0.1.pcd), and expose the canonical
     // <map_name>.pcd path used by the web map selector without duplicating a large PCD.
-    command += "; rc=$?; if [ $rc -eq 0 ] && [ -f " + shellQuote(generated_pcd.string()) +
-      " ]; then ln -sfn " + shellQuote(generated_pcd.filename().string()) + " " +
-      shellQuote(canonical_pcd.string()) + "; fi; exit $rc";
+    command += "if [ ! -s " + shellQuote(generated_pcd.string()) +
+      " ]; then echo '[ERROR] save service reported success but the PCD is missing or empty' "
+      ">&2; exit 5; fi; ln -sfn " + shellQuote(generated_pcd.filename().string()) + " " +
+      shellQuote(canonical_pcd.string());
 
     std::string error;
     if (!process_manager_.start("map_save", mappingCommandPrefix() + command,
@@ -2008,6 +2023,30 @@ private:
     reply(client, request_id, true, "vertex initial pose published directly (initializer not running)");
   }
 
+  json navigationTargetForVertex(const int vertex_id) const
+  {
+    if (!current_topology_) {throw std::runtime_error("select a topology before sending a goal");}
+    const std::string key = std::to_string(vertex_id);
+    const auto & vertices = current_topology_->data.at("vertices");
+    if (!vertices.contains(key)) {throw std::runtime_error("goal vertex " + key + " does not exist");}
+    const auto & vertex = vertices.at(key);
+    const auto position = vertex.value("pos", json::array());
+    const auto rpy = vertex.value("rpy", json::array());
+    if (!position.is_array() || position.size() != 3U) {
+      throw std::runtime_error("goal vertex " + key + " has invalid position");
+    }
+    const double yaw = rpy.is_array() && rpy.size() >= 3U ? rpy[2].get<double>() : 0.0;
+    return {{"type", "navigation.target"}, {"vertex_id", vertex_id}, {"position", position},
+      {"yaw", yaw}, {"frame_id", current_topology_->data.value("frame_id", "camera_init")}};
+  }
+
+  void selectNavigationTarget(const int vertex_id)
+  {
+    auto target = navigationTargetForVertex(vertex_id);
+    {std::lock_guard<std::mutex> lock(state_mutex_); navigation_target_ = target;}
+    if (server_) {server_->broadcastText(target);}
+  }
+
   void plan(const std::string & client, const json & request, const std::string & request_id)
   {
     if (!detectFeatures().at("planner").value("online", false)) {
@@ -2018,6 +2057,7 @@ private:
     if (start_id < 0 || goal_id < 0 || start_id == goal_id) {
       throw std::runtime_error("start_id and goal_id must be different non-negative integers");
     }
+    selectNavigationTarget(goal_id);
     std_msgs::msg::Int32MultiArray message;
     message.data = {start_id, goal_id};
     plan_publisher_->publish(message);
@@ -2031,6 +2071,7 @@ private:
     }
     const int goal_id = request.at("goal_id").get<int>();
     if (goal_id < 0) {throw std::runtime_error("goal_id must be a non-negative integer");}
+    selectNavigationTarget(goal_id);
     std_msgs::msg::Int32 message;
     message.data = goal_id;
     goal_publisher_->publish(message);
@@ -2104,6 +2145,7 @@ private:
     const int max_round_trips = request.value("max_round_trips", 0);
     const fs::path config = writeLoopPatrolConfig(
       start_id, goal_id, mode, dwell_time_s, max_round_trips);
+    selectNavigationTarget(goal_id);
     const fs::path script = mode == "goal_only" ? goal_only_loop_patrol_script_ : loop_patrol_script_;
     if (!fs::is_regular_file(script)) {
       throw std::runtime_error("loop patrol script does not exist: " + script.string());
@@ -2248,6 +2290,7 @@ private:
   std::size_t cloud_max_points_{20000}, chunk_points_{32768};
   std::vector<float> map_lods_;
   float selected_map_voxel_{0.2F};
+  json navigation_target_;
   float map_voxel_min_{0.01F};
   float map_voxel_max_{2.0F};
   std::chrono::duration<double> cloud_period_{0.2};

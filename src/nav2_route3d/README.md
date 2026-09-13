@@ -147,7 +147,7 @@ PCD 文件支持常见 ASCII 和 binary PCD，读取 `x/y/z` 字段。PCD 文件
 
 ```bash
 ros2 run nav2_route3d route_graph_builder_3d \
-  --map-path /home/langyi/workspace/map/79_long_louti_lio/map/slam_data \
+  --map-path /home/wei/map/79_long_louti_lio/map/slam_data \
   --poses-file pose.json \
   --pcd-dir key_frames \
   --radius 9.0 \
@@ -214,7 +214,7 @@ map_path/route3d_graph.geojson
 
 ```bash
 ros2 launch nav2_route3d route_server_3d.launch.py \
-  graph_filepath:=/home/langyi/workspace/map/79_louti_lio/map/slam_data/route3d_graph.json
+  graph_filepath:=/home/wei/map/79_louti_lio/map/slam_data/route3d_graph.json
 ```
 
 Lifecycle：

@@ -6,16 +6,12 @@ uint32 task_index
 string task_mode
 string configured_controller_mode
 string resolved_controller_mode
-string gait_command
 uint8 completion_policy
 bool is_route_goal
 bool requires_stop_at_end
-bool requires_gait_switch_at_start
 bool contains_slope
-bool reverse_motion
 bool align_goal_yaw
 float64 endpoint_tolerance_m
-int32 locomotion_mode
 float64 linear_speed_mps
 float64 angular_speed_radps
 float64 height_offset_m

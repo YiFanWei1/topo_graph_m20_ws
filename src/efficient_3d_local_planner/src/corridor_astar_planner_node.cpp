@@ -57,7 +57,7 @@ public:
     map_topic_ = declare_parameter<std::string>(
       "input.voxel_grid_topic", "/local_voxel_map/grid");
     path_topic_ = declare_parameter<std::string>("input.path_topic", "/plan");
-    path_height_ = declare_parameter<double>("planner.path_height", 0.40);
+    path_height_ = declare_parameter<double>("planner.path_height", 0.57);
     // 楼梯点云和里程计高度会有小误差。允许在 start_z_max_correction_ 内把规划起点 Z
     // 投影到当前 guide；若差值更大，则认为活动路径属于错误楼层并拒绝规划。
     project_start_z_ = declare_parameter<bool>("planner.project_start_z", true);
@@ -264,7 +264,7 @@ private:
     Eigen::Vector3d robot{Eigen::Vector3d::Zero()};
     double yaw{0.0};
     bool has_odometry{false};
-    double path_height{0.40};
+    double path_height{0.57};
     std::uint64_t generation{0U};
     std::uint64_t path_generation{0U};
   };
@@ -735,7 +735,7 @@ private:
     status.level = result.success ? diagnostic_msgs::msg::DiagnosticStatus::OK :
       diagnostic_msgs::msg::DiagnosticStatus::WARN;
     status.name = "efficient_3d_local_planner/guided_astar";
-    status.hardware_id = "go2";
+    status.hardware_id = "m20";
     status.message = result.reason;
     auto add = [&](const std::string & key, const auto value) {
         diagnostic_msgs::msg::KeyValue pair;
@@ -791,7 +791,7 @@ private:
         diagnostic_msgs::msg::DiagnosticStatus::OK :
         diagnostic_msgs::msg::DiagnosticStatus::WARN;
       optimized_status.name = "efficient_3d_local_planner/control_bspline";
-      optimized_status.hardware_id = "go2";
+      optimized_status.hardware_id = "m20";
       optimized_status.message = optimization->reason;
       auto add_optimization = [&](const std::string & key, const auto value) {
           diagnostic_msgs::msg::KeyValue pair;
@@ -1148,7 +1148,7 @@ private:
   // -------- 启动后不变的路径预处理和搜索参数 --------
   std::string planning_frame_;
   std::string path_topic_;
-  double path_height_{0.40};
+  double path_height_{0.57};
   bool project_start_z_{true};
   double start_z_max_correction_{0.60};
   bool reject_wrong_path_level_{true};

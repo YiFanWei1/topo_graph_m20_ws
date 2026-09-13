@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="config_file"
-       default="$(find-pkg-share route3d_pid_controller)/config/go2_pid.yaml"/>
+       default="$(find-pkg-share route3d_pid_controller)/config/m20_pid.yaml"/>
   <arg name="use_sim_time" default="false"/>
 
   <node pkg="route3d_pid_controller" exec="pid_controller_node"

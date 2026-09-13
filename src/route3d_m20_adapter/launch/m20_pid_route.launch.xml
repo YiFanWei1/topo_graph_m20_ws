@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="graph_file"
+       default="$(find-pkg-share route3d_dijkstra_planner)/config/complex_topology_v2.json"/>
+  <arg name="pid_config"
+       default="$(find-pkg-share route3d_pid_controller)/config/m20_pid.yaml"/>
+  <arg name="adapter_config"
+       default="$(find-pkg-share route3d_m20_adapter)/config/m20_route_adapter.yaml"/>
+  <arg name="efficient_config"
+       default="$(find-pkg-share efficient_3d_local_planner)/config/up_and_down.yaml"/>
+  <arg name="bridge_config"
+       default="$(find-pkg-share basic_server_bridge)/config/basic_server_bridge.yaml"/>
+  <arg name="enable_motion" default="false"/>
+  <arg name="start_m20_bridge" default="true"/>
+  <arg name="start_efficient_planner" default="true"/>
+  <arg name="publish_static_tf" default="true"/>
+  <arg name="publish_odometry_tf" default="false"/>
+  <arg name="odometry_tf_topic" default="/lio_odom_hf"/>
+  <arg name="start_snap_radius_m" default="1.0"/>
+  <arg name="odometry_body_height_m" default="0.57"/>
+  <arg name="launch_rviz" default="true"/>
+  <arg name="use_sim_time" default="false"/>
+
+  <include file="$(find-pkg-share route3d_pid_controller)/launch/pid_route_demo.launch.xml">
+    <arg name="graph_file" value="$(var graph_file)"/>
+    <arg name="pid_config" value="$(var pid_config)"/>
+    <arg name="launch_rviz" value="$(var launch_rviz)"/>
+    <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    <arg name="start_snap_radius_m" value="$(var start_snap_radius_m)"/>
+    <arg name="odometry_body_height_m" value="$(var odometry_body_height_m)"/>
+  </include>
+
+  <group if="$(var publish_static_tf)">
+    <node pkg="tf2_ros" exec="static_transform_publisher"
+          name="map_to_camera_init_static_tf" output="screen"
+          args="--x 0 --y 0 --z 0 --roll 0 --pitch 0 --yaw 0 --frame-id map --child-frame-id camera_init">
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+    <!-- body 是雷达坐标系；定位节点发布 camera_init -> body，并通过本静态 TF 得到机身中心 base_link。 -->
+    <!-- 雷达在机身中心坐标系的位置为 [0.32028, 0, -0.013]，故此处发布其逆变换。 -->
+    <node pkg="tf2_ros" exec="static_transform_publisher"
+          name="body_to_base_link_static_tf" output="screen"
+          args="--x -0.32028 --y 0 --z 0.013 --roll 0 --pitch 0 --yaw 0 --frame-id body --child-frame-id base_link">
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+  </group>
+
+  <group if="$(var publish_odometry_tf)">
+    <node pkg="route3d_m20_adapter" exec="odometry_tf_broadcaster_node"
+          name="route3d_odometry_tf_broadcaster" output="screen">
+      <param name="odometry_topic" value="$(var odometry_tf_topic)"/>
+      <param name="parent_frame" value="camera_init"/>
+      <param name="child_frame" value="base_link"/>
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+  </group>
+
+  <group if="$(var start_efficient_planner)">
+    <node pkg="efficient_3d_local_planner" exec="local_voxel_mapper_node"
+          name="local_voxel_mapper" output="screen">
+      <param from="$(var efficient_config)"/>
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+    <node pkg="obstacle_occlusion_extension" exec="obstacle_occlusion_extension_node"
+          name="obstacle_occlusion_extension" output="screen">
+      <param from="$(var efficient_config)"/>
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+    <node pkg="efficient_3d_local_planner" exec="corridor_astar_planner_node"
+          name="corridor_astar_planner" output="screen">
+      <param from="$(var efficient_config)"/>
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+      <param name="input.path_topic" value="/route3d_controller/efficient_path"/>
+      <remap from="/recorded_waypoint_route/active_segment_ground"
+             to="/route3d_controller/efficient_path"/>
+    </node>
+    <node pkg="efficient_3d_local_planner" exec="local_path_follower_node"
+          name="local_path_follower" output="screen">
+      <param from="$(var efficient_config)"/>
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+      <remap from="/cmd_vel_smoothed" to="/cmd_vel_effi"/>
+    </node>
+  </group>
+
+  <node pkg="route3d_m20_adapter" exec="m20_route_adapter_node"
+        name="route3d_m20_adapter" output="screen">
+    <param from="$(var adapter_config)"/>
+    <param name="enable_motion" value="$(var enable_motion)"/>
+    <param name="use_sim_time" value="$(var use_sim_time)"/>
+  </node>
+
+  <group if="$(var start_m20_bridge)">
+    <include file="$(find-pkg-share basic_server_bridge)/launch/m20_control.launch.py">
+      <arg name="config_file" value="$(var bridge_config)"/>
+      <arg name="start_prepare" value="$(var enable_motion)"/>
+    </include>
+  </group>
+</launch>

@@ -11,7 +11,7 @@ def generate_launch_description():
         DeclareLaunchArgument("output_topo", default_value="topoSingle_live.json"),
         DeclareLaunchArgument("events_file", default_value="events.jsonl"),
         DeclareLaunchArgument("target_spacing", default_value="1.0"),
-        DeclareLaunchArgument("body_height", default_value="0.40"),
+        DeclareLaunchArgument("body_height", default_value="0.57"),
         DeclareLaunchArgument("relocation_distance", default_value="0.50"),
         Node(
             package="route3d_online_skeleton",

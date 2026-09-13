@@ -130,7 +130,7 @@ class OnlineRouteSkeleton(Node):
             if key_frames_value else None)
         self.target_spacing = float(self.declare_parameter("target_spacing", 1.0).value)
         self.dedup_distance = float(self.declare_parameter("dedup_distance", 0.05).value)
-        self.body_height = float(self.declare_parameter("body_height", 0.40).value)
+        self.body_height = float(self.declare_parameter("body_height", 0.57).value)
         self.corner_xy_radius = float(self.declare_parameter("corner_xy_radius", 0.50).value)
         self.corner_yaw_degrees = float(self.declare_parameter(
             "corner_yaw_degrees", 90.0).value)

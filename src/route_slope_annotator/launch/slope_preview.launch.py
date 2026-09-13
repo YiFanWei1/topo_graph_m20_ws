@@ -1,8 +1,9 @@
 """Annotate one topology JSON and visualize per-vertex slope attributes."""
 
 import os
+from pathlib import Path
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
@@ -13,7 +14,9 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     share = get_package_share_directory("route_slope_annotator")
-    default_root = "/home/wei/github_code/topo_graph_ws_/data/79"
+    prefix = Path(get_package_prefix("route_slope_annotator"))
+    install_root = prefix.parent if prefix.name == "route_slope_annotator" else prefix
+    default_root = str(install_root.parent / "data" / "79")
     float_parameter = lambda name: ParameterValue(
         LaunchConfiguration(name), value_type=float)
     return LaunchDescription([

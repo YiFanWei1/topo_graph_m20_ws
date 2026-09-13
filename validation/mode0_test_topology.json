@@ -1,0 +1,80 @@
+{
+  "schema": {
+    "name": "route3d_topology",
+    "version": 2
+  },
+  "version": 1,
+  "type": 0,
+  "topology_mode": "m20_validation",
+  "sceneMode": "normal",
+  "frame_id": "camera_init",
+  "status": "complete",
+  "vertices": {
+    "1": {
+      "pos": [0.0, 0.0, 0.0],
+      "rpy": [0.0, 0.0, 0.0],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "m20_validation",
+        "sourceStamp": 0.0,
+        "component": 0,
+        "turnDeg": 0.0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": false,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    },
+    "2": {
+      "pos": [3.0, 0.0, 0.0],
+      "rpy": [0.0, 0.0, 1.5707963267948966],
+      "meta": {
+        "type": 0,
+        "typeId": 0,
+        "isCorner": false,
+        "isSlope": false,
+        "isJunction": false,
+        "state": "confirmed",
+        "source": "m20_validation",
+        "sourceStamp": 0.0,
+        "component": 0,
+        "turnDeg": 0.0,
+        "chargingMode": 0
+      },
+      "pcd": "",
+      "acc": 0.5,
+      "turnable": true,
+      "alignFinalYaw": false,
+      "mustPassThrough": false,
+      "passRadiusM": 0.45
+    }
+  },
+  "edges": {
+    "1": {
+      "v": [1, 2],
+      "weight": 3.0,
+      "meta": {
+        "dir": 0,
+        "source": "m20_validation",
+        "linearSpeedMps": 0.4,
+        "angularSpeedRadps": 0.0,
+        "heightOffsetM": 0.0,
+        "obstacleMode": 0,
+        "travelMode": "bidirectional",
+        "headingAngleRad": 0.0,
+        "obstacleBoxM": [0.0, 0.0, 0.0, 0.0],
+        "gridMapName": "",
+        "controllerMode": "pid"
+      },
+      "rotationAllowed": true
+    }
+  }
+}

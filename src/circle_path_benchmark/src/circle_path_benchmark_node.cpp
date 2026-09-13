@@ -51,7 +51,7 @@ public:
     initial_enable_ = declare_parameter<bool>("benchmark.enable_motion", false);
     center_from_initial_odometry_ = declare_parameter<bool>(
       "benchmark.center_from_initial_odometry", true);
-    path_height_offset_ = declare_parameter<double>("benchmark.path_height_offset", 0.40);
+    path_height_offset_ = declare_parameter<double>("benchmark.path_height_offset", 0.57);
     require_pcd_ = declare_parameter<bool>("benchmark.require_pcd", true);
     publish_rate_ = declare_parameter<double>("benchmark.publish_rate", 5.0);
     robot_radius_ = declare_parameter<double>("safety.robot_radius", 0.30);
@@ -685,7 +685,7 @@ private:
   double completion_position_tolerance_{0.20};
   double max_duration_{45.0};
   double actual_path_spacing_{0.01};
-  double path_height_offset_{0.40};
+  double path_height_offset_{0.57};
   double robot_radius_{0.30};
   double body_half_height_{0.35};
   double minimum_clearance_{std::numeric_limits<double>::infinity()};

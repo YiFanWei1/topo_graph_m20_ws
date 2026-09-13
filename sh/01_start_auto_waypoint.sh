@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-#readonly WORKSPACE="/home/langyi/workspace/wyf/topo_graph_ws"
-readonly WORKSPACE="/home/wei/github_code/topo_graph_ws_"
+readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly DEFAULT_CONFIG="${WORKSPACE}/src/route3d_product_demo/config/live_route_product.yaml"
 readonly CONFIG_FILE="${1:-${DEFAULT_CONFIG}}"
 
