@@ -2,8 +2,8 @@ route3d_loop_patrol:
   ros__parameters:
     patrol:
       # 循环发送终点；每次起点由机器人当前位置在 1 m 内自动匹配。
-      start_vertex_id: 1
-      goal_vertex_id: 8
+      start_vertex_id: 6
+      goal_vertex_id: 10
       initial_direction: start_to_goal
       request_mode: goal_only
       auto_start: true

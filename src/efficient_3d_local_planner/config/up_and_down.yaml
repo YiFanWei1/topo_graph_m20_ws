@@ -178,7 +178,7 @@ local_path_follower:
     controller.control_rate: 200.0              # 速度控制循环频率，单位 Hz
     controller.nominal_speed: 0.8             # 正常路径跟踪速度，单位 m/s
     controller.max_vx: 0.8                    # 机体 X 方向最大速度，单位 m/s
-    controller.max_vy: 0.0                    # 机体 Y 方向最大速度，单位 m/s
+    controller.max_vy: 0.3                    # 机体 Y 方向最大速度，单位 m/s
     controller.max_vyaw: 1.0                  # 最大偏航角速度，单位 rad/s
     controller.position_gain: 0.80             # 横向位置误差的速度反馈增益
     controller.yaw_gain: 1.0                  # 增强正常行走时的偏航跟踪响应

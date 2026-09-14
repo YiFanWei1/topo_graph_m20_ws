@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if (($# > 2)); then
+  echo "用法：$0 [地图名称] [滤波分辨率]" >&2
+  echo "示例：$0 510_ 0.1" >&2
+  exit 2
+fi
+
+MAP_NAME="${1:-}"
+if [[ -z "${MAP_NAME}" ]]; then
+  read -r -p "请输入地图名称（例如 510_ 或 outdoor5）：" MAP_NAME
+fi
+readonly MAP_NAME
+readonly FILTER_SIZE="${2:-0.1}"
+
+if [[ ! "${MAP_NAME}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "错误：地图名称只能包含字母、数字、点、下划线和连字符。" >&2
+  exit 2
+fi
+if [[ ! "${FILTER_SIZE}" =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ "${FILTER_SIZE}" == "0" ]]; then
+  echo "错误：滤波分辨率必须是大于 0 的数字，例如 0.1。" >&2
+  exit 2
+fi
+
+readonly MAP_DIRECTORY="/home/langyi/workspace/map/${MAP_NAME}/map"
+readonly OUTPUT_PREFIX="${MAP_DIRECTORY}/${MAP_NAME}-${FILTER_SIZE}"
+
+if [[ -e "/home/langyi/workspace/map/${MAP_NAME}" ]]; then
+  echo "错误：同名地图目录已经存在，默认禁止覆盖：" >&2
+  echo "  /home/langyi/workspace/map/${MAP_NAME}" >&2
+  echo "请使用新的地图名称，或确认无用后手动处理原目录。" >&2
+  exit 1
+fi
+
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-10}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+if [[ -z "${CYCLONEDDS_URI:-}" && -f /opt/mapping_ws/cyclonedds_remote.xml ]]; then
+  export CYCLONEDDS_URI="file:///opt/mapping_ws/cyclonedds_remote.xml"
+fi
+
+# ROS setup 脚本在本机不兼容 nounset，加载期间临时关闭。
+set +u
+source /opt/ros/jazzy/setup.bash
+if [[ -f /opt/mapping_ws/install/setup.bash ]]; then
+  source /opt/mapping_ws/install/setup.bash
+fi
+if [[ -f "${WORKSPACE}/install/setup.bash" ]]; then
+  source "${WORKSPACE}/install/setup.bash"
+fi
+set -u
+
+mkdir -p "${MAP_DIRECTORY}"
+
+echo "等待 /save_pcd_service，ROS_DOMAIN_ID=${ROS_DOMAIN_ID} ..."
+service_ready=false
+for _ in {1..20}; do
+  if ros2 service list 2>/dev/null | grep -qx '/save_pcd_service'; then
+    service_ready=true
+    break
+  fi
+  sleep 0.5
+done
+if [[ "${service_ready}" != "true" ]]; then
+  echo "错误：10 秒内未发现 /save_pcd_service，请先启动建图并确认已有关键帧。" >&2
+  exit 1
+fi
+
+echo "保存 PCD 地图：${OUTPUT_PREFIX}"
+set +e
+SAVE_RESULT="$(ros2 service call /save_pcd_service moveit_msgs/srv/SaveMap \
+  "{filename: '${OUTPUT_PREFIX}'}" 2>&1)"
+SAVE_EXIT_CODE=$?
+set -e
+printf '%s\n' "${SAVE_RESULT}"
+
+if ((SAVE_EXIT_CODE != 0)) || grep -Eqi 'success:[[:space:]]*false|failed|failure' <<<"${SAVE_RESULT}"; then
+  echo "错误：地图保存服务返回失败。请确认建图已有 keyframe poses。" >&2
+  exit 1
+fi
+
+echo "地图保存请求成功，输出目录：${MAP_DIRECTORY}"
+find "${MAP_DIRECTORY}" -maxdepth 1 -type f -printf '  %f\n' | sort

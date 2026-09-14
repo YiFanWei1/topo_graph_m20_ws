@@ -82,7 +82,7 @@ public:
     normal_arrival_tolerance_ = declare_parameter<double>(
       "route.normal_arrival_tolerance", legacy_arrival_tolerance);
     corner_arrival_tolerance_ = declare_parameter<double>(
-      "route.corner_arrival_tolerance", 0.20);
+      "route.corner_arrival_tolerance", 0.28);
     goal_arrival_tolerance_ = declare_parameter<double>(
       "route.goal_arrival_tolerance", 0.15);
     max_start_distance_ = declare_parameter<double>("route.max_start_distance", 3.0);
@@ -919,7 +919,7 @@ private:
   double body_height_{0.57};
   double route_spacing_{0.10};
   double normal_arrival_tolerance_{2.80};
-  double corner_arrival_tolerance_{0.20};
+  double corner_arrival_tolerance_{0.28};
   double goal_arrival_tolerance_{0.15};
   double max_start_distance_{3.0};
   double update_rate_{50.0};

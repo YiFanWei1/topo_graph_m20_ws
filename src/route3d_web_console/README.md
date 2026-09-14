@@ -131,7 +131,7 @@ ros2 service call /save_pcd_service moveit_msgs/srv/SaveMap \
 - Real-time cloud streaming is opt-in. `/cloud_registered_body` (or raw fallback) is converted and
   sent only to browser sessions that have checked `实时点云（按需传输）`. If no browser requests the
   stream, the backend skips cloud conversion/encoding entirely.
-- Goal-only navigation matches `sh/06_send_goal_only.sh`: the web console publishes an Int32 vertex
+- Goal-only navigation matches `sh/6_send_goal_only.sh`: the web console publishes an Int32 vertex
   id to `/route3d_dijkstra/goal_request`, letting Dijkstra choose the nearest current topology
   vertex as the start. The command is available both in the navigation module and from the selected
   vertex inspector (`导航到此点`).

@@ -4,8 +4,8 @@ This version extends the previous on-demand-live-cloud/module UI build.
 
 ## Loop patrol
 - Adds two web entries matching the existing workspace scripts:
-  - `sh/05_start_loop_patrol.sh`: fixed start/goal A<->B patrol.
-  - `sh/07_start_goal_only_loop.sh`: goal-only A<->B patrol; each leg rematches the current robot position.
+  - `sh/5_start_loop_patrol.sh`: fixed start/goal A<->B patrol.
+  - `sh/7_start_goal_only_loop.sh`: goal-only A<->B patrol; each leg rematches the current robot position.
 - The web page accepts A, B, dwell time, and round-trip count (`0` = infinite).
 - The backend writes a runtime YAML under `~/.ros/route3d_web_console/cache/loop_patrol/` and passes it to the selected existing script.
 - The loop-patrol process/node is included in live status detection and can be stopped from the page.

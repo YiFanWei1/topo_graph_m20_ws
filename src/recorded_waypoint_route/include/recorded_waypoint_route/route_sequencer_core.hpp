@@ -263,7 +263,7 @@ private:
   std::vector<std::size_t> target_indices_;
   std::vector<TargetType> target_types_;
   double normal_arrival_tolerance_{2.80};
-  double corner_arrival_tolerance_{0.20};
+  double corner_arrival_tolerance_{0.28};
   double goal_arrival_tolerance_{0.15};
   RouteState state_{RouteState::Tracking};
   std::size_t sequence_position_{0};

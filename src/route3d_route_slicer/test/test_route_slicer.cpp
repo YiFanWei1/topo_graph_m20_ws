@@ -214,10 +214,10 @@ TEST(RouteSlicer, CornerCreatesTaskBoundaryWithItsPassRadius)
   const auto & corner = result.tasks[0].waypoints.back();
   EXPECT_TRUE(corner.is_corner);
   EXPECT_TRUE(corner.must_pass_through);
-  EXPECT_DOUBLE_EQ(corner.pass_radius_m, 0.20);
+  EXPECT_DOUBLE_EQ(corner.pass_radius_m, 0.28);
   EXPECT_EQ(result.tasks[0].edge_ids, (std::vector<EdgeId>{1, 2}));
   EXPECT_EQ(result.tasks[0].completion_policy, CompletionPolicy::kTransition);
-  EXPECT_DOUBLE_EQ(result.tasks[0].endpoint_tolerance_m, 0.20);
+  EXPECT_DOUBLE_EQ(result.tasks[0].endpoint_tolerance_m, 0.28);
   EXPECT_FALSE(result.tasks[0].align_goal_yaw);
   EXPECT_FALSE(result.tasks[0].requires_stop_at_end);
 

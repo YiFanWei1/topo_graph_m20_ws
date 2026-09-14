@@ -15,7 +15,7 @@ struct SliceOptions
 {
   double attribute_epsilon{1.0e-6};
   bool split_at_corners{true};
-  double default_corner_pass_radius_m{0.20};
+  double default_corner_pass_radius_m{0.28};
   double default_normal_pass_radius_m{0.45};
   std::string auto_default_controller{"pid"};
   std::string auto_grid_controller{"external_grid"};

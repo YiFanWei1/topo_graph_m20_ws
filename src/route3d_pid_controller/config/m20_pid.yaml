@@ -52,7 +52,7 @@ route3d_pid_controller:
     obstacle.swept.detection_half_length_m: 0.3
     # 停障宽度在这里设置。该值是左右半宽；0.25 x 2 = 总宽 0.50 m。
     # 如需调整总宽度，应将目标总宽度除以 2 后填写到此参数。
-    obstacle.swept.detection_half_width_m: 0.1
+    obstacle.swept.detection_half_width_m: 0.2
 
     # obstacleMode=0 时沿三维路径中心线向前检测的距离，当前为 1.0 m。
     # 该参数只改变向前扫掠距离，不改变上面的检测体尺寸。

@@ -94,8 +94,8 @@ route3d_web_console:
     process.localization_command: "source /opt/mapping_ws/install/setup.bash; export LD_LIBRARY_PATH=/opt/mapping_ws/glio_mapping:$LD_LIBRARY_PATH; tf_pid=''; cleanup_tf() { if [ -n \"$tf_pid\" ]; then kill \"$tf_pid\" 2>/dev/null || true; wait \"$tf_pid\" 2>/dev/null || true; fi; }; trap 'cleanup_tf; exit 130' INT TERM; trap cleanup_tf EXIT; ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 map camera_init & tf_pid=$!; /opt/mapping_ws/glio_mapping/localization_node {localization_config}"
     process.planner_command: "ros2 launch route3d_m20_adapter m20_pid_route.launch.xml graph_file:={graph_file} enable_motion:={enable_motion} use_sim_time:=false launch_rviz:=false"
     # 两种循环入口分别复用现有 05/07 脚本；网页会为所选两个点生成临时 YAML。
-    process.loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_m20_ws/sh/05_start_loop_patrol.sh"
-    process.goal_only_loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_m20_ws/sh/07_start_goal_only_loop.sh"
+    process.loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_m20_ws/sh/5_start_loop_patrol.sh"
+    process.goal_only_loop_patrol_script: "/home/langyi/workspace/wyf/topo_graph_m20_ws/sh/7_start_goal_only_loop.sh"
     # Keep the established two-key product workflow. `script` allocates the terminal that
     # route3d_live_keyboard requires; the web backend writes the same 1/2/name/q inputs.
     process.topology_record_command: "script -q -e -c 'ros2 launch route3d_product_demo live_route_product.launch.py config_file:={record_config}' /dev/null"

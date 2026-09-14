@@ -188,7 +188,7 @@ public:
     const bool strict_schema = declare_parameter<bool>("strict_schema_v2", true);
     SliceOptions options;
     options.default_corner_pass_radius_m =
-      declare_parameter<double>("waypoint.corner_pass_radius_m", 0.20);
+      declare_parameter<double>("waypoint.corner_pass_radius_m", 0.28);
     options.default_normal_pass_radius_m =
       declare_parameter<double>("waypoint.normal_pass_radius_m", 0.45);
     options.split_at_corners = declare_parameter<bool>("slicing.split_at_corners", true);

@@ -330,7 +330,7 @@ TopologyGraph TopologyGraph::load(const std::filesystem::path & path, const bool
       path_prefix + ".mustPassThrough");
     vertex.pass_radius_explicit = raw_vertex.contains("passRadiusM");
     vertex.pass_radius_m = numberMember(
-      raw_vertex, "passRadiusM", vertex.is_corner ? 0.28 : 0.45,
+      raw_vertex, "passRadiusM", vertex.is_corner ? 0.25 : 0.45,
       path_prefix + ".passRadiusM");
     if (vertex.pass_radius_m < 0.0) {
       throw std::runtime_error(path_prefix + ".passRadiusM must be non-negative");

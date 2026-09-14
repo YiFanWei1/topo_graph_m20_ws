@@ -61,7 +61,7 @@ struct Waypoint
 struct TrackingTask
 {
   std::vector<Waypoint> waypoints;
-  double endpoint_tolerance_m{0.20};
+  double endpoint_tolerance_m{0.28};
   double maximum_speed_mps{0.40};
   bool align_goal_yaw{false};
   bool reverse_motion{false};

@@ -61,7 +61,7 @@ def apply_topology_schema(document: Dict[str, Any]) -> Dict[str, Any]:
         # semantics. A normal vertex can therefore be made a mandatory stop/
         # pass point without pretending that it is a geometric corner.
         vertex.setdefault("mustPassThrough", is_corner)
-        vertex.setdefault("passRadiusM", 0.20 if is_corner else 0.45)
+        vertex.setdefault("passRadiusM", 0.28 if is_corner else 0.45)
 
     for edge_id, raw_edge in edges.items():
         edge = _object(raw_edge, f"edges.{edge_id}")
@@ -77,7 +77,7 @@ def apply_topology_schema(document: Dict[str, Any]) -> Dict[str, Any]:
         meta.setdefault("angularSpeedRadps", 0.0)
         meta.setdefault("heightOffsetM", 0.0)
         # New M20 edges use Efficient 3D avoidance by default.
-        meta.setdefault("obstacleMode", 1)
+        meta.setdefault("obstacleMode", 0)
         meta.setdefault("travelMode", travel_mode_from_direction(direction))
         meta.setdefault("headingAngleRad", 0.0)
         meta.setdefault("obstacleBoxM", [0.0, 0.0, 0.0, 0.0])

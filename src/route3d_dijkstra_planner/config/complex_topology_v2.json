@@ -39,7 +39,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "2": {
       "pos": [
@@ -163,7 +163,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "6": {
       "pos": [
@@ -194,7 +194,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "7": {
       "pos": [
@@ -318,7 +318,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "11": {
       "pos": [
@@ -349,7 +349,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "12": {
       "pos": [
@@ -473,7 +473,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "16": {
       "pos": [
@@ -504,7 +504,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "17": {
       "pos": [
@@ -628,7 +628,7 @@
       "turnable": true,
       "alignFinalYaw": true,
       "mustPassThrough": true,
-      "passRadiusM": 0.20
+      "passRadiusM": 0.28
     },
     "21": {
       "pos": [

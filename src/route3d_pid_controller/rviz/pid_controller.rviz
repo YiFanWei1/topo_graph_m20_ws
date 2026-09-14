@@ -9,7 +9,7 @@ Panels:
         - /M20 3D Stop Swept Volume (mode 0 PID)1/Namespaces1
         - /PointCloud22/Topic1
       Splitter Ratio: 0.5
-    Tree Height: 191
+    Tree Height: 301
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -183,7 +183,7 @@ Visualization Manager:
       Use rainbow: false
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
+      Enabled: false
       Name: Efficient 3D Search Corridor (mode 1)
       Namespaces:
         {}
@@ -193,7 +193,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /local_planner/search_corridor
-      Value: true
+      Value: false
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
@@ -234,7 +234,7 @@ Visualization Manager:
       Color: 255; 80; 25
       Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 1
@@ -254,7 +254,7 @@ Visualization Manager:
         Value: /local_voxel_map/hard_with_occlusion
       Use Fixed Frame: true
       Use rainbow: false
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/TF
       Enabled: true
       Filter (blacklist): ""
@@ -279,7 +279,8 @@ Visualization Manager:
         map:
           camera_init:
             body:
-              {}
+              base_link:
+                {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -334,7 +335,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 152
@@ -354,7 +355,7 @@ Visualization Manager:
         Value: /route3d_pid_controller/elevation_used_cloud
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -407,16 +408,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 10.01701831817627
+      Distance: 7.757178783416748
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -6.824192523956299
-        Y: 2.5093605518341064
-        Z: -1.8692799806594849
+        X: 0.10942871868610382
+        Y: -0.09791010618209839
+        Z: -3.145775318145752
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
@@ -429,13 +430,13 @@ Visualization Manager:
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: true
+    collapsed: false
   Height: 750
-  Hide Left Dock: true
+  Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000023800000290fc0200000002fb000000100044006900730070006c006100790073000000003f00000145000000cc00fffffffb0000000a00560069006500770073000000018a00000145000000a900ffffff000003dd0000029000000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000023800000290fc0200000002fb000000100044006900730070006c006100790073010000003f000001b3000000cc00fffffffb0000000a0056006900650077007301000001f8000000d7000000a900ffffff0000019f0000029000000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
-    collapsed: true
+    collapsed: false
   Width: 989
   X: 923
   Y: 228

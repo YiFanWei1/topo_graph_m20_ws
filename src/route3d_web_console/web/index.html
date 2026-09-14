@@ -69,7 +69,7 @@
         <div class="row"><button data-start="planner">启动控制链</button><button class="secondary" data-stop="planner">停止</button><span id="plannerState" class="badge">未运行</span></div>
         <button id="pointNavigateMode" type="button" class="wide secondary">点选导航：关闭</button>
         <small class="file-path">开启后，直接点击 3D 拓扑中的任意顶点就会发布目标点，不需要记住点号。</small>
-        <div class="goal-only-box"><label>直接发送目标点<input id="goalOnlyId" type="number" min="0" placeholder="例如 11" /></label><button id="sendGoalOnly" class="wide">当前位置 → 目标点</button><small class="file-path">等价于 06_send_goal_only.sh：发布 /route3d_dijkstra/goal_request，起点由机器人当前位置自动匹配最近拓扑点。</small><small id="quickActionStatus" class="file-path"></small></div>
+        <div class="goal-only-box"><label>直接发送目标点<input id="goalOnlyId" type="number" min="0" placeholder="例如 11" /></label><button id="sendGoalOnly" class="wide">当前位置 → 目标点</button><small class="file-path">等价于 6_send_goal_only.sh：发布 /route3d_dijkstra/goal_request，起点由机器人当前位置自动匹配最近拓扑点。</small><small id="quickActionStatus" class="file-path"></small></div>
         <div class="route-ids"><label>指定起点<input id="startId" type="number" min="0" /></label><span>→</span><label>指定终点<input id="goalId" type="number" min="0" /></label></div>
         <button id="planRoute" class="wide secondary">指定起终点规划</button>
         <div class="goal-accuracy">

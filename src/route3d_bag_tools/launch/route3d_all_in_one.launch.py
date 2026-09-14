@@ -153,7 +153,7 @@ def generate_launch_description():
             "normal_arrival_tolerance", default_value="2.80",
             description="pass-through tolerance for ordinary yellow targets"),
         DeclareLaunchArgument(
-            "corner_arrival_tolerance", default_value="0.20",
+            "corner_arrival_tolerance", default_value="0.28",
             description="strict tolerance for red corner targets"),
         DeclareLaunchArgument(
             "goal_arrival_tolerance", default_value="0.15",

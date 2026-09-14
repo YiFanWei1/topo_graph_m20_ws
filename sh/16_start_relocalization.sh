@@ -8,7 +8,7 @@ if ! command -v gnome-terminal >/dev/null 2>&1; then
 fi
 
 gnome-terminal \
-  --title="Mapping Localization" \
+  --title="Route3D Relocalization" \
   -- bash -lc '
     cd /opt/mapping_ws || {
       echo "无法进入 /opt/mapping_ws"
@@ -19,8 +19,8 @@ gnome-terminal \
     else
       echo "警告：未找到 /opt/mapping_ws/install/setup.bash，将使用当前 ROS 环境"
     fi
-    echo "[mapping] ./run_mapping_nodes_2.sh mode:=localization config:=mid360_loc"
-    ./run_mapping_nodes_2.sh mode:=localization config:=robosense_loc_2
+    echo "[mapping] ./run_mapping_nodes_2.sh mode:=localization config:=robosense_loc_2"
+    ./run_mapping_nodes_2.sh mode:=localization config:=robosense_loc_2 
     exit_code=$?
     echo "[mapping] 进程已退出，状态码：${exit_code}"
     exec bash

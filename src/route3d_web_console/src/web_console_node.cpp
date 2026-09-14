@@ -527,9 +527,9 @@ private:
       "cloud.registered_body_transform_with_odometry", true);
     planner_command_ = declare_parameter<std::string>("process.planner_command", "");
     loop_patrol_script_ = expandUser(declare_parameter<std::string>(
-      "process.loop_patrol_script", "sh/05_start_loop_patrol.sh"));
+      "process.loop_patrol_script", "sh/5_start_loop_patrol.sh"));
     goal_only_loop_patrol_script_ = expandUser(declare_parameter<std::string>(
-      "process.goal_only_loop_patrol_script", "sh/07_start_goal_only_loop.sh"));
+      "process.goal_only_loop_patrol_script", "sh/7_start_goal_only_loop.sh"));
     mapping_command_ = declare_parameter<std::string>(
       "process.mapping_command", "cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping");
     mapping_setup_ = expandUser(declare_parameter<std::string>(

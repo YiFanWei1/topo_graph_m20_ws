@@ -28,11 +28,11 @@ def test_schema_defaults_are_added_without_losing_existing_fields():
     assert result["vertices"]["1"]["meta"]["chargingMode"] == 0
     assert result["vertices"]["1"]["alignFinalYaw"] is False
     assert result["vertices"]["1"]["mustPassThrough"] is True
-    assert result["vertices"]["1"]["passRadiusM"] == 0.20
+    assert result["vertices"]["1"]["passRadiusM"] == 0.28
     edge = result["edges"]["4"]
     assert edge["rotationAllowed"] is True
     assert edge["meta"]["travelMode"] == "first_to_second"
-    assert edge["meta"]["obstacleMode"] == 1
+    assert edge["meta"]["obstacleMode"] == 0
     assert "locomotionMode" not in edge["meta"]
     assert edge["meta"]["linearSpeedMps"] == 1.0
     assert result["generation"]["loop_closure_count"] == 1

@@ -231,7 +231,7 @@ bool RouteTracker::requiresInPlaceRotation(const Pose2d & robot) const
     const double local_y = -sine * goal_dx + cosine * goal_dy;
     const double position_tolerance = task_.is_route_goal ?
       config_.adjustment_route_goal_position_tolerance_m :
-      std::clamp(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.01, 0.31);
+      std::clamp(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.28, 0.01, 0.31);
     const double yaw_tolerance = task_.is_route_goal ?
       config_.adjustment_route_goal_yaw_tolerance_rad :
       std::min(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.21);
@@ -388,7 +388,7 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
   output.gate_is_mandatory = gate_index_ < last &&
     task_.waypoints[gate_index_].must_pass_through;
 
-  const double progress_finish_window = std::max(task_.endpoint_tolerance_m, 0.25);
+  const double progress_finish_window = std::max(task_.endpoint_tolerance_m, 0.28);
   const bool progressed_to_goal = total_length <= progress_finish_window ||
     progress_m_ >= total_length - progress_finish_window;
   const double final_yaw_error = normalizeAngle(goal.yaw - robot.yaw);
@@ -413,7 +413,7 @@ TrackingOutput RouteTracker::update(const Pose2d & robot, const double dt)
     const double local_y = -sine * goal_dx + cosine * goal_dy;
     const double position_tolerance = task_.is_route_goal ?
       config_.adjustment_route_goal_position_tolerance_m :
-      std::clamp(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.01, 0.31);
+      std::clamp(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.28, 0.01, 0.31);
     const double yaw_tolerance = task_.is_route_goal ?
       config_.adjustment_route_goal_yaw_tolerance_rad :
       std::min(task_.endpoint_tolerance_m > 0.01 ? task_.endpoint_tolerance_m : 0.20, 0.21);

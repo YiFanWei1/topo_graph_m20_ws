@@ -4,7 +4,7 @@ route3d_route_slicer:
 
     waypoint:
       # Corners are hard via-points, not semantic task boundaries by default.
-      corner_pass_radius_m: 0.20
+      corner_pass_radius_m: 0.28
       normal_pass_radius_m: 0.45
 
     slicing:
