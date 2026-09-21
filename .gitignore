@@ -1,6 +1,7 @@
 /build/
 /install/
 /log/
+/dist/
 /data/
 __pycache__/
 *.py[cod]

@@ -4,7 +4,11 @@ set -Eeuo pipefail
 readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 实时模式配置：需要切换保存位置时直接修改 OUTPUT_FILE。
-readonly CONFIG_FILE="${WORKSPACE}/src/route3d_odom_waypoint/config/odom_waypoint.yaml"
+if [[ -f "${WORKSPACE}/install/share/route3d_odom_waypoint/config/odom_waypoint.yaml" ]]; then
+  readonly CONFIG_FILE="${WORKSPACE}/install/share/route3d_odom_waypoint/config/odom_waypoint.yaml"
+else
+  readonly CONFIG_FILE="${WORKSPACE}/src/route3d_odom_waypoint/config/odom_waypoint.yaml"
+fi
 readonly OUTPUT_FILE="${WORKSPACE}/data/test4/topoGraph_data.json"
 
 if [[ $# -ne 0 ]]; then

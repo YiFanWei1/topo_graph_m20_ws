@@ -2,7 +2,11 @@
 set -Eeuo pipefail
 
 readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly DEFAULT_CONFIG="${WORKSPACE}/src/route3d_product_demo/config/live_route_product.yaml"
+if [[ -f "${WORKSPACE}/install/share/route3d_product_demo/config/live_route_product.yaml" ]]; then
+  readonly DEFAULT_CONFIG="${WORKSPACE}/install/share/route3d_product_demo/config/live_route_product.yaml"
+else
+  readonly DEFAULT_CONFIG="${WORKSPACE}/src/route3d_product_demo/config/live_route_product.yaml"
+fi
 readonly CONFIG_FILE="${1:-${DEFAULT_CONFIG}}"
 
 if [[ ! -f "${CONFIG_FILE}" ]]; then

@@ -15,7 +15,7 @@ usage() {
 输入、输出路径在脚本顶部的 INPUT_FILE 和 OUTPUT_FILE 中配置。
 
 可选环境变量：
-  ROUTE3D_CONFIG_FILE          默认读取 src/route3d_odom_waypoint/config/odom_waypoint.yaml
+  ROUTE3D_CONFIG_FILE          默认读取已安装的 route3d_odom_waypoint 配置
   ROUTE3D_FRAME_ID             默认 camera_init
   其余 ROUTE3D_* 变量仅在显式设置时覆盖 YAML 中的对应值：
   ROUTE3D_BODY_HEIGHT、ROUTE3D_TARGET_SPACING、ROUTE3D_RELOCATION_DISTANCE
@@ -39,7 +39,12 @@ if [[ $# -ne 0 ]]; then
 fi
 
 readonly FRAME_ID="${ROUTE3D_FRAME_ID:-camera_init}"
-readonly CONFIG_FILE="${ROUTE3D_CONFIG_FILE:-${WORKSPACE}/src/route3d_odom_waypoint/config/odom_waypoint.yaml}"
+if [[ -f "${WORKSPACE}/install/share/route3d_odom_waypoint/config/odom_waypoint.yaml" ]]; then
+  readonly DEFAULT_CONFIG="${WORKSPACE}/install/share/route3d_odom_waypoint/config/odom_waypoint.yaml"
+else
+  readonly DEFAULT_CONFIG="${WORKSPACE}/src/route3d_odom_waypoint/config/odom_waypoint.yaml"
+fi
+readonly CONFIG_FILE="${ROUTE3D_CONFIG_FILE:-${DEFAULT_CONFIG}}"
 
 if [[ ! -f "${INPUT_FILE}" ]]; then
   echo "错误：姿态文件不存在：${INPUT_FILE}" >&2
