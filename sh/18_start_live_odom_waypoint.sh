@@ -5,7 +5,7 @@ readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 实时模式配置：需要切换保存位置时直接修改 OUTPUT_FILE。
 readonly CONFIG_FILE="${WORKSPACE}/src/route3d_odom_waypoint/config/odom_waypoint.yaml"
-readonly OUTPUT_FILE="${WORKSPACE}/data/test1/topoGraph_data.json"
+readonly OUTPUT_FILE="${WORKSPACE}/data/test4/topoGraph_data.json"
 
 if [[ $# -ne 0 ]]; then
   echo "用法：./sh/18_start_live_odom_waypoint.sh" >&2

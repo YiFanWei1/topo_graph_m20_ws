@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly DEFAULT_GRAPH="${WORKSPACE}/data/xijian2/topoGraph_data.json"
+readonly DEFAULT_GRAPH="${WORKSPACE}/data/shinei/topoGraph_data.json"
 readonly GRAPH_FILE="${1:-${DEFAULT_GRAPH}}"
 readonly ENABLE_MOTION="${2:-true}"
 # readonly ENABLE_MOTION="${2:-false}"

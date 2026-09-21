@@ -4,8 +4,8 @@ set -Eeuo pipefail
 readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 固定输入与输出路径；需要切换地图时直接修改这里。
-readonly INPUT_FILE="/home/wei/github_code/topo_graph_m20_ws/data/map/test_map_7/map/slam_data/trajectory/pose.json"
-readonly OUTPUT_FILE="/home/wei/github_code/topo_graph_m20_ws/data/test_map_7/topoGraph_data.json"
+readonly INPUT_FILE="/home/langyi/workspace/map/shinei/map/slam_data/trajectory/pose.json"
+readonly OUTPUT_FILE="/home/langyi/workspace/wyf/topo_graph_m20_ws/data/shinei/topoGraph_data.json"
 
 usage() {
   cat <<'EOF'

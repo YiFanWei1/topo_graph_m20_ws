@@ -4,7 +4,7 @@ set -Eeuo pipefail
 readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 默认编辑实时打点结果；需要编辑其他地图时修改这里。
-readonly GRAPH_FILE="${WORKSPACE}/data/live/topoGraph_data.json"
+readonly GRAPH_FILE="${WORKSPACE}/data/shan66/topoGraph_data.json"
 readonly FRAME_ID="camera_init"
 
 if [[ $# -ne 0 ]]; then
@@ -36,3 +36,4 @@ echo "请先停止实时记录节点，避免文件被定时快照覆盖。"
 exec ros2 launch route3d_topology_editor editor.launch.py \
   graph_file:="${GRAPH_FILE}" \
   frame_id:="${FRAME_ID}"
+

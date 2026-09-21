@@ -52,7 +52,7 @@ route3d_pid_controller:
     # X 过滤范围：-0.41～+0.41 m。本次 bag 的自点在 +0.417～+0.495 m，刚好漏出。
     obstacle.swept.body_half_length_m: 0.41
     # Y 过滤范围：-0.215～+0.215 m。
-    obstacle.swept.body_half_width_m: 0.215
+    obstacle.swept.body_half_width_m: 0.1
     # Z 过滤范围：-0.285～+0.285 m。
     obstacle.swept.body_min_z_m: -0.285
     obstacle.swept.body_max_z_m: 0.285
@@ -68,12 +68,12 @@ route3d_pid_controller:
     # 该参数只改变向前检查距离，不改变上面单个检测框的长、宽、高。
     obstacle.swept.maximum_path_distance_m: 1.0
     # 单个检测框相对路径中心的 Z 范围：-0.10～+0.285 m。
-    obstacle.swept.detection_min_z_m: -0.1
+    obstacle.swept.detection_min_z_m: 0.1
     obstacle.swept.detection_max_z_m: 0.285
     # 路径地面高度向机器人中心高度补偿 0.57 m。
     obstacle.swept.path_center_height_m: 0.57
     # 排除路径/台阶表面及其上方 0.10 m 内的点，避免楼梯表面误触发停障。
-    obstacle.swept.surface_exclusion_height_m: 0.10
+    obstacle.swept.surface_exclusion_height_m: 0.00
     obstacle.swept.step_surface_max_deviation_m: 0.45
     obstacle.swept.step_surface_support_radius_m: 0.18
     obstacle.swept.step_surface_height_tolerance_m: 0.025
