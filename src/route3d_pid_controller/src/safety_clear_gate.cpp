@@ -41,4 +41,72 @@ double SafetyClearGate::holdSeconds() const noexcept
   return hold_seconds_;
 }
 
+ConsecutiveFrameGate::ConsecutiveFrameGate(
+  const std::size_t enter_frames, const std::size_t exit_frames)
+: enter_frames_(enter_frames), exit_frames_(exit_frames)
+{
+  if (enter_frames_ == 0U || exit_frames_ == 0U) {
+    throw std::invalid_argument("consecutive frame thresholds must be positive");
+  }
+}
+
+bool ConsecutiveFrameGate::update(const bool obstacle_observed)
+{
+  if (obstacle_observed) {
+    clear_frames_ = 0U;
+    if (obstacle_frames_ < enter_frames_) {
+      ++obstacle_frames_;
+    }
+    if (!blocked_ && obstacle_frames_ >= enter_frames_) {
+      blocked_ = true;
+    }
+    return blocked_;
+  }
+
+  obstacle_frames_ = 0U;
+  if (!blocked_) {
+    clear_frames_ = 0U;
+    return false;
+  }
+  if (clear_frames_ < exit_frames_) {
+    ++clear_frames_;
+  }
+  if (clear_frames_ >= exit_frames_) {
+    blocked_ = false;
+  }
+  return blocked_;
+}
+
+void ConsecutiveFrameGate::reset()
+{
+  obstacle_frames_ = 0U;
+  clear_frames_ = 0U;
+  blocked_ = false;
+}
+
+bool ConsecutiveFrameGate::blocked() const noexcept
+{
+  return blocked_;
+}
+
+std::size_t ConsecutiveFrameGate::obstacleFrames() const noexcept
+{
+  return obstacle_frames_;
+}
+
+std::size_t ConsecutiveFrameGate::clearFrames() const noexcept
+{
+  return clear_frames_;
+}
+
+std::size_t ConsecutiveFrameGate::enterFrames() const noexcept
+{
+  return enter_frames_;
+}
+
+std::size_t ConsecutiveFrameGate::exitFrames() const noexcept
+{
+  return exit_frames_;
+}
+
 }  // namespace route3d_pid_controller

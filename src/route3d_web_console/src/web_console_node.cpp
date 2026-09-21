@@ -143,6 +143,11 @@ public:
     if (texts_.size() >= 128U) {texts_.pop_front();}
     texts_.push_back(std::move(text));
   }
+  void enqueueLatestText(std::string channel, std::string text)
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    latest_texts_[std::move(channel)] = std::move(text);
+  }
   void enqueueBinary(std::vector<std::uint8_t> data, const bool replace_live)
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -200,7 +205,14 @@ private:
       std::vector<std::uint8_t> binary;
       {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!texts_.empty()) {
+        // Telemetry such as pose, velocity and controller status is state, not
+        // an event stream. Send only the freshest value under backpressure so
+        // a slow browser never replays stale robot positions.
+        if (!latest_texts_.empty()) {
+          auto latest = latest_texts_.begin();
+          text = std::move(latest->second);
+          latest_texts_.erase(latest);
+        } else if (!texts_.empty()) {
           text = std::move(texts_.front());
           texts_.pop_front();
         } else if (!binaries_.empty()) {
@@ -233,6 +245,7 @@ private:
   std::atomic<bool> stopping_{false};
   std::mutex mutex_;
   std::deque<std::string> texts_;
+  std::unordered_map<std::string, std::string> latest_texts_;
   std::deque<std::vector<std::uint8_t>> binaries_;
   std::optional<std::vector<std::uint8_t>> latest_live_;
   std::size_t binary_bytes_{0};
@@ -276,6 +289,13 @@ public:
   {
     const auto text = message.dump();
     each([&text](const auto & session) {session->enqueueText(text);});
+  }
+  void broadcastLatestText(const std::string & channel, const json & message)
+  {
+    const auto text = message.dump();
+    each([&channel, &text](const auto & session) {
+      session->enqueueLatestText(channel, text);
+    });
   }
   void sendText(const std::string & id, const json & message)
   {
@@ -429,6 +449,8 @@ public:
     server_->start();
     status_timer_ = create_wall_timer(500ms, std::bind(&WebConsoleNode::publishSnapshot, this));
     recording_timer_ = create_wall_timer(500ms, std::bind(&WebConsoleNode::pollTopologyRecording, this));
+    topology_generation_timer_ = create_wall_timer(
+      250ms, std::bind(&WebConsoleNode::pollTopologyGeneration, this));
     RCLCPP_INFO(get_logger(), "Route3D web console: http://%s:%u", bind_address_.c_str(), port_);
   }
 
@@ -509,6 +531,21 @@ private:
       "cloud.map_max_voxel_m", 2.0));
     chunk_points_ = static_cast<std::size_t>(declare_parameter<int>(
       "cloud.map_chunk_points", 32768));
+    const double pose_rate_hz = declare_parameter<double>(
+      "telemetry.pose_maximum_rate_hz", 30.0);
+    const double velocity_rate_hz = declare_parameter<double>(
+      "telemetry.velocity_maximum_rate_hz", 10.0);
+    const double status_rate_hz = declare_parameter<double>(
+      "telemetry.status_maximum_rate_hz", 10.0);
+    if (!std::isfinite(pose_rate_hz) || pose_rate_hz <= 0.0 ||
+      !std::isfinite(velocity_rate_hz) || velocity_rate_hz <= 0.0 ||
+      !std::isfinite(status_rate_hz) || status_rate_hz <= 0.0)
+    {
+      throw std::invalid_argument("telemetry maximum rates must be finite and greater than zero");
+    }
+    pose_broadcast_period_ = std::chrono::duration<double>(1.0 / pose_rate_hz);
+    velocity_broadcast_period_ = std::chrono::duration<double>(1.0 / velocity_rate_hz);
+    status_broadcast_period_ = std::chrono::duration<double>(1.0 / status_rate_hz);
     odom_freshness_s_ = declare_parameter<double>("localization.odometry_freshness_s", 0.75);
     initial_pose_frame_id_ = declare_parameter<std::string>(
       "localization.initial_pose_frame_id", "map");
@@ -534,6 +571,10 @@ private:
       "process.mapping_command", "cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping");
     mapping_setup_ = expandUser(declare_parameter<std::string>(
       "process.mapping_setup", "/opt/mapping_ws/install/setup.bash"));
+    mapping_default_config_ = declare_parameter<std::string>(
+      "mapping.default_config", "robosense_lio");
+    mapping_allowed_configs_ = declare_parameter<std::vector<std::string>>(
+      "mapping.allowed_configs", {"robosense_lio", "robosense_glio"});
     mapping_save_resolution_tag_ = declare_parameter<std::string>(
       "mapping.save_resolution_tag", "0.1");
     topology_record_command_ = declare_parameter<std::string>(
@@ -546,6 +587,10 @@ private:
       "topology.record_sync_slop_s", 0.15);
     topology_results_root_ = expandUser(declare_parameter<std::string>(
       "topology.record_results_root", "data"));
+    topology_generation_config_ = expandUser(declare_parameter<std::string>(
+      "topology.generation_config_file", ""));
+    topology_generation_frame_id_ = declare_parameter<std::string>(
+      "topology.generation_frame_id", "camera_init");
     network_interface_ = declare_parameter<std::string>("process.network_interface", "enp2s0");
     domain_id_ = declare_parameter<int>("process.ros_domain_id", 42);
     stop_timeout_ = std::chrono::milliseconds(static_cast<int>(1000.0 *
@@ -625,10 +670,10 @@ private:
           {"frame_id", message->header.frame_id}, {"last_seen_ms", 0}};
       });
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(odometry_topic_,
-      rclcpp::QoS(20).best_effort(), std::bind(&WebConsoleNode::odometryCallback, this,
+      sensor_qos, std::bind(&WebConsoleNode::odometryCallback, this,
       std::placeholders::_1));
     mapping_odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
-      mapping_odometry_topic_, rclcpp::QoS(20).best_effort(),
+      mapping_odometry_topic_, sensor_qos,
       [this](const nav_msgs::msg::Odometry::ConstSharedPtr message) {
         std::lock_guard<std::mutex> lock(state_mutex_);
         last_mapping_odometry_steady_ = std::chrono::steady_clock::now();
@@ -664,8 +709,18 @@ private:
       declare_parameter<std::string>("topics.selected_command",
       "/route3d_m20_adapter/selected_command"), rclcpp::QoS(10).reliable(),
       [this](const geometry_msgs::msg::Twist::ConstSharedPtr message) {
-        if (server_) {server_->broadcastText({{"type", "velocity"},
-          {"vx", message->linear.x}, {"vy", message->linear.y}, {"wz", message->angular.z}});}
+        bool publish = false;
+        const auto now = std::chrono::steady_clock::now();
+        {
+          std::lock_guard<std::mutex> lock(state_mutex_);
+          publish = last_velocity_broadcast_.time_since_epoch().count() == 0 ||
+            now - last_velocity_broadcast_ >= velocity_broadcast_period_;
+          if (publish) {last_velocity_broadcast_ = now;}
+        }
+        if (publish && server_) {
+          server_->broadcastLatestText("velocity", {{"type", "velocity"},
+            {"vx", message->linear.x}, {"vy", message->linear.y}, {"wz", message->angular.z}});
+        }
       });
   }
 
@@ -676,11 +731,26 @@ private:
       [this, key](const std_msgs::msg::String::ConstSharedPtr message) {
         json value = message->data;
         try {value = json::parse(message->data);} catch (...) {}
+        bool publish = false;
+        const auto now = std::chrono::steady_clock::now();
         {
           std::lock_guard<std::mutex> lock(state_mutex_);
           ros_status_[key] = value;
+          const auto last_time = last_status_broadcast_.find(key);
+          const auto last_value = last_status_broadcast_values_.find(key);
+          const bool changed = last_value == last_status_broadcast_values_.end() ||
+            last_value->second != value;
+          publish = changed || last_time == last_status_broadcast_.end() ||
+            now - last_time->second >= status_broadcast_period_;
+          if (publish) {
+            last_status_broadcast_[key] = now;
+            last_status_broadcast_values_[key] = value;
+          }
         }
-        if (server_) {server_->broadcastText({{"type", "ros.status"}, {"source", key}, {"data", value}});}
+        if (publish && server_) {
+          server_->broadcastLatestText("ros.status." + key,
+            {{"type", "ros.status"}, {"source", key}, {"data", value}});
+        }
       }));
   }
 
@@ -691,13 +761,18 @@ private:
     json pose{{"type", "pose"}, {"frame_id", message->header.frame_id},
       {"stamp", {message->header.stamp.sec, message->header.stamp.nanosec}},
       {"position", {p.x, p.y, p.z}}, {"orientation", {q.x, q.y, q.z, q.w}}};
+    bool publish = false;
+    const auto now = std::chrono::steady_clock::now();
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       last_pose_ = pose;
-      last_odometry_steady_ = std::chrono::steady_clock::now();
+      last_odometry_steady_ = now;
       latest_localization_pose_ = message->pose.pose;
       latest_localization_frame_id_ = message->header.frame_id;
       has_localization_pose_ = true;
+      publish = last_pose_broadcast_.time_since_epoch().count() == 0 ||
+        now - last_pose_broadcast_ >= pose_broadcast_period_;
+      if (publish) {last_pose_broadcast_ = now;}
       const bool moved = trajectory_.empty() ||
         std::pow(p.x - trajectory_.back()[0], 2) + std::pow(p.y - trajectory_.back()[1], 2) +
         std::pow(p.z - trajectory_.back()[2], 2) >= 0.0025;
@@ -709,7 +784,7 @@ private:
         trajectory_ = std::move(compact);
       }
     }
-    if (server_) {server_->broadcastText(pose);}
+    if (publish && server_) {server_->broadcastLatestText("pose", pose);}
   }
 
   void cloudCallback(
@@ -848,6 +923,9 @@ private:
       else if (type == "topology.select") {selectTopology(client, request, request_id);}
       else if (type == "topology.load") {sendTopology(client, request_id);}
       else if (type == "topology.save") {saveTopology(client, request, request_id);}
+      else if (type == "topology.generate") {
+        startTopologyGeneration(client, request, request_id);
+      }
       else if (type == "control.claim" || type == "control.heartbeat" ||
         type == "control.release")
       {
@@ -965,7 +1043,9 @@ private:
   json snapshot()
   {
     json processes = json::object();
-    for (const auto & name : {"radar", "mapping", "map_save", "localization", "planner", "loop_patrol", "topology_recording"}) {
+    for (const auto & name : {"radar", "mapping", "map_save", "localization", "planner",
+      "loop_patrol", "topology_recording", "topology_generation"})
+    {
       const auto value = process_manager_.snapshot(name);
       processes[name] = {{"running", value.running}, {"pid", value.pid},
         {"exit_code", value.exit_code}};
@@ -982,6 +1062,7 @@ private:
       {"map_voxel_m", selected_map_voxel_},
       {"navigation_target", navigation_target_},
       {"topology_recording_state", recording_state},
+      {"topology_generation_state", topology_generation_state_},
       {"features", detectFeatures()},
       {"control_owner", ""}, {"ros", ros_status_}, {"topics", topic_health_},
       {"pose", last_pose_}, {"trajectory", trajectory_}};
@@ -993,6 +1074,7 @@ private:
   {
     json pcds = json::array();
     json topologies = json::array();
+    json pose_sources = json::array();
 
     // PCD maps follow the deployment layout:
     //   <pcd_root>/<map_name>/map/<map_name>.pcd
@@ -1006,6 +1088,20 @@ private:
         if (!entry.is_directory(error)) {continue;}
         const std::string map_name = entry.path().filename().string();
         const fs::path map_dir = entry.path() / "map";
+        const fs::path pose_path = map_dir / "slam_data" / "trajectory" / "pose.json";
+        if (fs::is_regular_file(pose_path, error)) {
+          const fs::path canonical_pose = fs::weakly_canonical(pose_path, error);
+          const fs::path generated = topology_root_ / map_name / "topoGraph_data.json";
+          std::error_code generated_error;
+          pose_sources.push_back({
+            {"id", map_name}, {"label", map_name},
+            {"path", error ? pose_path.string() : canonical_pose.string()},
+            {"output_path", generated.string()},
+            {"generated", fs::is_regular_file(generated, generated_error)}});
+          error.clear();
+        } else {
+          error.clear();
+        }
         fs::path pcd_path = map_dir / (map_name + ".pcd");
 
         // Compatibility fallback: if <name>.pcd does not exist, accept the only
@@ -1070,7 +1166,8 @@ private:
     };
     std::sort(pcds.begin(), pcds.end(), by_label);
     std::sort(topologies.begin(), topologies.end(), by_label);
-    return {{"pcds", pcds}, {"topologies", topologies}};
+    std::sort(pose_sources.begin(), pose_sources.end(), by_label);
+    return {{"pcds", pcds}, {"topologies", topologies}, {"pose_sources", pose_sources}};
   }
 
   void sendResources(const std::string & client, const std::string & request_id)
@@ -1088,6 +1185,7 @@ private:
     server_->sendText(client, {
       {"type", "resource.catalog"}, {"request_id", request_id},
       {"pcds", resources.at("pcds")}, {"topologies", resources.at("topologies")},
+      {"pose_sources", resources.at("pose_sources")},
       {"localization_profiles", profiles},
       {"selected_pcd", selected_pcd_path_.string()},
       {"selected_topology", selected_topology_path_.string()},
@@ -1404,6 +1502,122 @@ private:
       {"path", selected_topology_path_.string()}});
   }
 
+  void startTopologyGeneration(
+    const std::string & client, const json & request, const std::string & request_id)
+  {
+    if (process_manager_.snapshot("topology_generation").running) {
+      throw std::runtime_error("topology generation is already running");
+    }
+    if (process_manager_.snapshot("planner").running ||
+      process_manager_.snapshot("topology_recording").running)
+    {
+      throw std::runtime_error(
+              "stop planner and topology recording before generating a topology");
+    }
+    const std::string map_name = request.value("name", "");
+    if (map_name.empty() || !std::regex_match(map_name, std::regex("[A-Za-z0-9._-]+")) ||
+      map_name == "." || map_name == "..")
+    {
+      throw std::runtime_error(
+              "map folder name may only contain letters, digits, dot, underscore and dash");
+    }
+
+    const fs::path pose = pcd_root_ / map_name / "map" / "slam_data" / "trajectory" /
+      "pose.json";
+    if (!pathInside(pose, std::vector<fs::path>{pcd_root_}) || !fs::is_regular_file(pose)) {
+      throw std::runtime_error(
+              "pose source is missing: <resources.pcd_root>/<name>/map/slam_data/trajectory/pose.json");
+    }
+    if (topology_generation_config_.empty() ||
+      !fs::is_regular_file(topology_generation_config_))
+    {
+      throw std::runtime_error("topology.generation_config_file does not exist");
+    }
+    const fs::path output = topology_root_ / map_name / "topoGraph_data.json";
+    if (!pathInside(output, std::vector<fs::path>{topology_root_})) {
+      throw std::runtime_error("generated topology path is outside resources.topology_root");
+    }
+    if (fs::exists(output) && !request.value("overwrite", false)) {
+      throw std::runtime_error(
+              "topology already exists; enable overwrite in the web page to regenerate it");
+    }
+    fs::create_directories(output.parent_path());
+    if (fs::exists(output)) {
+      const fs::path backup_directory = output.parent_path() / ".route3d_web_backups";
+      fs::create_directories(backup_directory);
+      const auto suffix = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count());
+      fs::copy_file(
+        output, backup_directory /
+        (output.filename().string() + ".before_generation." + suffix + ".bak"));
+    }
+
+    std::string command = "ros2 run route3d_odom_waypoint pose_file_to_topology " +
+      shellQuote(pose.string()) + " --output " + shellQuote(output.string()) +
+      " --frame-id " + shellQuote(topology_generation_frame_id_) + " --config-file " +
+      shellQuote(topology_generation_config_.string());
+    std::string error;
+    if (!process_manager_.start(
+        "topology_generation", commandPrefix() + command,
+        {{"ROS_DOMAIN_ID", std::to_string(domain_id_)}}, error))
+    {
+      throw std::runtime_error(error);
+    }
+    topology_generation_name_ = map_name;
+    topology_generation_output_ = output;
+    topology_generation_state_ = "running";
+    reply(client, request_id, true, "topology generation started: " + map_name);
+  }
+
+  void pollTopologyGeneration()
+  {
+    if (topology_generation_state_ != "running") {return;}
+    const auto process = process_manager_.snapshot("topology_generation");
+    if (process.running) {return;}
+
+    if (process.exit_code != 0) {
+      topology_generation_state_ = "error";
+      if (server_) {
+        server_->broadcastText({{"type", "error"},
+          {"message", "轨迹生成拓扑失败，退出码 " + std::to_string(process.exit_code) +
+            "；请查看 topology_generation 日志"}});
+      }
+      return;
+    }
+    try {
+      auto document = TopologyStore::load(topology_generation_output_);
+      current_topology_ = document;
+      selected_topology_path_ = fs::weakly_canonical(topology_generation_output_);
+      selected_topology_id_ = selected_topology_path_.string();
+      publishInitializerGraphPath();
+      topology_generation_state_ = "saved";
+      if (server_) {
+        server_->broadcastText({{"type", "topology.snapshot"}, {"data", document.data},
+          {"revision", document.revision}, {"id", selected_topology_id_},
+          {"path", selected_topology_path_.string()}});
+        server_->broadcastText({{"type", "topology.generated"},
+          {"name", topology_generation_name_}, {"path", selected_topology_path_.string()},
+          {"vertices", document.data.value("vertices", json::object()).size()},
+          {"edges", document.data.value("edges", json::object()).size()}});
+        const auto resources = discoverLocalResources();
+        server_->broadcastText({{"type", "resource.catalog"},
+          {"pcds", resources.at("pcds")}, {"topologies", resources.at("topologies")},
+          {"pose_sources", resources.at("pose_sources")},
+          {"selected_pcd", selected_pcd_path_.string()},
+          {"selected_topology", selected_topology_path_.string()},
+          {"selected_localization_profile", selected_map_id_},
+          {"map_voxel_m", selected_map_voxel_},
+          {"map_voxel_min_m", map_voxel_min_}, {"map_voxel_max_m", map_voxel_max_}});
+      }
+    } catch (const std::exception & exception) {
+      topology_generation_state_ = "error";
+      if (server_) {
+        server_->broadcastText({{"type", "error"},
+          {"message", "生成文件无法加载：" + std::string(exception.what())}});
+      }
+    }
+  }
+
   void saveMappingMap(
     const std::string & client, const json & request, const std::string & request_id)
   {
@@ -1491,7 +1705,13 @@ private:
       if (detectFeatures().at("mapping").value("online", false)) {
         throw std::runtime_error("mapping is already detected as running");
       }
-      command = mapping_command_;
+      const std::string config = request.value("mapping_config", mapping_default_config_);
+      if (std::find(mapping_allowed_configs_.begin(), mapping_allowed_configs_.end(), config) ==
+        mapping_allowed_configs_.end())
+      {
+        throw std::runtime_error("unsupported mapping config: " + config);
+      }
+      command = replaceAll(mapping_command_, "{mapping_config}", shellQuote(config));
     } else if (target == "localization") {
       if (selected_pcd_path_.empty()) {throw std::runtime_error("select a local PCD map first");}
       if (!detectFeatures().at("radar").value("online", false)) {
@@ -1867,6 +2087,7 @@ private:
         }
         server_->broadcastText({{"type", "resource.catalog"},
           {"pcds", resources.at("pcds")}, {"topologies", resources.at("topologies")},
+          {"pose_sources", resources.at("pose_sources")},
           {"localization_profiles", profiles},
           {"selected_pcd", selected_pcd_path_.string()},
           {"selected_topology", selected_topology_path_.string()},
@@ -2279,11 +2500,17 @@ private:
   std::string plan_topic_, goal_topic_, pause_service_, resume_service_, cancel_service_, save_map_service_;
   std::string ros_setup_, workspace_setup_, radar_command_, radar_stop_command_, localization_command_, planner_command_;
   fs::path loop_patrol_script_, goal_only_loop_patrol_script_;
-  std::string mapping_command_, mapping_setup_, mapping_save_resolution_tag_;
+  std::string mapping_command_, mapping_setup_, mapping_default_config_, mapping_save_resolution_tag_;
+  std::vector<std::string> mapping_allowed_configs_;
   std::string topology_record_command_;
   fs::path topology_record_config_template_;
   fs::path topology_results_root_;
   double topology_record_sync_slop_s_{0.15};
+  fs::path topology_generation_config_;
+  std::string topology_generation_frame_id_{"camera_init"};
+  std::string topology_generation_name_;
+  fs::path topology_generation_output_;
+  std::string topology_generation_state_{"idle"};
   std::string network_interface_;
   int domain_id_{42};
   float cloud_voxel_{0.12F}, cloud_range_{20.0F};
@@ -2294,6 +2521,9 @@ private:
   float map_voxel_min_{0.01F};
   float map_voxel_max_{2.0F};
   std::chrono::duration<double> cloud_period_{0.2};
+  std::chrono::duration<double> pose_broadcast_period_{1.0 / 30.0};
+  std::chrono::duration<double> velocity_broadcast_period_{0.1};
+  std::chrono::duration<double> status_broadcast_period_{0.1};
   std::chrono::duration<double> registered_cloud_fallback_timeout_{1.0};
   std::chrono::steady_clock::time_point last_raw_cloud_{}, last_registered_cloud_{};
   std::atomic<std::uint32_t> cloud_sequence_{0};
@@ -2312,6 +2542,10 @@ private:
   std::chrono::steady_clock::time_point control_heartbeat_{};
   std::chrono::steady_clock::time_point last_odometry_steady_{};
   std::chrono::steady_clock::time_point last_mapping_odometry_steady_{};
+  std::chrono::steady_clock::time_point last_pose_broadcast_{};
+  std::chrono::steady_clock::time_point last_velocity_broadcast_{};
+  std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_status_broadcast_;
+  std::unordered_map<std::string, json> last_status_broadcast_values_;
   geometry_msgs::msg::Pose latest_localization_pose_{};
   geometry_msgs::msg::Pose latest_mapping_pose_{};
   std::string latest_localization_frame_id_, latest_mapping_frame_id_;
@@ -2342,7 +2576,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr plan_publisher_;
   rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr goal_publisher_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr pause_client_, resume_client_, cancel_client_;
-  rclcpp::TimerBase::SharedPtr status_timer_, lease_timer_, recording_timer_;
+  rclcpp::TimerBase::SharedPtr status_timer_, lease_timer_, recording_timer_,
+    topology_generation_timer_;
 };
 
 }  // namespace route3d_web_console

@@ -228,6 +228,65 @@ select {
   background: #071116cc;
   color: #8fa7b1;
 }
+.topology-legend {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  max-width: 310px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  padding: 7px 9px;
+  border: 1px solid #28434e;
+  border-radius: 6px;
+  background: #071116e6;
+  color: #9bb0b9;
+  font-size: 10px;
+  pointer-events: none;
+}
+.topology-legend b {
+  width: 100%;
+  color: #d5e6ec;
+  font-size: 11px;
+}
+.topology-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.topology-legend i {
+  width: 13px;
+  height: 5px;
+  display: inline-block;
+  border-radius: 2px;
+}
+.topology-legend .vertex-normal { background: #55aaff; }
+.topology-legend .vertex-corner { background: #ffd84d; }
+.topology-legend .vertex-slope { background: #ff8a4c; }
+.topology-legend .vertex-junction { background: #c47cff; }
+.topology-legend .vertex-yaw {
+  background: #ffff00;
+  box-shadow: 0 0 6px #ffff00;
+}
+.topology-legend .edge-mode-0 { background: #ff5b57; }
+.topology-legend .edge-mode-1 { background: #25d796; }
+.topology-legend .edge-mode-2 { background: #4da3ff; }
+.topology-legend .edge-mode-3 { background: #8a9aa5; }
+.topology-legend .edge-mode-4 { background: #bc73ff; }
+.selection-summary {
+  position: absolute;
+  top: 96px;
+  left: 12px;
+  max-width: min(580px, calc(100% - 24px));
+  padding: 7px 10px;
+  border: 1px solid #36cfc3;
+  border-radius: 6px;
+  background: #071116eb;
+  color: #d9f4f1;
+  font: 11px/1.45 monospace;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
 .telemetry {
   position: absolute;
   bottom: 12px;
@@ -268,6 +327,24 @@ form button[type="submit"] {
 }
 .status-panel {
   margin-top: 16px;
+}
+.topology-generate-box,
+.batch-box {
+  margin: 10px 0;
+  padding: 9px;
+  border: 1px solid #29424d;
+  border-radius: 7px;
+  background: #091820;
+}
+.topology-generate-box h3,
+.batch-box h3 {
+  margin: 0 0 7px;
+  font-size: 13px;
+  color: #c8dbe3;
+}
+#poseSourcePath,
+#batchStatus {
+  white-space: pre-wrap;
 }
 .status-panel pre {
   font-size: 10px;

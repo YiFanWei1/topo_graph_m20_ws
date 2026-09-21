@@ -61,10 +61,11 @@ ros2 topic echo /cloud_registered_body --once
 `/cloud_registered_body.header.frame_id` 应为 `base_link`。M20 外参由 Route3D 发布为：
 
 ```text
-body -> base_link: xyz=[-0.32028, 0.0, 0.013], rpy=[0, 0, 0]
+body -> base_link: xyz=[0.0, 0.0, 0.0], rpy=[0, 0, 0]
 ```
 
-点云已经在 `base_link` 中，不能再把这组平移重复作用到每个点。
+当前定位约定 `body` 与 `base_link` 重合。点云已经在 `base_link` 中，不能再重复平移。
+雷达安装位置 `[0.32028, 0.0, -0.013]` 只用于 Efficient mapper 的射线起点。
 
 ### 2.2 检查 M20 basic_server 网络
 
@@ -92,7 +93,7 @@ nc -vz 10.21.31.103 30001
 
 ```bash
 cd /home/wei/github_code/topo_graph_m20_ws
-./sh/01_start_auto_waypoint.sh
+./sh/1_start_auto_waypoint.sh
 ```
 
 操作顺序：
@@ -133,7 +134,7 @@ jq '{version, vertices:(.vertices|length), edges:(.edges|length)}' "$GRAPH"
 
 ```bash
 cd /home/wei/github_code/topo_graph_m20_ws
-./sh/02_start_planning_control.sh \
+./sh/2_start_planning_control.sh \
   ./data/m20_floor1_001/topoGraph_data.json false true
 ```
 
@@ -141,7 +142,7 @@ cd /home/wei/github_code/topo_graph_m20_ws
 拓扑连通性、路径切片和控制器选择：
 
 ```bash
-./sh/04_send_goal.sh 1 20
+./sh/4_send_goal.sh 1 20
 ```
 
 另开终端检查：
@@ -182,14 +183,14 @@ ros2 launch route3d_web_console route3d_web_console.launch.py
 先停止上一套禁运动进程，不能同时运行两套规控节点：
 
 ```bash
-./sh/03_stop_all_ros.sh
+./sh/3_stop_all_ros.sh
 ```
 
 确认遥控急停可用、机器人周围安全、定位正确后，显式启用运动：
 
 ```bash
 cd /home/wei/github_code/topo_graph_m20_ws
-./sh/02_start_planning_control.sh \
+./sh/2_start_planning_control.sh \
   ./data/m20_floor1_001/topoGraph_data.json true true
 ```
 
@@ -219,7 +220,7 @@ M20 不发布步态切换命令，也不等待 gait ACK。
 机器人已在起点附近时使用：
 
 ```bash
-./sh/04_send_goal.sh 1 20
+./sh/4_send_goal.sh 1 20
 ```
 
 起点和终点必须是拓扑 JSON 中存在的不同顶点。机器人与声明起点不一致时不要使用这种方式。
@@ -229,7 +230,7 @@ M20 不发布步态切换命令，也不等待 gait ACK。
 让 Dijkstra 根据当前 `/lio_odom` 自动匹配最近拓扑点：
 
 ```bash
-./sh/06_send_goal_only.sh 20
+./sh/6_send_goal_only.sh 20
 ```
 
 默认要求机器人距可匹配起点不超过 `1.0 m`。如果提示找不到起点，应先检查定位、地图坐标和
@@ -241,7 +242,7 @@ M20 不发布步态切换命令，也不等待 gait ACK。
 ros2 service call /route3d_pid_controller/pause std_srvs/srv/Trigger '{}'
 ros2 service call /route3d_pid_controller/resume std_srvs/srv/Trigger '{}'
 ros2 service call /route3d_pid_controller/cancel std_srvs/srv/Trigger '{}'
-./sh/03_stop_all_ros.sh
+./sh/3_stop_all_ros.sh
 ```
 
 最终目标无论是否坡点、无论 `alignFinalYaw` 的值，都要对准顶点 `rpy.yaw`。中间顶点仅在
@@ -292,14 +293,14 @@ M20 原生 Bag 不加 +0.17 m，不修改 odom Z，不重复变换点云。
 
 ```bash
 cd /home/wei/github_code/topo_graph_m20_ws
-./sh/01_start_auto_waypoint.sh
+./sh/1_start_auto_waypoint.sh
 ```
 
 在终端 A 按 `1` 后，终端 B 开始回放传感器输入：
 
 ```bash
 cd /home/wei/github_code/topo_graph_m20_ws
-./sh/09_play_sensor_bag.sh /home/wei/bag/m20_route_001 1.0 false
+./sh/9_play_sensor_bag.sh /home/wei/bag/m20_route_001 1.0 false
 ```
 
 Bag 播放结束后回到终端 A，按 `2`，输入新的结果目录名，例如 `m20_route_001_rebuilt`，等待生成：
@@ -319,7 +320,7 @@ Bag 回放绝不能连接 `basic_server`，也不能启用运动。
 
 ```bash
 cd /home/wei/github_code/topo_graph_m20_ws
-./sh/08_start_bag_planning_control.sh \
+./sh/8_start_bag_planning_control.sh \
   ./data/m20_route_001_rebuilt/topoGraph_data.json true 0.57
 ```
 
@@ -341,19 +342,19 @@ Bag 中录制的旧 `/tf` 不参与回放。规控栈从 `/lio_odom_hf` 生成�
 终端 B：从头回放 Bag：
 
 ```bash
-./sh/09_play_sensor_bag.sh /home/wei/bag/m20_route_001 1.0 false
+./sh/9_play_sensor_bag.sh /home/wei/bag/m20_route_001 1.0 false
 ```
 
 终端 C：等 `/lio_odom` 开始发布且机器人位于拓扑附近后发送目标：
 
 ```bash
-./sh/06_send_goal_only.sh 20
+./sh/6_send_goal_only.sh 20
 ```
 
 也可以明确发送：
 
 ```bash
-./sh/04_send_goal.sh 1 20
+./sh/4_send_goal.sh 1 20
 ```
 
 Bag 验证时重点观察：
@@ -385,14 +386,14 @@ RViz 中的停障/绕障显示按边模式区分：
 仅把两端都在 1–40 范围内的 39 条边改为模式 0/PID；40→41 及其余 69 条边保持模式 1：
 
 ```bash
-./sh/08_start_bag_planning_control.sh \
+./sh/8_start_bag_planning_control.sh \
   ./data/m20_validation/regu_mode0_1_40/topoGraph_data.json true 0.40
-./sh/09_play_sensor_bag.sh /home/wei/bag/regu 1.0 false
-./sh/04_send_goal.sh 1 40
+./sh/9_play_sensor_bag.sh /home/wei/bag/regu 1.0 false
+./sh/4_send_goal.sh 1 40
 ```
 
 在这套测试中应看到亮绿色粗线框三维扫掠盒；如果命中判定障碍，线框变红并显示红色碰撞点。
-若发送 `./sh/04_send_goal.sh 1 109`，还可对比 40 号点前的 PID 停障和 40 号点后的
+若发送 `./sh/4_send_goal.sh 1 109`，还可对比 40 号点前的 PID 停障和 40 号点后的
 Efficient 绕障。详细说明和实测结果分别见
 `data/m20_validation/regu_mode0_1_40/README.md` 和
 `validation/bags/regu_mode0_1_40_runtime.json`。
@@ -400,10 +401,10 @@ Efficient 绕障。详细说明和实测结果分别见
 如果需要观察整条 regu 路线全部使用三维停障，加载全边模式 0/PID 的独立版本：
 
 ```bash
-./sh/08_start_bag_planning_control.sh \
+./sh/8_start_bag_planning_control.sh \
   ./data/m20_validation/regu_mode0_all/topoGraph_data.json true 0.40
-./sh/09_play_sensor_bag.sh /home/wei/bag/regu 1.0 false
-./sh/04_send_goal.sh 1 109
+./sh/9_play_sensor_bag.sh /home/wei/bag/regu 1.0 false
+./sh/4_send_goal.sh 1 109
 ```
 
 它仍完整保留原图 109 个点和 108 条边；详细说明见
@@ -444,9 +445,9 @@ data/m20_validation/full_nav_replay_with_plan/topoGraph_data.json
 回放历史 Go2 图时，Dijkstra 起点匹配高度应传 `0.40`：
 
 ```bash
-./sh/08_start_bag_planning_control.sh \
+./sh/8_start_bag_planning_control.sh \
   ./data/m20_validation/regu/topoGraph_data.json true 0.40
-./sh/09_play_sensor_bag.sh /home/wei/bag/regu 1.0 false
+./sh/9_play_sensor_bag.sh /home/wei/bag/regu 1.0 false
 ```
 
 历史离线三维扫掠验证会把 M20 检测中心相对 Go2 轨迹上移 `0.17 m`。这条补偿只属于旧 Go2
@@ -485,8 +486,8 @@ ros2 topic pub -r 10 /m20/manual/cmd_vel geometry_msgs/msg/Twist \
 启动方式错了。停止当前节点后使用：
 
 ```bash
-./sh/03_stop_all_ros.sh
-./sh/08_start_bag_planning_control.sh /绝对路径/topoGraph_data.json true 0.57
+./sh/3_stop_all_ros.sh
+./sh/8_start_bag_planning_control.sh /绝对路径/topoGraph_data.json true 0.57
 ```
 
 确认启动日志中为 `start_m20_bridge=false`。
@@ -505,14 +506,14 @@ ros2 topic pub -r 10 /m20/manual/cmd_vel geometry_msgs/msg/Twist \
 
 检查 `/lio_odom` 与 `/cloud_registered_body` 的时间戳差。现场 Web 模式配置了 `0.15 s` 同步窗口，
 终端默认 M20 配置当前为 `0.05 s`；如果现场 LIO 固定早于点云约 `0.10 s`，应在专用 YAML 中把
-`route3d_live.recorder.sync_slop` 调到 `0.15` 后作为参数传给 `01_start_auto_waypoint.sh`。
+`route3d_live.recorder.sync_slop` 调到 `0.15` 后作为参数传给 `1_start_auto_waypoint.sh`。
 
 ### 如何立即安全停止
 
 优先使用遥控急停，然后执行：
 
 ```bash
-./sh/03_stop_all_ros.sh
+./sh/3_stop_all_ros.sh
 ```
 
 脚本会先请求取消巡航和当前 PID 任务，再停止当前用户的 ROS 2 进程。

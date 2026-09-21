@@ -1,0 +1,133 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 70
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Topology graph1
+      Splitter Ratio: 0.5
+    Tree Height: 783
+  - Class: route3d_topology_editor/TopologyEditorPanel
+    GraphFile: /home/wei/github_code/topo_graph_m20_ws/data/live/topoGraph_data.json
+    Name: Topology Editor
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.44999998807907104
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 90; 90; 90
+      Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 80
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Topology graph
+      Namespaces:
+        edge_ids: true
+        edges: true
+        new_edge_start: true
+        selection: true
+        vertex_ids: true
+        vertices: true
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /route3d_topology_editor/visualization
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 32; 34; 38
+    Fixed Frame: camera_init
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: route3d_topology_editor/TopologySelectTool
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Angle: 0
+      Class: rviz_default_plugins/TopDownOrtho
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Scale: 33.73394012451172
+      Target Frame: <Fixed Frame>
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: 8.0592679977417
+      Y: 16.400962829589844
+    Saved:
+      - Angle: 0
+        Class: rviz_default_plugins/TopDownOrtho
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Invert Z Axis: false
+        Name: 俯视
+        Near Clip Distance: 0.009999999776482582
+        Scale: 60
+        Target Frame: <Fixed Frame>
+        Value: TopDownOrtho (rviz_default_plugins)
+        X: 0
+        Y: 0
+      - Class: rviz_default_plugins/Orbit
+        Distance: 60
+        Enable Stereo Rendering:
+          Stereo Eye Separation: 0.05999999865889549
+          Stereo Focal Distance: 1
+          Swap Stereo Eyes: false
+          Value: false
+        Focal Point:
+          X: 0
+          Y: 0
+          Z: 0
+        Focal Shape Fixed Size: true
+        Focal Shape Size: 0.05000000074505806
+        Invert Z Axis: false
+        Name: 3D轨道
+        Near Clip Distance: 0.009999999776482582
+        Pitch: 0.7850000262260437
+        Target Frame: <Fixed Frame>
+        Value: Orbit (rviz_default_plugins)
+        Yaw: 0.7850000262260437
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 1011
+  Hide Left Dock: false
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd00000002000000000000015600000395fc0200000001fb000000100044006900730070006c006100790073010000003f00000395000000cc00ffffff00000001000001c300000395fc0200000001fb0000001e0054006f0070006f006c006f0067007900200045006400690074006f0072010000003f000003950000018300ffffff000004190000039500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Topology Editor:
+    collapsed: false
+  Width: 1854
+  X: 66
+  Y: 32

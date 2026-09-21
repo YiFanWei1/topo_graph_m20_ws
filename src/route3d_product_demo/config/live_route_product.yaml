@@ -98,7 +98,7 @@ static_tf:
     translation: [0.0, 0.0, 0.0]
     rotation_rpy: [0.0, 0.0, 0.0]
 
-  # 雷达在机身中心坐标系下为 [0.32028, 0, -0.013]，下列数值为其逆变换。
+  # 当前 M20 定位约定 body 与 base_link 重合，因此这里发布单位变换。
   body_to_base_link:
     publish: true
     parent_frame: body

@@ -19,6 +19,7 @@
   <depend>route3d_dijkstra_planner</depend>
   <depend>route3d_pid_controller</depend>
   <exec_depend>route3d_product_demo</exec_depend>
+  <exec_depend>route3d_odom_waypoint</exec_depend>
   <exec_depend>route3d_vertex_initializer</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

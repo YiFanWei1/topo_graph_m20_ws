@@ -105,7 +105,7 @@ class Edge:
 @dataclass(frozen=True)
 class RetraceConfig:
     enabled: bool = True
-    corridor_xy_tolerance: float = 0.30
+    corridor_xy_tolerance: float = 0.40
     corridor_exit_xy_tolerance: float = 0.45
     z_tolerance: float = 0.20
     heading_tolerance_degrees: float = 35.0
@@ -127,7 +127,7 @@ class RetraceConfig:
             raise ValueError("corridor_xy_tolerance must be positive")
         if self.corridor_exit_xy_tolerance < self.corridor_xy_tolerance:
             raise ValueError("corridor_exit_xy_tolerance must not be smaller than entry tolerance")
-        if not 0.0 < self.heading_tolerance_degrees < 90.0:
+        if not 0.0 < self.heading_tolerance_degrees <= 90.0:
             raise ValueError("heading_tolerance_degrees must be between 0 and 90")
 
 
@@ -163,7 +163,7 @@ class LoopClosureConfig:
         if self.corridor_exit_xy_tolerance < self.corridor_xy_tolerance:
             raise ValueError(
                 "loop closure exit tolerance must not be smaller than entry tolerance")
-        if not 0.0 < self.heading_tolerance_degrees < 90.0:
+        if not 0.0 < self.heading_tolerance_degrees <= 90.0:
             raise ValueError(
                 "loop closure heading_tolerance_degrees must be between 0 and 90")
 

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly MAPPING_WORKSPACE="/opt/mapping_ws"
-readonly MAPPING_SCRIPT="${MAPPING_WORKSPACE}/run_mapping_nodes_2.sh"
+readonly MAPPING_SCRIPT="${MAPPING_WORKSPACE}/run_mapping_nodes.sh"
 
 if [[ ! -x "${MAPPING_SCRIPT}" ]]; then
   echo "错误：找不到可执行建图脚本：${MAPPING_SCRIPT}" >&2

@@ -2,9 +2,10 @@
 /install/
 /log/
 /data/
-/bags/
-/validation/bags/
 __pycache__/
 *.py[cod]
 7
 src_
+bags/
+0915.zip
+M20_RUNBOOK.md

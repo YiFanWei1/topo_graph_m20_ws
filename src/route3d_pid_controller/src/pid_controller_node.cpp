@@ -258,6 +258,16 @@ public:
         1, declare_parameter<int>("obstacle.swept.step_surface_min_support_points", 3)));
     swept_log_jsonl_path_ = declare_parameter<std::string>(
       "obstacle.swept.log_jsonl_path", "/tmp/route3d_m20_swept_volume.jsonl");
+    const auto swept_enter_frames = declare_parameter<std::int64_t>(
+      "obstacle.swept.confirmation.enter_frames", 2);
+    const auto swept_exit_frames = declare_parameter<std::int64_t>(
+      "obstacle.swept.confirmation.exit_frames", 3);
+    if (swept_enter_frames <= 0 || swept_exit_frames <= 0) {
+      throw std::invalid_argument("swept obstacle confirmation frames must be positive");
+    }
+    swept_obstacle_gate_ = std::make_unique<ConsecutiveFrameGate>(
+      static_cast<std::size_t>(swept_enter_frames),
+      static_cast<std::size_t>(swept_exit_frames));
     swept_checker_ = std::make_unique<M20SweptVolumeChecker>(swept_config);
     validateParameters();
     safety_clear_gate_ = std::make_unique<SafetyClearGate>(safety_clear_hold_s_);
@@ -788,6 +798,7 @@ private:
     safety_clear_waiting_logged_ = false;
     rotation_footprint_active_ = false;
     safety_clear_gate_->reset();
+    resetSweptObstacleConfirmation();
     last_tracking_output_ = {};
     base_collision_hold_remaining_ = 0U;
     setState(
@@ -949,6 +960,7 @@ private:
     safety_clear_waiting_logged_ = false;
     rotation_footprint_active_ = false;
     safety_clear_gate_->reset();
+    resetSweptObstacleConfirmation();
     trajectory_collision_count_ = 0U;
     checked_trajectory_poses_ = 0U;
     elevation_replan_required_ = false;
@@ -1299,6 +1311,16 @@ private:
     swept_collision_cloud_publisher_->publish(message);
   }
 
+  void resetSweptObstacleConfirmation()
+  {
+    if (swept_obstacle_gate_) {
+      swept_obstacle_gate_->reset();
+    }
+    swept_raw_collision_ = false;
+    swept_confirmation_generation_ = std::numeric_limits<std::uint64_t>::max();
+    swept_last_logged_generation_ = std::numeric_limits<std::uint64_t>::max();
+  }
+
   void appendSweptVolumeLog(const M20SweptVolumeResult & result)
   {
     if (swept_log_jsonl_path_.empty() ||
@@ -1315,6 +1337,12 @@ private:
       {"points_examined", result.points_examined},
       {"trajectory_poses", result.poses_checked},
       {"collision_points", result.collision_points},
+      {"raw_collision", swept_raw_collision_},
+      {"confirmed_collision", swept_obstacle_gate_->blocked()},
+      {"enter_observed_frames", swept_obstacle_gate_->obstacleFrames()},
+      {"enter_required_frames", swept_obstacle_gate_->enterFrames()},
+      {"exit_observed_frames", swept_obstacle_gate_->clearFrames()},
+      {"exit_required_frames", swept_obstacle_gate_->exitFrames()},
       {"surface_points_excluded", result.surface_points_excluded},
       {"nearest_hit_distance_m", std::isfinite(result.nearest_hit_distance_m) ?
         nlohmann::json(result.nearest_hit_distance_m) : nlohmann::json(nullptr)}};
@@ -1334,6 +1362,7 @@ private:
     checked_trajectory_poses_ = 0U;
     elevation_replan_required_ = false;
     if (!obstacleDetectionEnabledForTask() || !swept_cloud_ready_) {
+      resetSweptObstacleConfirmation();
       return false;
     }
     const auto trajectory = sweptTrajectory();
@@ -1341,8 +1370,13 @@ private:
     trajectory_collision_count_ = last_swept_result_.collision_points;
     checked_trajectory_poses_ = last_swept_result_.poses_checked;
     publishSweptVolumeDebug(trajectory, last_swept_result_);
+    if (swept_confirmation_generation_ != swept_cloud_generation_) {
+      swept_raw_collision_ = last_swept_result_.collision();
+      (void)swept_obstacle_gate_->update(swept_raw_collision_);
+      swept_confirmation_generation_ = swept_cloud_generation_;
+    }
     appendSweptVolumeLog(last_swept_result_);
-    return last_swept_result_.collision();
+    return swept_obstacle_gate_->blocked();
   }
 
   bool elevationTrajectoryBlocked()
@@ -1980,6 +2014,7 @@ private:
   void publishStatus(const std::string & detail)
   {
     const bool has_task = has_route_ && active_task_index_ < route_.tasks.size();
+    const bool confirmed_cloud_obstacle = swept_obstacle_gate_ && swept_obstacle_gate_->blocked();
     nlohmann::json status = {
       {"state", stateName(state_)},
       {"detail", detail},
@@ -1993,7 +2028,12 @@ private:
       {"safety_stopped", safety_stopped_},
       {"safety_clear_hold_s", safety_clear_hold_s_},
       {"safety_clear_waiting", safety_clear_waiting_logged_},
-      {"cloud_obstacle", trajectory_collision_count_ > 0U},
+      {"cloud_obstacle", confirmed_cloud_obstacle},
+      {"cloud_obstacle_raw", swept_raw_collision_},
+      {"cloud_obstacle_enter_frames", swept_obstacle_gate_->obstacleFrames()},
+      {"cloud_obstacle_enter_required", swept_obstacle_gate_->enterFrames()},
+      {"cloud_clear_frames", swept_obstacle_gate_->clearFrames()},
+      {"cloud_clear_required", swept_obstacle_gate_->exitFrames()},
       {"obstacle_point_count", trajectory_collision_count_},
       {"swept_volume_ready", swept_cloud_ready_},
       {"swept_volume_collision_points", last_swept_result_.collision_points},
@@ -2117,6 +2157,7 @@ private:
     }
     paused_ = true;
     rotation_footprint_active_ = false;
+    resetSweptObstacleConfirmation();
     tracker_->stopAndResetControllers();
     publishZero();
     publishControllerSelection("none");
@@ -2207,7 +2248,10 @@ private:
   std::uint64_t elevation_map_generation_{0U};
   std::uint64_t debug_visualization_generation_{0U};
   std::uint64_t swept_cloud_generation_{0U};
+  std::uint64_t swept_confirmation_generation_{std::numeric_limits<std::uint64_t>::max()};
   std::uint64_t swept_last_logged_generation_{std::numeric_limits<std::uint64_t>::max()};
+  bool swept_raw_collision_{false};
+
   std::string frame_id_;
   std::string cloud_frame_id_{"base_link"};
   std::vector<Pose2d> debug_local_trajectory_;
@@ -2240,6 +2284,7 @@ private:
   rclcpp::Time elevation_map_stamp_{0, 0, RCL_ROS_TIME};
   std::chrono::steady_clock::time_point last_control_time_;
   std::unique_ptr<SafetyClearGate> safety_clear_gate_;
+  std::unique_ptr<ConsecutiveFrameGate> swept_obstacle_gate_;
   std::unique_ptr<TimestampedPoseBuffer> odometry_pose_buffer_;
   std::unique_ptr<TimestampedPose3dBuffer> odometry_pose_3d_buffer_;
   std::unique_ptr<ElevationCollisionChecker> elevation_checker_;

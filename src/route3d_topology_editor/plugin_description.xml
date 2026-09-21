@@ -1,0 +1,14 @@
+<library path="route3d_topology_editor">
+  <class
+    name="route3d_topology_editor/TopologyEditorPanel"
+    type="route3d_topology_editor::TopologyEditorPanel"
+    base_class_type="rviz_common::Panel">
+    <description>Load, inspect, edit, validate and save Route3D topology attributes.</description>
+  </class>
+  <class
+    name="route3d_topology_editor/TopologySelectTool"
+    type="route3d_topology_editor::TopologySelectTool"
+    base_class_type="rviz_common::Tool">
+    <description>Click a visible topology point or edge and select its nearest item in the editor.</description>
+  </class>
+</library>

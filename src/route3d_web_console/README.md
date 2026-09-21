@@ -8,6 +8,8 @@ Route3D 浏览器控制台。本版本把 **PCD 地图、定位配置、拓扑 J
 - 扫描 `maps.allowed_roots` 下所有合法 `route3d_topology` v2 JSON，并独立于 PCD 选择。
 - 点击顶点/边后持续高亮。
 - 顶点属性、边属性可在网页修改。
+- 扫描 `<地图根目录>/<地图名>/map/slam_data/trajectory/pose.json`，一键生成并加载同名拓扑。
+- 支持全图或起终点最短路径上的点/边属性批量修改，以及“全图停障/全图绕障/全图不停障”快捷操作。
 - `保存拓扑` 直接写回当前选中的本地 JSON，`TopologyStore` 会在同目录 `.route3d_web_backups/` 自动保存旧版本。
 - `连接边` 模式下依次点击两个顶点创建边；第一个顶点绿色高亮，完成后新边自动选中。
 - 选中顶点后点击 `使用此点发送定位初值`，把当前网页选择的 topology 路径和 vertex id 发给 `route3d_vertex_initializer`。
@@ -52,8 +54,8 @@ http://机器人IP:8080
 
 ```yaml
 maps.allowed_roots:
-  - /home/wei
-  - /home/wei/github_code/topo_graph_m20_ws/data
+  - /home/langyi/workspace/map
+  - /home/langyi/workspace/wyf/topo_graph_m20_ws/data
 resources.scan_max_files: 1000
 resources.scan_max_depth: 6
 ```
@@ -64,12 +66,52 @@ resources.scan_max_depth: 6
 
 为避免“磁盘文件已经改变、正在运行的 planner 仍持有旧图”的不一致，运行 planner 时仍禁止保存 topology。停止 planner 后点击保存即可直接覆盖原 JSON，并自动备份旧文件。
 
+## 从建图 pose.json 生成拓扑
+
+“拓扑”模块会扫描：
+
+```text
+resources.pcd_root/<地图名>/map/slam_data/trajectory/pose.json
+```
+
+选择地图名并点击“生成并加载拓扑”后，后台复用 `route3d_odom_waypoint pose_file_to_topology`，参数来自：
+
+```yaml
+topology.generation_config_file: /home/langyi/workspace/wyf/topo_graph_m20_ws/src/route3d_odom_waypoint/config/odom_waypoint.yaml
+topology.generation_frame_id: camera_init
+```
+
+结果写入：
+
+```text
+resources.topology_root/<地图名>/topoGraph_data.json
+```
+
+生成成功后会校验 Schema V2、自动加载并刷新拓扑列表。默认禁止覆盖；勾选覆盖时会先把旧 JSON 保存到同目录的 `.route3d_web_backups/`。
+
+## 网页批量修改属性
+
+- 范围可选“全图”或“起点 → 终点的最短拓扑路径”。路径范围的顶点修改覆盖路径内所有点，边修改覆盖路径内所有边。
+- 点支持批量修改 `isCorner`、`isSlope`、`isJunction`、`type`、`typeId`、`chargingMode`、`acc`、`turnable`、`alignFinalYaw`、`mustPassThrough`、`passRadiusM`。
+- 边支持批量修改 `obstacleMode`、`controllerMode`、`travelMode/dir`、`rotationAllowed`、速度、高度补偿、航向、障碍框和 `gridMapName`。
+- “全图停障”写入 `obstacleMode=0 + controllerMode=pid`；“全图绕障”写入 `obstacleMode=1 + controllerMode=efficient_3d_local_planner`；“全图不停障”写入 `obstacleMode=2 + controllerMode=pid`。
+- 批量操作只修改浏览器内存，可撤销；必须再点击“保存拓扑”才会落盘并生成备份。
+
+### obstacleMode 0 与 2
+
+两者不只是“有无停障”的区别：
+
+- `0`：控制器服从边的 `controllerMode`（`auto` 使用默认控制器）；当最终选中 PID 时启用 `/cloud_registered_body` 三维路径扫掠停障。
+- `2`：无论边上写的 `controllerMode` 是什么都强制选择 PID，并关闭普通点云的路径扫掠停障，适合明确允许通过的特殊区域。
+
+外部急停、碰撞等级、里程计超时以及配置为全局生效的点云超时仍会阻止运动，因此 `2` 不是“关闭所有安全保护”。
+
 ## Local map/topology discovery
 
 The current UI does not require a control lease. Local resources are deliberately independent:
 
 - PCD maps are discovered under `resources.pcd_root` as `<name>/map/<name>.pcd` (or the only `.pcd` in that `map/` directory as a compatibility fallback). The selector shows `<name>`.
-- Topology maps are discovered as `/home/wei/github_code/topo_graph_m20_ws/data/<name>/topoGraph_data.json`. The selector shows `<name>` and ignores `events.jsonl`, `route3d_graph.json`, `topoSingle_data.json`, etc.
+- Topology maps are discovered as `/home/langyi/workspace/wyf/topo_graph_m20_ws/data/<name>/topoGraph_data.json`. The selector shows `<name>` and ignores `events.jsonl`, `route3d_graph.json`, `topoSingle_data.json`, etc.
 - The PCD voxel/downsampling size is editable directly in the page and only affects the browser static-map visualization.
 
 ## 运行状态探测
@@ -83,12 +125,38 @@ The current UI does not require a control lease. Local resources are deliberatel
 - 自动打点：在线 skeleton / recorder 节点是否存在。
 - 顶点初始化：initializer 节点或 vertex-id topic subscriber 是否存在。
 
+## 实时位置显示与限频
+
+现场 `/lio_odom_hf` 约为 200 Hz，而网页三维视图按约 30 FPS 渲染。Web Console
+在 ROS 侧始终接收并保存最新位姿，供实时点云坐标变换和状态判断使用；发往浏览器的
+位姿、速度和重复状态则按下面参数限频：
+
+```yaml
+telemetry.pose_maximum_rate_hz: 30.0
+telemetry.velocity_maximum_rate_hz: 10.0
+telemetry.status_maximum_rate_hz: 10.0
+```
+
+这些参数只影响网页显示，不影响定位、规划、PID、Efficient 3D 或三维停障频率。
+WebSocket 对这些遥测消息使用“只保留最新值”队列，前端也只在下一渲染帧应用最新
+位姿，因此浏览器短暂繁忙后不会把积压的旧位置逐帧补放。若仍需降低现场 NoMachine
+或核显负载，可将位姿显示频率调到 `20.0`，不建议通过降低 ROS 里程计频率解决。
+
 ## 建图和保存地图
 
-网页的“开始建图”执行：
+网页的“开始建图”可选择 `robosense_lio` 或 `robosense_glio`，默认使用不依赖 GNSS/RTK 的 LIO：
 
 ```bash
-cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping
+cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping config:=robosense_lio
+```
+
+GLIO 当前使用 `/gnss_ksxt`，只有该话题在线且 RTK 初始化条件满足时才应选择。
+后端通过 `mapping.allowed_configs` 白名单校验网页传入的配置名：
+
+```yaml
+process.mapping_command: "cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping config:={mapping_config}"
+mapping.default_config: "robosense_lio"
+mapping.allowed_configs: ["robosense_lio", "robosense_glio"]
 ```
 
 “关闭建图节点”停止由网页启动的建图进程。自动打点和建图互不排斥；自动打点允许使用定位 `/lio_odom_hf` 或建图 `/lio_odom` 中任意一路新鲜里程计。
@@ -121,7 +189,9 @@ ros2 service call /save_pcd_service moveit_msgs/srv/SaveMap \
 - 网页节点继承启动终端的 `ROS_DOMAIN_ID`（默认 0），用于和 systemd 雷达服务及远程终端处于同一个 ROS 图。
 - 定位无需手工选择定位模板。选择 PCD 后直接启动定位；后台自动匹配 catalog 中的旧模板，匹配不到时使用 `localization.config_template`。
 - 实时点云订阅 `/cloud_registered_body`，并使用 `/lio_odom_hf`（建图时回退 `/lio_odom`）将 body-frame 点云变换到全局位置后显示。
-- 建图启动目录为 `/opt/mapping_ws`：`cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping`。
+- 三维视图的“点位 Yaw”开关按拓扑顶点的 `rpy.yaw` 显示高亮荧光黄色方向箭头，便于拖拽设置定位初始朝向。
+- 三维视图使用鼠标指针位置作为缩放中心，并将相机近裁剪距离降至毫米级，支持大型地图局部持续放大。
+- 建图启动目录为 `/opt/mapping_ws`，配置可在网页选择，默认执行 `./run_mapping_nodes.sh mode:=mapping config:=robosense_lio`。
 
 ## 2026-09 UI/module and goal-only updates
 

@@ -2,6 +2,8 @@ route3d_m20_adapter:
   ros__parameters:
     use_sim_time: false
     enable_motion: false
+    # 没有激活导航任务时不向底盘发布速度，让实体遥控器可以直接接管。
+    release_output_when_idle: true
     control_rate_hz: 50.0
     command_timeout_s: 0.30
     state_timeout_s: 1.00
@@ -21,6 +23,6 @@ route3d_m20_adapter:
     limits.normal.maximum_wz_radps: 0.50
     limits.alignment.maximum_vx_mps: 0.20
     limits.alignment.maximum_vy_mps: 0.30
-    limits.alignment.maximum_wz_radps: 0.50
+    limits.alignment.maximum_wz_radps: 0.70
     limits.minimum_linear_speed_mps: 0.20
-    limits.minimum_yaw_speed_radps: 0.25
+    limits.minimum_yaw_speed_radps: 0.32

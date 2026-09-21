@@ -1,0 +1,107 @@
+# Route3D live product configuration.
+#
+# M20 localization publishes camera_init -> body, where body is the LiDAR frame.
+# The static body -> base_link transform below lets localization derive the robot center.
+
+route3d_live:
+  # auto 根据当前包安装位置查找工作空间，本机和远端可以共用此 YAML。
+  workspace: auto
+  # 相对路径以自动找到的工作空间为基准。
+  results_root: data
+
+  topics:
+    odom: /lio_odom
+    cloud: /cloud_registered_body
+    synchronized_pose: /route3d/synchronized_pose
+
+  recorder:
+    sync_slop: 0.05
+    queue_size: 100
+    expected_odom_frame: camera_init
+    expected_odom_child_frame: base_link
+    expected_cloud_frame: base_link
+
+  skeleton:
+    target_spacing: 1.0
+    dedup_distance: 0.05
+    body_height: 0.57
+    corner_xy_radius: 0.50
+    corner_yaw_degrees: 45.0
+    corner_min_duration: 0.50
+    corner_max_z_range: 0.10
+    corner_merge_distance: 0.35
+    corner_min_separation: 1.0
+    relocation_distance: 0.50
+    topo_type: 0
+    topo_pcd: ""
+    topo_acc: 0.50
+
+  # 仅识别从当前探索位置沿相邻旧边的原路退回；不吸附任意空间近邻边。
+  retrace:
+    enabled: true
+    corridor_xy_tolerance: 0.30
+    corridor_exit_xy_tolerance: 0.45
+    z_tolerance: 0.20
+    heading_tolerance_degrees: 35.0
+    entry_confirmation_distance: 0.30
+    exit_confirmation_distance: 0.30
+    vertex_snap_distance: 0.30
+    motion_min_distance: 0.10
+
+  # 第二期：允许在图距离足够远的旧边上重新进入，以建立闭环并抑制重复绕圈。
+  # 候选必须连续匹配 0.8m，并使用对应关键帧 PCD 做局部体素重合验证。
+  loop_closure:
+    enabled: true
+    corridor_xy_tolerance: 0.40
+    corridor_exit_xy_tolerance: 0.55
+    z_tolerance: 0.20
+    heading_tolerance_degrees: 45.0
+    confirmation_distance: 0.80
+    exit_confirmation_distance: 0.80
+    minimum_graph_separation: 3.00
+    minimum_time_separation: 5.00
+    vertex_snap_distance: 0.45
+    rejection_cooldown_distance: 1.00
+    pcd_validation:
+      enabled: true
+      # PCD 文件偶发缺失时仍允许连续几何判定；PCD 存在但重合率不足则拒绝闭环。
+      required: false
+      voxel_size: 0.30
+      minimum_overlap: 0.45
+      search_radius: 0.60
+      z_search_radius: 0.30
+      minimum_range: 0.50
+      maximum_range: 12.0
+      minimum_voxels: 100
+
+  # 记录过程中实时分析 Z 变化并显示坡点；按 2 保存时对最终 JSON 完整重算。
+  # 最终写入 vertices.<id>.meta.isSlope，坡段前后 buffer_distance 米也标记为坡点。
+  slope:
+    enabled: true
+    fit_radius: 2.0
+    grade_threshold: 0.001 #0.06 
+    minimum_core_length: 1.0
+    minimum_height_change: 0.001 #0.20
+    maximum_core_gap: 1.0
+    buffer_distance: 2.0
+
+  rviz:
+    enabled: true
+    # Empty uses route3d_online_skeleton/rviz/online_route_skeleton.rviz.
+    config_file: ""
+
+static_tf:
+  map_to_camera_init:
+    publish: true
+    parent_frame: map
+    child_frame: camera_init
+    translation: [0.0, 0.0, 0.0]
+    rotation_rpy: [0.0, 0.0, 0.0]
+
+  # 雷达在机身中心坐标系下为 [0.32028, 0, -0.013]，下列数值为其逆变换。
+  body_to_base_link:
+    publish: true
+    parent_frame: body
+    child_frame: base_link
+    translation: [-0.32028, 0.0, 0.013]
+    rotation_rpy: [0.0, 0.0, 0.0]

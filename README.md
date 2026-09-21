@@ -54,21 +54,20 @@ adapter 只在 `enable_motion=true`、ready、RL 状态反馈新鲜、控制源�
 `isSlope` 只描述地形，不再隐式选择控制器或修改障碍模式。新数据不写
 `locomotionMode`；加载器可读取旧字段但会忽略它。
 
-拐点保持 `passRadiusM=0.20 m`、提前 `0.70 m` 降速、拐点速度 `0.20 m/s`。
+拐点保持 `passRadiusM=0.25 m`、提前 `0.70 m` 降速、拐点速度 `0.20 m/s`。
 
 ## 坐标与停障
 
 总启动入口发布静态 TF：
 
 ```text
-body -> base_link: xyz = [-0.32028, 0.0, 0.013], rpy = [0, 0, 0]
+body -> base_link: xyz = [0.0, 0.0, 0.0], rpy = [0, 0, 0]
 ```
 
-这里 `body` 是雷达坐标系，定位发布动态 `camera_init -> body`；上述静态 TF 将定位结果
-传到机身中心 `base_link`。已知雷达在机身中心下的位置是
-`[0.32028, 0.0, -0.013]`，所以发布反方向 TF 时使用逆平移。
+当前 M20 定位数据约定 `body` 与 `base_link` 重合，因此两者使用单位变换。
+雷达安装位置 `[0.32028, 0.0, -0.013]` 只供 Efficient mapper 设置射线起点，不能再次叠加到 TF。
 
-`/cloud_registered_body` 已在 `base_link` 下，端点不重复应用这组外参；Efficient mapper
+`/cloud_registered_body` 已在 `base_link` 下，端点不重复应用雷达外参；Efficient mapper
 仅用它设置雷达射线起点。导航定位继续使用 `/lio_odom`/`/lio_odom_hf`，
 `/m20/state/odometry` 只作诊断。
 
@@ -94,11 +93,11 @@ M20 路径高度补偿统一为 `0.57 m`。模式 0 的 PID 三维扫掠使用�
 常用入口都通过脚本所在位置自动解析工作空间，不依赖旧机器路径：
 
 ```bash
-./sh/01_start_auto_waypoint.sh
-./sh/02_start_planning_control.sh
-./sh/04_send_goal.sh START_ID GOAL_ID
-./sh/05_start_loop_patrol.sh
-./sh/03_stop_all_ros.sh
+./sh/1_start_auto_waypoint.sh
+./sh/2_start_planning_control.sh
+./sh/4_send_goal.sh START_ID GOAL_ID
+./sh/5_start_loop_patrol.sh
+./sh/3_stop_all_ros.sh
 ```
 
 Web 控制台保留地图、实时雷达、自动打点、点选导航、循环巡航和顶点初始化。边编辑器

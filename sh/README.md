@@ -132,7 +132,7 @@ http://192.168.121.1:18088
 
 ```bash
 cd /opt/mapping_ws
-./run_mapping_nodes_2.sh mode:=mapping config:=robosense_lio
+./run_mapping_nodes.sh mode:=mapping config:=robosense_lio
 ```
 
 启动重定位：
@@ -140,6 +140,23 @@ cd /opt/mapping_ws
 ```bash
 ./sh/16_start_relocalization.sh
 ```
+
+## 无点云拓扑与属性编辑
+
+实时读取 `/lio_odom`、生成拓扑并在 RViz 中显示：
+
+```bash
+./sh/18_start_live_odom_waypoint.sh
+```
+
+停止记录后，在 RViz 面板中编辑 `data/live/topoGraph_data.json` 的点和边属性：
+
+```bash
+./sh/19_edit_topology.sh
+```
+
+编辑器中的“应用修改”只更新内存和显示；点击“保存”才写回文件，并自动生成
+`topoGraph_data.json.bak`。
 
 确认机器人已经运动并产生关键帧后，在另一个终端保存地图。第一个参数是地图名称，
 第二个参数是滤波分辨率，默认是 `0.1`：

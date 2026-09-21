@@ -16,11 +16,11 @@ up_and_down_demo:
     static_tf.map_to_camera_init.child_frame: camera_init
     static_tf.map_to_camera_init.translation: [0.0, 0.0, 0.0]
     static_tf.map_to_camera_init.rotation_rpy: [0.0, 0.0, 0.0]
-    # body 是雷达坐标系，base_link 是机身中心；定位使用 camera_init -> body -> base_link。
-    # 已知雷达在 base_link 下为 [0.32028, 0, -0.013]，这里发布其逆变换。
+    # 当前 M20 定位约定 body 与 base_link 重合，这里必须发布单位变换。
+    # 雷达安装偏移只用于下方 mapper 的 extrinsic 射线起点，不在 TF 中重复叠加。
     static_tf.body_to_base_link.parent_frame: body
     static_tf.body_to_base_link.child_frame: base_link
-    static_tf.body_to_base_link.translation: [-0.32028, 0.0, 0.013]
+    static_tf.body_to_base_link.translation: [0.0, 0.0, 0.0]
     static_tf.body_to_base_link.rotation_rpy: [0.0, 0.0, 0.0]
 
 target_path_generator:

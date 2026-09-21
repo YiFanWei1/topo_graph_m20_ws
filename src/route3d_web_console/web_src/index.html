@@ -26,7 +26,8 @@
 
       <section class="step module-detail" data-step="2" data-module="mapping">
         <div class="step-title"><b>02</b> 建图与保存地图</div>
-        <p class="step-help">启动命令：/opt/mapping_ws/run_mapping_nodes_2.sh mode:=mapping（不额外发布静态 TF）。建图与自动打点互不排斥，可以同时运行。</p>
+        <p class="step-help">使用 /opt/mapping_ws/run_mapping_nodes.sh。LIO 只依赖雷达和 IMU；GLIO 还依赖 GNSS/RTK，当前配置需要 /gnss_ksxt。</p>
+        <label>建图配置<select id="mappingConfig"><option value="robosense_lio" selected>Robosense LIO（默认，雷达 + IMU）</option><option value="robosense_glio">Robosense GLIO（需要 GNSS/RTK）</option></select></label>
         <div class="row"><button data-start="mapping">开始建图</button><button class="secondary" data-stop="mapping">关闭建图节点</button><span id="mappingState" class="badge">未运行</span></div>
         <div class="row compact-status"><span>保存服务</span><span id="mapSaveServiceState" class="badge">离线</span><span>保存任务</span><span id="mapSaveState" class="badge">空闲</span></div>
         <label>保存地图名称<input id="mappingMapName" maxlength="80" placeholder="例如 510、floor_a" /></label>
@@ -51,6 +52,14 @@
 
       <section class="step module-detail" data-step="5" data-module="topology">
         <div class="step-title"><b>05</b> 本地拓扑选择与编辑</div>
+        <div class="topology-generate-box">
+          <h3>从建图轨迹生成拓扑</h3>
+          <p class="step-help">扫描 resources.pcd_root/&lt;地图名&gt;/map/slam_data/trajectory/pose.json。生成结果保存到 data/&lt;地图名&gt;/topoGraph_data.json，成功后自动加载到网页。</p>
+          <label>含 pose.json 的地图文件夹<select id="poseSourceSelect"><option value="">请选择地图</option></select></label>
+          <small id="poseSourcePath" class="file-path">未选择轨迹</small>
+          <label class="toggle"><input id="topologyGenerateOverwrite" type="checkbox" />允许覆盖已生成的同名拓扑</label>
+          <div class="row"><button id="generateTopology">生成并加载拓扑</button><span id="topologyGenerationState" class="badge">空闲</span></div>
+        </div>
         <p class="step-help">拓扑列表只读取 M20 工作空间 data/&lt;拓扑名&gt;/topoGraph_data.json。下拉框显示对应文件夹名；保存会直接写回这个文件。</p>
         <label>本地拓扑地图<select id="topologySelect"><option value="">请选择拓扑地图</option></select></label>
         <button id="selectTopology" class="wide">加载拓扑</button>
@@ -58,6 +67,17 @@
         <div class="row compact-status"><span>点位初始化服务</span><span id="initializerState" class="badge">检测中</span></div>
         <div class="tool-grid"><button data-tool="select" class="active">选择</button><button data-tool="vertex">地图加点</button><button data-tool="robotVertex">当前位置加点</button><button data-tool="edge">连接边</button></div>
         <label class="toggle"><input id="enableVertexDrag" type="checkbox" />拖动编辑点位（默认关闭，避免误触）</label>
+        <div class="batch-box">
+          <h3>批量修改点边属性</h3>
+          <p class="step-help">可作用于全图，或起终点之间的最短拓扑路径。修改可撤销，点击“保存拓扑”后才写入 JSON。</p>
+          <div class="row"><button id="allEdgesStop">全图停障（0 + PID）</button><button id="allEdgesAvoid" class="secondary">全图绕障（1 + Efficient）</button><button id="allEdgesNoStop" class="danger">全图不停障（2 + PID）</button></div>
+          <div class="two"><label>对象<select id="batchKind"><option value="vertex">顶点</option><option value="edge">边</option></select></label><label>范围<select id="batchScope"><option value="path">起终点最短路径</option><option value="all">全图</option></select></label></div>
+          <div id="batchPathInputs" class="two"><label>起点 ID<input id="batchStartId" type="number" min="1" /></label><label>终点 ID<input id="batchEndId" type="number" min="1" /></label></div>
+          <label>属性<select id="batchField"></select></label>
+          <label>新值<input id="batchValue" type="text" placeholder="布尔值输入 true/false" /></label>
+          <button id="applyBatch" class="wide secondary">批量应用（尚未保存）</button>
+          <small id="batchStatus" class="file-path">请选择对象、范围、属性和值。</small>
+        </div>
         <div class="row"><button id="undo" class="secondary">撤销</button><button id="redo" class="secondary">重做</button><button id="saveTopology">保存拓扑</button></div><small id="dirtyState">未修改</small>
       </section>
 
@@ -96,8 +116,10 @@
 
     <section class="viewport-wrap">
       <div id="viewport"></div>
-      <div class="scene-tools"><label><input id="showMap" type="checkbox" checked />PCD地图</label><label><input id="showLive" type="checkbox" />实时点云（按需传输）</label><label><input id="showTopo" type="checkbox" checked />拓扑</label><label><input id="showPreview" type="checkbox" checked />打点预览</label><label><input id="showTrack" type="checkbox" checked />轨迹</label><button id="followRobot" class="icon" title="跟随机器人中心（快捷键 F）" aria-pressed="false">跟随机器人</button><button id="fitView" class="icon">适配视图</button></div>
-      <div id="hint" class="hint">左键点击点/边会高亮；选择“连接边”后依次点击两个点</div>
+      <div class="scene-tools"><label><input id="showMap" type="checkbox" checked />PCD地图</label><label><input id="showLive" type="checkbox" />实时点云（按需传输）</label><label><input id="showTopo" type="checkbox" checked />拓扑</label><label><input id="showVertexYaw" type="checkbox" />点位 Yaw</label><label><input id="showPreview" type="checkbox" checked />打点预览</label><label><input id="showTrack" type="checkbox" />轨迹</label><button id="followRobot" class="icon" title="跟随机器人中心（快捷键 F）" aria-pressed="false">跟随机器人</button><button id="fitView" class="icon">适配视图</button></div>
+      <div id="hint" class="hint">滚轮以鼠标位置为中心持续缩放；左键点击点/边会高亮</div>
+      <div class="topology-legend"><b>拓扑图例</b><span><i class="vertex-normal"></i>普通点</span><span><i class="vertex-corner"></i>拐点</span><span><i class="vertex-slope"></i>坡点</span><span><i class="vertex-junction"></i>交汇点</span><span><i class="vertex-yaw"></i>Yaw 朝向</span><span><i class="edge-mode-0"></i>边 0 停障</span><span><i class="edge-mode-1"></i>边 1 绕障</span><span><i class="edge-mode-2"></i>边 2 PID 不停障</span><span><i class="edge-mode-3"></i>边 3 兼容</span><span><i class="edge-mode-4"></i>边 4 栅格交接</span></div>
+      <div id="selectionSummary" class="selection-summary" hidden></div>
       <div class="telemetry"><div><span>位置 X</span><b id="poseX">--</b></div><div><span>位置 Y</span><b id="poseY">--</b></div><div><span>航向</span><b id="poseYaw">--</b></div><div><span>控制器</span><b id="controller">none</b></div><div><span>速度</span><b id="velocity">0.00</b></div></div>
     </section>
 
@@ -123,7 +145,7 @@
         <label>方向<select name="dir"><option value="0">双向</option><option value="1">A → B</option><option value="2">B → A</option></select></label>
         <label>控制器<select name="controllerMode"><option value="auto">自动</option><option value="pid">PID</option><option value="local_planner">Local Planner</option><option value="efficient_3d_local_planner">Efficient 3D</option></select></label>
         <div class="two"><label>线速度 m/s<input name="linearSpeedMps" type="number" step="any" min="0" /></label><label>角速度 rad/s<input name="angularSpeedRadps" type="number" step="any" min="0" /></label></div>
-        <label>障碍模式<select name="obstacleMode"><option value="0">0 · PID 三维扫掠停障（控制器服从边属性）</option><option value="1" selected>1 · Efficient 3D 整边主动绕障（默认）</option><option value="2">2 · 强制 PID，关闭普通点云停障</option><option value="3">3 · 兼容忽略普通障碍，控制器服从边属性</option><option value="4">4 · 外部栅格控制交接（必须填写 gridMapName）</option></select></label>
+        <label>障碍模式<select name="obstacleMode"><option value="0" selected>0 · PID 三维扫掠停障（M20 当前默认）</option><option value="1">1 · Efficient 3D 整边主动绕障</option><option value="2">2 · 强制 PID，关闭普通点云停障</option><option value="3">3 · 兼容忽略普通障碍，控制器服从边属性</option><option value="4">4 · 外部栅格控制交接（必须填写 gridMapName）</option></select></label>
         <div class="two"><label>车身高度补偿 m<input name="heightOffsetM" type="number" step="any" /></label><label>headingAngleRad<input name="headingAngleRad" type="number" step="any" /></label></div>
         <label>gridMapName<input name="gridMapName" type="text" /></label>
         <div class="two"><label>障碍框前<input name="box0" type="number" step="any" /></label><label>障碍框后<input name="box1" type="number" step="any" /></label></div>

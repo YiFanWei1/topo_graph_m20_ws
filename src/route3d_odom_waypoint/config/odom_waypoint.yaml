@@ -1,0 +1,57 @@
+route3d_odom_waypoint:
+  ros__parameters:
+    odom_topic: /lio_odom
+    output_file: topoGraph_odom.json
+    # 留空表示采用第一条消息中的坐标系，并拒绝会话中途改变坐标系。
+    expected_frame: ""
+    expected_child_frame: ""
+    auto_start: true
+    snapshot_interval_s: 1.0
+
+    target_spacing: 1.0
+    dedup_distance: 0.05
+    body_height: 0.57
+    relocation_distance: 2.0
+    retrace_enabled: true
+    # 无点云验证，仅依据位置、高度、方向和连续匹配距离建立全局闭环。
+    geometric_loop_closure_enabled: true
+    # 新生成的边默认使用 PID 三维扫掠停障；需要主动绕障时改为 1。
+    obstacle_mode: 0
+
+    loop_closure:
+      # 当前轨迹到历史边的 XY 距离不超过此值，才成为闭环候选。
+      # 数值越大越容易连接，但平行近路和相邻通道误连风险也越大。
+      corridor_xy_tolerance: 0.40
+      # 已经进入闭环跟踪后，XY 距离超过此值才认为离开历史路线。
+      # 必须大于或等于 corridor_xy_tolerance，形成进入/退出迟滞。
+      corridor_exit_xy_tolerance: 0.55
+      # 当前轨迹与历史边允许的最大高度差，用于避免连接不同楼层。
+      z_tolerance: 0.20
+      # 当前运动方向与历史边方向允许的最大夹角；正走和反走都可匹配。
+      heading_tolerance_degrees: 90.0
+      # 连续沿历史边匹配达到此距离后，才正式创建闭环连接。
+      confirmation_distance: 0.3
+      # 偏离历史边后连续达到此距离，才确认退出闭环跟踪状态。
+      exit_confirmation_distance: 0.80
+      # 候选历史边与当前顶点的图上距离至少达到此值，防止连接相邻普通边。
+      minimum_graph_separation: 3.00
+      # 历史参考姿态与当前姿态至少间隔此时间，避免匹配刚刚经过的数据。
+      minimum_time_separation: 5.00
+      # 闭环落点距已有顶点不超过此值时直接吸附，否则切分历史边生成新顶点。
+      vertex_snap_distance: 0.45
+      # 一次闭环候选被拒绝后，至少再行驶此距离才重新进行全局搜索。
+      rejection_cooldown_distance: 1.00
+
+    corner_xy_radius: 0.50
+    corner_yaw_degrees: 45.0
+    corner_min_duration: 0.50
+    corner_max_z_range: 0.10
+    corner_merge_distance: 0.35
+
+    slope_enabled: true
+    slope.fit_radius: 2.0
+    slope.grade_threshold: 0.12
+    slope.minimum_core_length: 2.0
+    slope.minimum_height_change: 0.20
+    slope.maximum_core_gap: 1.0
+    slope.buffer_distance: 2.0

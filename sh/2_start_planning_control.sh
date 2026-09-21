@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly DEFAULT_GRAPH="${WORKSPACE}/data/full_2_stop/topoGraph_data.json"
+readonly DEFAULT_GRAPH="${WORKSPACE}/data/xijian2/topoGraph_data.json"
 readonly GRAPH_FILE="${1:-${DEFAULT_GRAPH}}"
 readonly ENABLE_MOTION="${2:-true}"
 # readonly ENABLE_MOTION="${2:-false}"
@@ -27,9 +27,11 @@ set -u
 echo "启动规控："
 echo "  graph=${GRAPH_FILE}"
 echo "  enable_motion=${ENABLE_MOTION}"
+echo "  start_m20_bridge=${ENABLE_MOTION}（false 时不接管底盘，保留遥控器控制）"
 echo "  launch_rviz=${LAUNCH_RVIZ}"
 exec ros2 launch route3d_m20_adapter m20_pid_route.launch.xml \
   graph_file:="${GRAPH_FILE}" \
   enable_motion:="${ENABLE_MOTION}" \
+  start_m20_bridge:="${ENABLE_MOTION}" \
   use_sim_time:=false \
   launch_rviz:="${LAUNCH_RVIZ}"

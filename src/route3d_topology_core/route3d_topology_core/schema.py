@@ -76,7 +76,7 @@ def apply_topology_schema(document: Dict[str, Any]) -> Dict[str, Any]:
         meta.setdefault("linearSpeedMps", 1.0)
         meta.setdefault("angularSpeedRadps", 0.0)
         meta.setdefault("heightOffsetM", 0.0)
-        # New M20 edges use Efficient 3D avoidance by default.
+        # New M20 edges use PID swept-volume stopping by default.
         meta.setdefault("obstacleMode", 0)
         meta.setdefault("travelMode", travel_mode_from_direction(direction))
         meta.setdefault("headingAngleRad", 0.0)

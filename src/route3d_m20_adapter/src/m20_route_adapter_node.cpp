@@ -68,6 +68,7 @@ public:
   : Node("route3d_m20_adapter")
   {
     enable_motion_ = declare_parameter<bool>("enable_motion", false);
+    release_output_when_idle_ = declare_parameter<bool>("release_output_when_idle", true);
     const double rate = declare_parameter<double>("control_rate_hz", 50.0);
     command_timeout_s_ = declare_parameter<double>("command_timeout_s", 0.30);
     state_timeout_s_ = declare_parameter<double>("state_timeout_s", 1.0);
@@ -76,9 +77,9 @@ public:
     normal_wz_ = declare_parameter<double>("limits.normal.maximum_wz_radps", 0.50);
     alignment_vx_ = declare_parameter<double>("limits.alignment.maximum_vx_mps", 0.20);
     alignment_vy_ = declare_parameter<double>("limits.alignment.maximum_vy_mps", 0.30);
-    alignment_wz_ = declare_parameter<double>("limits.alignment.maximum_wz_radps", 0.50);
+    alignment_wz_ = declare_parameter<double>("limits.alignment.maximum_wz_radps", 0.70);
     minimum_linear_speed_ = declare_parameter<double>("limits.minimum_linear_speed_mps", 0.20);
-    minimum_yaw_speed_ = declare_parameter<double>("limits.minimum_yaw_speed_radps", 0.25);
+    minimum_yaw_speed_ = declare_parameter<double>("limits.minimum_yaw_speed_radps", 0.32);
 
     if (rate <= 0.0 || command_timeout_s_ <= 0.0 || state_timeout_s_ <= 0.0 ||
       minimum_linear_speed_ < 0.0 || minimum_yaw_speed_ < 0.0 ||
@@ -169,6 +170,7 @@ private:
     std::string block_reason;
     bool alignment = false;
     bool ready = false;
+    bool output_released = false;
     int motion_state = -1;
     double command_age = -1.0;
     double state_age = -1.0;
@@ -198,6 +200,10 @@ private:
 
       if (!enable_motion_) {
         block_reason = "motion_disabled";
+        output_released = true;
+      } else if (release_output_when_idle_ && (source.empty() || source == "none")) {
+        block_reason = "remote_control_released";
+        output_released = true;
       } else if (!ready || ready_stamp_.nanoseconds() == 0) {
         block_reason = "m20_not_ready";
       } else if (motion_state != 17 || state_age < 0.0 || state_age > state_timeout_s_) {
@@ -218,7 +224,12 @@ private:
     }
 
     selected_publisher_->publish(selected);
-    output_publisher_->publish(selected);
+    // /cmd_vel_smoothed 是底盘 bridge 的输入。Route3D 空闲时如果仍以 50 Hz
+    // 连续发布零速度，会覆盖实体遥控器；只有导航任务接管控制器后才发布。
+    // 导航过程中未 ready、通信超时和安全停障仍会持续发布零速度。
+    if (!output_released) {
+      output_publisher_->publish(selected);
+    }
     std_msgs::msg::String status;
     status.data = nlohmann::json{
       {"enable_motion", enable_motion_}, {"m20_ready", ready},
@@ -226,6 +237,7 @@ private:
       {"active_controller", source}, {"alignment_active", alignment},
       {"command_age_s", command_age}, {"blocked", !block_reason.empty()},
       {"block_reason", block_reason},
+      {"output_released", output_released},
       {"selected", {{"vx", selected.linear.x}, {"vy", selected.linear.y},
           {"wz", selected.angular.z}}}}.dump();
     status_publisher_->publish(status);
@@ -233,6 +245,7 @@ private:
 
   std::mutex mutex_;
   bool enable_motion_{false};
+  bool release_output_when_idle_{true};
   bool m20_ready_{false};
   bool alignment_active_{false};
   int motion_state_{-1};
@@ -240,12 +253,12 @@ private:
   double state_timeout_s_{1.0};
   double normal_vx_{0.80};
   double minimum_linear_speed_{0.20};
-  double minimum_yaw_speed_{0.25};
+  double minimum_yaw_speed_{0.32};
   double normal_vy_{0.0};
   double normal_wz_{0.50};
   double alignment_vx_{0.20};
   double alignment_vy_{0.30};
-  double alignment_wz_{0.50};
+  double alignment_wz_{0.70};
   std::string active_source_{"none"};
   geometry_msgs::msg::Twist pid_command_;
   geometry_msgs::msg::Twist efficient_command_;

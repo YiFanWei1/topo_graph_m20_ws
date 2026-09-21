@@ -46,6 +46,12 @@ route3d_web_console:
     topics.adapter_status: "/route3d_m20_adapter/status"
     topics.selected_command: "/route3d_m20_adapter/selected_command"
 
+    # 网页遥测限频只影响浏览器显示，不降低 ROS 内部定位、规划和停障频率。
+    # 后端始终保存最新 /lio_odom_hf；网络或浏览器繁忙时丢弃旧帧，禁止回放过期位置。
+    telemetry.pose_maximum_rate_hz: 30.0
+    telemetry.velocity_maximum_rate_hz: 10.0
+    telemetry.status_maximum_rate_hz: 10.0
+
     services.pause: "/route3d_pid_controller/pause"
     services.resume: "/route3d_pid_controller/resume"
     services.cancel: "/route3d_pid_controller/cancel"
@@ -77,9 +83,12 @@ route3d_web_console:
 
     process.ros_setup: "/opt/ros/jazzy/setup.bash"
     process.workspace_setup: "/home/langyi/workspace/wyf/topo_graph_m20_ws/install/setup.bash"
-    # 实机为 Robosense；使用现场已经验证的 run_mapping_nodes_2.sh。
-    process.mapping_command: "cd /opt/mapping_ws && ./run_mapping_nodes_2.sh mode:=mapping config:=robosense_glio"
+    # 实机为 Robosense；建图使用 /opt/mapping_ws 的原版启动脚本。
+    # 网页只能从下面的白名单选择配置，默认 LIO 不依赖 GNSS/RTK。
+    process.mapping_command: "cd /opt/mapping_ws && ./run_mapping_nodes.sh mode:=mapping config:={mapping_config}"
     process.mapping_setup: "/opt/mapping_ws/install/setup.bash"
+    mapping.default_config: "robosense_lio"
+    mapping.allowed_configs: ["robosense_lio", "robosense_glio"]
     # 保存地图默认生成 <地图名>-0.1.pcd，并自动建立 <地图名>.pcd 软链接供网页加载。
     mapping.save_resolution_tag: "0.1"
     # 雷达由系统服务统一管理，避免网页再启动第二套驱动进入不同 ROS domain。
@@ -104,5 +113,9 @@ route3d_web_console:
     # The original 0.05 s approximate-sync window retained only one frame in the failed run.
     topology.record_sync_slop_s: 0.15
     topology.record_results_root: "/home/langyi/workspace/wyf/topo_graph_m20_ws/data"
+    # 网页会扫描 resources.pcd_root/<地图名>/map/slam_data/trajectory/pose.json，
+    # 并按这份参数生成 resources.topology_root/<地图名>/topoGraph_data.json。
+    topology.generation_config_file: "/home/langyi/workspace/wyf/topo_graph_m20_ws/src/route3d_odom_waypoint/config/odom_waypoint.yaml"
+    topology.generation_frame_id: "camera_init"
     process.ros_domain_id: 10
     process.stop_timeout_s: 5.0

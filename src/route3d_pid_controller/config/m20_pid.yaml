@@ -37,27 +37,37 @@ route3d_pid_controller:
     # A cloud without a sufficiently close pose is rejected instead of being
     # checked against the robot's newer pose during rotation.
     obstacle.cloud_pose_sync_tolerance_s: 0.15
+
+    # ==================== 三维停障多帧确认 ====================
+    # 只按新的 cloud_registered_body 帧计数，不按 50 Hz 控制循环重复计数。
+    # 连续检测到障碍 2 帧后才进入停障，可滤除拐角处偶发的单帧误识别。
+    obstacle.swept.confirmation.enter_frames: 2
+    # 已停障后连续检测为空 3 帧才判定障碍消失；之后仍执行 safety.clear_hold_s。
+    obstacle.swept.confirmation.exit_frames: 3
+    # 两项都必须大于等于 1；设为 1 可恢复单帧立即进入或退出的行为。
+
+    # ==================== 机身自点过滤范围 ====================
+    # 下面参数只删除 cloud_registered_body 中机器人自身的点，不是前方停障范围。
     # M20 机身实体尺寸：长 0.82 m、宽 0.43 m、高 0.57 m。
-    # body_half_* 是机身半尺寸，仅用于过滤落在机器人自身范围内的点云。
-    # 半长 0.41 m，对应机身总长 0.82 m。
+    # X 过滤范围：-0.41～+0.41 m。本次 bag 的自点在 +0.417～+0.495 m，刚好漏出。
     obstacle.swept.body_half_length_m: 0.41
-    # 半宽 0.215 m，对应机身总宽 0.43 m。
+    # Y 过滤范围：-0.215～+0.215 m。
     obstacle.swept.body_half_width_m: 0.215
-    # 机身自点过滤的垂直范围：-0.285～+0.285 m，总高 0.57 m。
+    # Z 过滤范围：-0.285～+0.285 m。
     obstacle.swept.body_min_z_m: -0.285
     obstacle.swept.body_max_z_m: 0.285
 
-    # 三维路径扫掠停障检测体尺寸：长 0.92 m、宽 0.50 m、高 0.57 m。
-    # detection_half_length_m 是前后半长；0.46 x 2 = 总长 0.92 m。
+    # ==================== 路线停障检测范围 ====================
+    # 下面参数定义沿三维路径移动的单个检测框，不用于过滤机身自点。
+    # X 前后半长为 0.30 m，因此单框实际总长为 0.60 m。
     obstacle.swept.detection_half_length_m: 0.3
-    # 停障宽度在这里设置。该值是左右半宽；0.25 x 2 = 总宽 0.50 m。
-    # 如需调整总宽度，应将目标总宽度除以 2 后填写到此参数。
+    # Y 左右半宽为 0.20 m，因此单框实际总宽为 0.40 m；总宽 0.50 m 时应设 0.25。
     obstacle.swept.detection_half_width_m: 0.2
 
-    # obstacleMode=0 时沿三维路径中心线向前检测的距离，当前为 1.0 m。
-    # 该参数只改变向前扫掠距离，不改变上面的检测体尺寸。
+    # obstacleMode=0 时，检测框沿三维路径向前扫掠的最大距离为 1.0 m。
+    # 该参数只改变向前检查距离，不改变上面单个检测框的长、宽、高。
     obstacle.swept.maximum_path_distance_m: 1.0
-    # 停障检测体的垂直范围：-0.285～+0.285 m，总高 0.57 m。
+    # 单个检测框相对路径中心的 Z 范围：-0.10～+0.285 m。
     obstacle.swept.detection_min_z_m: -0.1
     obstacle.swept.detection_max_z_m: 0.285
     # 路径地面高度向机器人中心高度补偿 0.57 m。
@@ -121,7 +131,7 @@ route3d_pid_controller:
     adjustment.entry_distance_m: 0.30
     adjustment.maximum_vx_mps: 0.20
     adjustment.maximum_vy_mps: 0.30
-    adjustment.maximum_wz_radps: 0.50
+    adjustment.maximum_wz_radps: 0.70
 
     # Final PID arrival requires planar error <= 10 cm and yaw error <= 5 deg.
     # PID and efficient local planning use independent handover/arrival gates.
@@ -153,7 +163,7 @@ route3d_pid_controller:
     limits.maximum_vy_mps: 0.0
     limits.maximum_wz_radps: 0.50
     limits.minimum_linear_speed_mps: 0.20
-    limits.minimum_yaw_speed_radps: 0.25
+    limits.minimum_yaw_speed_radps: 0.32
     limits.maximum_linear_acceleration_mps2: 0.50
     limits.maximum_yaw_acceleration_radps2: 1.20
 
@@ -192,4 +202,4 @@ route3d_pid_controller:
     adjustment.pid.yaw.kp: 2.00
     adjustment.pid.yaw.ki: 0.00
     adjustment.pid.yaw.kd: 0.05
-    adjustment.pid.yaw.output_limit: 0.50
+    adjustment.pid.yaw.output_limit: 0.70

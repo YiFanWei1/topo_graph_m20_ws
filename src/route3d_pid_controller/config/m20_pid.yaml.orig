@@ -1,0 +1,197 @@
+route3d_pid_controller:
+  ros__parameters:
+    use_sim_time: false
+
+    # A newly sliced route starts automatically. The downstream adapter still
+    # blocks every velocity until this executor selects exactly one controller.
+    execution.auto_start: true
+    execution.control_rate_hz: 50.0
+
+    topics.tasks: /route3d_route_slicer/tasks
+    topics.odometry: /lio_odom_hf
+    # Localization publishes these points already expressed in base_link.
+    topics.obstacle_cloud: /cloud_registered_body
+    topics.external_safety_stop: /route3d_pid_controller/external_safety_stop
+    topics.collision_level: /collision_level
+    topics.command: /cmd_vel_pid
+    topics.efficient_path: /route3d_controller/efficient_path
+    topics.active_controller: /route3d_controller/active_source
+    topics.alignment_active: /route3d_pid_controller/alignment_active
+
+    safety.odometry_timeout_s: 0.30
+    # Keep the robot stopped until every safety condition has remained clear
+    # continuously for this long. This prevents obstacle-cloud flicker from
+    # repeatedly releasing and reacquiring controller output.
+    safety.clear_hold_s: 1.0
+    # Ordinary path-obstacle stops hold zero velocity without changing any
+    # M20 operating state. Emergency and sensor-failure gates remain active.
+    safety.obstacle_stop_uses_stop_move: false
+    # Modes 2/3 suppress ordinary obstacles, but collision level >=100 stops.
+    safety.emergency_collision_level_threshold: 100
+
+    # The M20 swept-volume checker consumes the same synchronized cloud.
+    obstacle.enabled: true
+    obstacle.stop_on_cloud_timeout: true
+    obstacle.cloud_timeout_s: 0.50
+    # Match each body-frame cloud to interpolated odometry at its own stamp.
+    # A cloud without a sufficiently close pose is rejected instead of being
+    # checked against the robot's newer pose during rotation.
+    obstacle.cloud_pose_sync_tolerance_s: 0.15
+
+    # ==================== 机身自点过滤范围 ====================
+    # 下面参数只删除 cloud_registered_body 中机器人自身的点，不是前方停障范围。
+    # M20 机身实体尺寸：长 0.82 m、宽 0.43 m、高 0.57 m。
+    # X 过滤范围：-0.41～+0.41 m。本次 bag 的自点在 +0.417～+0.495 m，刚好漏出。
+    obstacle.swept.body_half_length_m: 0.41
+    # Y 过滤范围：-0.215～+0.215 m。
+    obstacle.swept.body_half_width_m: 0.215
+    # Z 过滤范围：-0.285～+0.285 m。
+    obstacle.swept.body_min_z_m: -0.285
+    obstacle.swept.body_max_z_m: 0.285
+
+    # ==================== 路线停障检测范围 ====================
+    # 下面参数定义沿三维路径移动的单个检测框，不用于过滤机身自点。
+    # X 前后半长为 0.30 m，因此单框实际总长为 0.60 m。
+    obstacle.swept.detection_half_length_m: 0.3
+    # Y 左右半宽为 0.20 m，因此单框实际总宽为 0.40 m；总宽 0.50 m 时应设 0.25。
+    obstacle.swept.detection_half_width_m: 0.2
+
+    # obstacleMode=0 时，检测框沿三维路径向前扫掠的最大距离为 1.0 m。
+    # 该参数只改变向前检查距离，不改变上面单个检测框的长、宽、高。
+    obstacle.swept.maximum_path_distance_m: 1.0
+    # 单个检测框相对路径中心的 Z 范围：-0.10～+0.285 m。
+    obstacle.swept.detection_min_z_m: -0.1
+    obstacle.swept.detection_max_z_m: 0.285
+    # 路径地面高度向机器人中心高度补偿 0.57 m。
+    obstacle.swept.path_center_height_m: 0.57
+    # 排除路径/台阶表面及其上方 0.10 m 内的点，避免楼梯表面误触发停障。
+    obstacle.swept.surface_exclusion_height_m: 0.10
+    obstacle.swept.step_surface_max_deviation_m: 0.45
+    obstacle.swept.step_surface_support_radius_m: 0.18
+    obstacle.swept.step_surface_height_tolerance_m: 0.025
+    obstacle.swept.step_surface_min_planar_spread_m: 0.02
+    obstacle.swept.step_surface_min_support_points: 3
+    obstacle.swept.log_jsonl_path: /tmp/route3d_m20_swept_volume.jsonl
+    obstacle.elevation.resolution_m: 0.10
+    obstacle.elevation.width_m: 4.0
+    obstacle.elevation.default_ground_height_m: -0.57
+    obstacle.elevation.minimum_obstacle_height_m: -0.6
+    obstacle.elevation.maximum_obstacle_height_m: 0.8
+    # Reference test: stdev * 20 > 2.5, i.e. stdev > 0.125 m.
+    obstacle.elevation.roughness_threshold_m: 0.125
+    obstacle.elevation.body_exclusion.min_x: -0.41
+    obstacle.elevation.body_exclusion.max_x: 0.41
+    obstacle.elevation.body_exclusion.min_y: -0.215
+    obstacle.elevation.body_exclusion.max_y: 0.215
+    # 下面的 footprint 用于轨迹采样和调试显示，必须与上面的检测体保持一致。
+    # X：-0.46～+0.46 m，总长 0.92 m。
+    obstacle.trajectory.footprint.min_x: -0.46
+    obstacle.trajectory.footprint.max_x: 0.46
+    # Y：-0.25～+0.25 m，总宽 0.50 m；修改停障宽度时需同步修改这两项。
+    obstacle.trajectory.footprint.min_y: -0.25
+    obstacle.trajectory.footprint.max_y: 0.25
+    obstacle.trajectory.footprint.samples_x: 5
+    obstacle.trajectory.footprint.samples_y: 5
+    obstacle.trajectory.footprint.lateral_inset_m: 0.13
+    # When PID intentionally stops translation to rotate in place, shorten only
+    # the footprint at the current robot pose (0.30 m -> 0.10 m). Route-ahead
+    # collision footprints keep the full normal range.
+    obstacle.rotation.footprint_forward_scale: 0.3333333333333333
+    # Reference obstacleMode=0 path check: check_collision(15, 0.4).
+    obstacle.trajectory.maximum_samples: 15
+    obstacle.trajectory.spacing_m: 0.40
+    # Reference obstacleMode=1 checks: near collision stops and replans; a far
+    # collision requests background replanning while the current path continues.
+    obstacle.trajectory.replan_near.maximum_samples: 25
+    obstacle.trajectory.replan_near.spacing_m: 0.25
+    obstacle.trajectory.replan_far.maximum_samples: 60
+    obstacle.trajectory.replan_far.spacing_m: 0.20
+    obstacle.elevation.base_collision_hold_cycles: 20
+
+    # Use a shorter lookahead near corners and during final approach.
+    # conservative default and additionally clamps lookahead at hard corners.
+    tracking.lookahead_distance_m: 0.60
+    tracking.goal_yaw_tolerance_rad: 0.12
+    tracking.corner_slowdown_distance_m: 0.70
+    tracking.corner_speed_mps: 0.20
+    tracking.braking_deceleration_mps2: 0.50
+    tracking.full_speed_yaw_error_rad: 0.17
+    tracking.stop_translation_yaw_error_rad: 1.05
+    tracking.projection_backtrack_m: 0.10
+    # M20 terminal ADJUSTMENT phase: enter at 0.30 m, retain vx/vy/wz,
+    # and use low-speed limits while converging to the final pose.
+    adjustment.entry_distance_m: 0.30
+    adjustment.maximum_vx_mps: 0.20
+    adjustment.maximum_vy_mps: 0.30
+    adjustment.maximum_wz_radps: 0.50
+
+    # Final PID arrival requires planar error <= 10 cm and yaw error <= 5 deg.
+    # PID and efficient local planning use independent handover/arrival gates.
+    # Efficient uses planar distance because topology Z is a ground height while
+    # the slope planner follows a path lifted to the robot body centre.
+    completion.pid.position_tolerance_m: 0.10
+    completion.pid.yaw_tolerance_rad: 0.08726646259971647  # 5 deg
+    completion.efficient.position_tolerance_m: 0.20
+    completion.efficient.yaw_tolerance_rad: 0.7853981633974483  # 45 deg
+    completion.efficient.use_planar_distance: true
+
+    # Runtime profile manager for efficient_3d_local_planner.  The PID supervisor
+    # selects ONLY from RouteTask.contains_slope; corner status does not change
+    # this profile.  A new efficient path is published only after all three
+    # target nodes acknowledge the same profile revision.
+    efficient_profile.enabled: true
+    efficient_profile.normal.path_height: 0.57
+    efficient_profile.normal.extension_enabled: true
+    efficient_profile.normal.soft_radius: 0.60
+    efficient_profile.slope.path_height: 0.57
+    efficient_profile.slope.extension_enabled: false
+    efficient_profile.slope.soft_radius: 0.20
+    efficient_profile.planner_node: /corridor_astar_planner
+    efficient_profile.mapper_node: /local_voxel_mapper
+    efficient_profile.extension_node: /obstacle_occlusion_extension
+
+    # M20 normal route limits. Alignment has a separate low-speed controller.
+    limits.maximum_vx_mps: 0.80
+    limits.maximum_vy_mps: 0.0
+    limits.maximum_wz_radps: 0.50
+    limits.minimum_linear_speed_mps: 0.20
+    limits.minimum_yaw_speed_radps: 0.25
+    limits.maximum_linear_acceleration_mps2: 0.50
+    limits.maximum_yaw_acceleration_radps2: 1.20
+
+    pid.longitudinal.kp: 1.20
+    pid.longitudinal.ki: 0.00
+    pid.longitudinal.kd: 0.05
+    pid.longitudinal.integral_limit: 0.20
+    pid.longitudinal.output_limit: 0.80
+    pid.longitudinal.integral_separation: 1.30
+    pid.longitudinal.derivative_filter_tau: 0.04
+
+    pid.lateral.kp: 1.50
+    pid.lateral.ki: 0.00
+    pid.lateral.kd: 0.04
+    pid.lateral.integral_limit: 0.20
+    pid.lateral.output_limit: 0.4
+    pid.lateral.integral_separation: 1.30
+    pid.lateral.derivative_filter_tau: 0.04
+
+    pid.yaw.kp: 2.00
+    pid.yaw.ki: 0.00
+    pid.yaw.kd: 0.05
+    pid.yaw.integral_limit: 0.20
+    pid.yaw.output_limit: 0.80
+    pid.yaw.integral_separation: 1.30
+    pid.yaw.derivative_filter_tau: 0.04
+
+    adjustment.pid.longitudinal.kp: 1.20
+    adjustment.pid.longitudinal.ki: 0.00
+    adjustment.pid.longitudinal.kd: 0.05
+    adjustment.pid.longitudinal.output_limit: 0.20
+    adjustment.pid.lateral.kp: 1.50
+    adjustment.pid.lateral.ki: 0.00
+    adjustment.pid.lateral.kd: 0.04
+    adjustment.pid.lateral.output_limit: 0.30
+    adjustment.pid.yaw.kp: 2.00
+    adjustment.pid.yaw.ki: 0.00
+    adjustment.pid.yaw.kd: 0.05
+    adjustment.pid.yaw.output_limit: 0.50
